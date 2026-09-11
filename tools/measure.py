@@ -860,6 +860,21 @@ def _rate(part, whole):
     return round(part / whole, 4) if whole else None
 
 
+def cell(part: dict) -> str:
+    """한 칸을 문자열로. **0/0 을 찍지 않는다.**
+
+    분모가 0이면 "인용 0건"이 아니라 "안 쟀다"이다. 같은 칸에 적으면 둘을 구별할 수 없고,
+    한번 0으로 보고된 값은 사실로 굳는다 (ops/measure.md 「측정 범위 표기 규약」).
+    """
+    if part.get("runs"):
+        return "%d/%d" % (part["cited"], part["runs"])
+    if part.get("unmeasured"):
+        return "미측정(%d)" % part["unmeasured"]
+    if part.get("errors"):
+        return "오류(%d)" % part["errors"]
+    return "—"
+
+
 def aggregate(rows: list, queries: list, host: str, base: str, since=None, until=None,
               cumulative=True) -> dict:
     qindex = {q["id"]: q for q in queries}
@@ -1133,8 +1148,8 @@ def render_measure_md(summary: dict) -> str:
             "| 엔진 | 브랜드 인용 | 비브랜드 인용 | 브랜드 언급(전체) |", "|---|---|---|---|"]
     for item in summary["engines"]:
         brand, non = item["brand"], item["nonbrand"]
-        out.append("| %s | %d/%d | %d/%d | %d/%d |" % (
-            item["label"], brand["cited"], brand["runs"], non["cited"], non["runs"],
+        out.append("| %s | %s | %s | %d/%d |" % (
+            item["label"], cell(brand), cell(non),
             brand["mentioned"] + non["mentioned"], brand["runs"] + non["runs"]))
     out += ["", "비브랜드 질의는 신규 수요 도달을 보는 핵심 지표다. 브랜드 질의만 개선됐다면 "
                 "현재 표본에서는 **브랜드를 이미 아는 수요에 성과가 치우쳤을 가능성**을 먼저 점검한다.", ""]
@@ -1146,11 +1161,10 @@ def render_measure_md(summary: dict) -> str:
         for c in summary["cohorts"]:
             attempts = c["brand"]["attempts"] + c["nonbrand"]["attempts"]
             errors = c["brand"]["errors"] + c["nonbrand"]["errors"]
-            out.append("| %s | %s / %s / %s | %d/%d | %d/%d | %d/%d |" % (
+            out.append("| %s | %s / %s / %s | %s | %s | %d/%d |" % (
                 c["label"], c["locale"] or "미기록", c["login_state"],
                 "on" if c["search_enabled"] is True else "off" if c["search_enabled"] is False else "미기록",
-                c["brand"]["cited"], c["brand"]["runs"],
-                c["nonbrand"]["cited"], c["nonbrand"]["runs"], errors, attempts))
+                cell(c["brand"]), cell(c["nonbrand"]), errors, attempts))
         out += ["", "웹 UI 결과와 API 모델 결과는 같은 ChatGPT 이름이어도 별도 cohort다.", ""]
 
     ours = summary["urls"]["ours"]
@@ -1169,8 +1183,8 @@ def render_measure_md(summary: dict) -> str:
     out += ["## 질의별", "", "| 질의 | 유형 | 인용 | 뽑힌 URL |", "|---|---|---|---|"]
     for q in summary["by_query"]:
         urls = " / ".join("%s (%d)" % (u["url"], u["count"]) for u in q["urls"][:3]) or "—"
-        out.append("| `%s` %s | %s | %d/%d | %s |"
-                   % (q["id"], q["text"], TYPE_LABEL[q["type"]], q["cited"], q["runs"], urls))
+        out.append("| `%s` %s | %s | %s | %s |"
+                   % (q["id"], q["text"], TYPE_LABEL[q["type"]], cell(q), urls))
     out += ["", "URL 칸이 비어 있으면 **이 회차에서 인용 URL이 관측되지 않았거나 기록되지 않은 것**이다. "
                 "같은 URL이 반복 관측되면 해당 페이지를 우선 인용 자산 후보로 점검한다.", ""]
 
@@ -1211,9 +1225,7 @@ def print_report(summary: dict) -> None:
         print(" %-22s %-12s %-12s" % ("엔진", "브랜드", "비브랜드"))
         for item in summary["engines"]:
             print(" %-22s %-12s %-12s" % (
-                item["label"],
-                "%d/%d" % (item["brand"]["cited"], item["brand"]["runs"]),
-                "%d/%d" % (item["nonbrand"]["cited"], item["nonbrand"]["runs"])))
+                item["label"], cell(item["brand"]), cell(item["nonbrand"])))
 
 
 def cmd_report(args) -> int:

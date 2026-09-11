@@ -113,7 +113,7 @@ python tools/seo_geo.py drift compare out/example.com/audit.json
 | `generate` | `deploy/`, `DEPLOY.md` | 검토 가능한 배포 초안. 배포 완료 증거는 아님 |
 | `verify deploy` | `verify.json`, `VERIFY.md` | 배포 뒤 라이브 응답 검사. `1`은 검증된 실패, `2`는 불완전 또는 잘못된 범위 |
 | `measure` | 수동 폼, `log.jsonl`, `summary.json`, `MEASURE.md` | 고정 cohort의 반복 인용 관측. API와 웹 UI는 별도 표면 |
-| `measure_kr.py` | 콘솔 집계, `--json` | **네이버·다음 자동 측정** — 자연노출 + AI브리핑/AI요약 발동·인용 출처. `--repeat`로 반복, 축소 응답은 0으로 세지 않고 중단 |
+| `collect.py` | `measure/log.jsonl` 행 | **표면 누락 없는 수집.** 네이버·다음·구글 AI개요는 무인, `--browser`는 로그인 필요한 엔진을 `unmeasured`로 예약하고 무엇에 로그인할지 출력, `--record`로 브라우저 측정 결과를 같은 로그에 되받음, `--coverage`는 빈칸을 찍는다. 축소 응답은 0이 아니라 `unmeasured` |
 | `drift` | 불변 `history/`, `drift.json`, `DRIFT.md` | 스냅샷 비교와 다음 점검일. `next_due`는 예약을 만들지 않음 |
 
 플러그인 메타데이터 버전은 **2.0.0**입니다. `main`의 신뢰성·실행 흐름 변경은 [CHANGELOG의 Unreleased](CHANGELOG.md)에 기록합니다. 이는 공개 GitHub 릴리스나 버전 변경을 뜻하지 않습니다.
@@ -136,7 +136,7 @@ python tools/seo_geo.py drift compare out/example.com/audit.json
 - **측정 범위를 수치에 붙여 적습니다.** 전수(`0/7`)와 대표질문(`0건`)과 미측정을 구분하며, 전수로 재지 않은 것을 전수처럼 적지 않습니다.
 - **`0`은 도구가 만들었을 수 있습니다.** 반복 요청을 몰아치면 검색엔진이 축소 응답을 줍니다. 응답 건전성 게이트를 통과하지 못하면 0으로 기록하지 않고 측정 실패로 남깁니다.
 - 로그인이 필요한 엔진(ChatGPT·Gemini·Claude)은 각 서비스의 **임시·시크릿 모드**로 잽니다. 계정 프로필에서 유래한 서술은 웹 인용이 아니므로 집계에서 제외합니다.
-- 네이버와 다음/카카오는 일급 레인이며, 두 엔진의 인용 측정은 `tools/measure_kr.py`로 자동화되어 있습니다. 등록, 외부 평판, 운영 배포에는 사람의 판단과 접근 권한이 필요합니다.
+- 네이버(NEO)와 다음·카카오(KEO)는 **각각 독립 레인**입니다 — 크롤러 토큰도, 소유확인 방식도, AI 요약을 만드는 모델도 다릅니다. 두 엔진의 인용 측정은 `tools/collect.py`로 자동화되어 있습니다. 등록, 외부 평판, 운영 배포에는 사람의 판단과 접근 권한이 필요합니다.
 - 기본 크롤 한도는 300페이지입니다. 수집 범위가 불완전하면 교체용 사이트맵을 만들지 않습니다.
 
 로컬 테스트는 다음 명령으로 실행합니다.

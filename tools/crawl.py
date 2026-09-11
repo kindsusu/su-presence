@@ -46,9 +46,11 @@ TRAINING_UAS = ["GPTBot", "ClaudeBot", "Google-Extended"]
 SEARCH_UAS = ["OAI-SearchBot", "Claude-SearchBot", "PerplexityBot", "Googlebot", "Bingbot"]
 USER_FETCH_UAS = ["ChatGPT-User", "Claude-User", "Perplexity-User"]
 AI_UAS = TRAINING_UAS + SEARCH_UAS + USER_FETCH_UAS
-# NEO 레인 — 한국 검색 크롤러.
-NEO_UAS = ["Yeti", "Daumoa"]
-ALL_UAS = AI_UAS + NEO_UAS
+# NEO 레인 — 네이버 검색 크롤러.
+NEO_UAS = ["Yeti"]
+# KEO 레인 — 다음·카카오 검색 크롤러. 다음은 UA 토큰이 둘이고 **둘 다 허용해야** 한다.
+KEO_UAS = ["Daumoa", "DAUM"]
+ALL_UAS = AI_UAS + NEO_UAS + KEO_UAS
 
 ASSET_EXT = (
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".svg", ".ico", ".bmp",
@@ -467,6 +469,48 @@ def alt_host_of(host: str):
     return "www.%s" % host
 
 
+# 흔한 개발·스테이징 접두. 미러가 색인되면 본진 대신 그쪽이 인용된다.
+MIRROR_PREFIXES = ("dev", "staging", "stage", "test", "beta", "preview", "new", "old")
+
+
+def probe_mirrors(host: str) -> dict:
+    """공개된 개발·스테이징 미러를 찾는다. 존재만 확인하고 크롤하지 않는다.
+
+    본 도메인만 훑어서는 절대 보이지 않는 표면이다 — 실측에서 생성엔진이 우리 개발서버를
+    "회사 홈페이지"라며 인용한 일이 있었고, 크롤 쪽은 그 호스트를 볼 일이 없어 놓쳤다.
+    """
+    bare = host[4:] if host.startswith("www.") else host
+    bare = bare.split(":")[0]
+    if (not bare) or bare == "localhost" or bare.startswith("[") or "." not in bare:
+        return {"checked": [], "found": [], "wildcard_suspect": False}
+    if all(c.isdigit() or c == "." for c in bare):
+        return {"checked": [], "found": [], "wildcard_suspect": False}
+
+    checked, found = [], []
+    for prefix in MIRROR_PREFIXES:
+        cand = "%s.%s" % (prefix, bare)
+        if cand == host:
+            continue
+        checked.append(cand)
+        res = fetch("https://%s/" % cand)
+        if res["error"] in ("dns_fail", "tls_fail") or not res["status"]:
+            continue
+        if res["status"] >= 400:
+            continue
+        # 본진으로 넘기는 미러는 위험하지 않다 — 외부 리다이렉트로 걸러진다
+        if res["error"] == "external_redirect_blocked":
+            continue
+        rb = fetch("https://%s/robots.txt" % cand)
+        raw = (rb.get("body") or "") if rb["status"] == 200 else ""
+        blocked = robots_policy(raw, "Googlebot").endswith("block") if raw else False
+        found.append({"host": cand, "status": res["status"],
+                      "final_url": res["final_url"], "robots_blocks_all": blocked})
+    # 와일드카드 DNS면 아무 접두나 응답한다. 전부 떴다면 발견이 아니라 설정이다.
+    wildcard = len(found) >= max(4, len(checked) - 1)
+    return {"checked": checked, "found": [] if wildcard else found,
+            "wildcard_suspect": wildcard}
+
+
 def script_of(text: str) -> str:
     """길이 기준을 정할 문자 종류: 한글 비중이 높으면 ko."""
     if not text:
@@ -671,6 +715,7 @@ def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap
             "probe_404": probe["status"],
             "redirect_hops": home["redirects"],
             "home_response_ms": home["ms"],
+            "mirrors": probe_mirrors(host),
             "alt_host": {
                 "host": alt_host,
                 "result": alt_result,
@@ -1030,9 +1075,32 @@ def _check_site(findings, base, site, ok):
             "www↔apex 변형 주소 %s에 접속되지 않는다 (%s) — 그쪽으로 온 사용자·크롤러를 잃는다."
             % (alt["host"], alt["result"]), ["https://%s/" % alt["host"]], alt)
 
+    mirrors = hygiene.get("mirrors") or {}
+    for m in mirrors.get("found") or []:
+        if m["robots_blocks_all"]:
+            add(findings, "SEO", "warn", "MIRROR_PRESENT",
+                "개발·스테이징 미러 %s 가 공개돼 있다 (HTTP %s). robots로 막혀 있지만 "
+                "링크·인용으로는 새어 나간다 — 인증이나 IP 제한으로 닫아라."
+                % (m["host"], m["status"]), ["https://%s/" % m["host"]], m)
+        else:
+            add(findings, "SEO", "critical", "MIRROR_PUBLIC",
+                "개발·스테이징 미러 %s 가 공개·색인 가능 상태다 (HTTP %s) — 본진 대신 "
+                "이쪽이 인용되면 우리 회사 설명이 개발서버로 굳는다."
+                % (m["host"], m["status"]), ["https://%s/" % m["host"]], m)
+    if mirrors.get("wildcard_suspect"):
+        add(findings, "SEO", "info", "MIRROR_WILDCARD_DNS",
+            "하위 도메인이 무엇이든 응답한다 — 와일드카드 DNS로 보인다. "
+            "미러 판정을 신뢰할 수 없으니 DNS 설정을 사람이 확인하라.", [],
+            {"checked": mirrors.get("checked") or []})
+
     if not any(p["naver_site_verification"] for p in ok):
         add(findings, "NEO", "warn", "NAVER_VERIFY_MISSING",
             "naver-site-verification 메타가 없다 — 서치어드바이저 미연결 가능성.", [], {})
+
+    # 다음 웹마스터도구는 네이버와 달리 메타 태그를 쓰지 않는다(URL+PIN·robots 주석).
+    # 크롤로는 "등록됨"도 "미등록"도 증명할 수 없다 — 없는 것을 finding 으로 만들면
+    # "관측 안 됨"을 "문제 있음"으로 바꿔 적는 셈이다. 사람 확인 항목으로 남긴다
+    # (ops/coverage.md · KEO 다음 웹마스터도구).
 
 
 def _check_crawler_policy(findings, site):
@@ -1067,11 +1135,23 @@ def _check_crawler_policy(findings, site):
     neo_blocked = [ua for ua in NEO_UAS if policies.get(ua, "none").endswith("block")]
     if neo_blocked:
         add(findings, "NEO", "critical", "NAVER_CRAWLER_BLOCKED",
-            "국내 검색 크롤러가 차단돼 있다 (%s) — NEO 레인 전체가 닫힌다."
+            "네이버 검색 크롤러가 차단돼 있다 (%s) — NEO 레인 전체가 닫힌다."
             % ", ".join(neo_blocked), [], {"blocked": neo_blocked})
 
+    keo_blocked = [ua for ua in KEO_UAS if policies.get(ua, "none").endswith("block")]
+    if keo_blocked:
+        add(findings, "KEO", "critical", "DAUM_CRAWLER_BLOCKED",
+            "다음 검색 크롤러가 차단돼 있다 (%s) — KEO 레인 전체가 닫힌다."
+            % ", ".join(keo_blocked), [], {"blocked": keo_blocked})
+    keo_undeclared = [ua for ua in KEO_UAS if policies.get(ua) == "none"]
+    if keo_undeclared and not keo_blocked:
+        add(findings, "KEO", "info", "DAUM_CRAWLER_UNDECLARED",
+            "다음 크롤러 UA(%s)가 robots.txt에 명시돼 있지 않다 — 기본 허용이지만 "
+            "Daumoa 와 DAUM 은 별개 토큰이라 한쪽만 적으면 다른 쪽이 샌다."
+            % ", ".join(keo_undeclared), [], {"undeclared": keo_undeclared})
 
-LANES = ["SEO", "AEO", "GEO", "LLMO", "NEO", "reputation"]
+
+LANES = ["SEO", "AEO", "GEO", "LLMO", "NEO", "KEO", "reputation"]
 
 
 def scorecard(findings) -> dict:
@@ -1168,7 +1248,7 @@ def print_summary(report: dict) -> None:
     print("")
     print("── 5. 레인 점수표 ──")
     for lane in LANES:
-        cell = report["scorecard"][lane]
+        cell = report["scorecard"].get(lane) or {"status": "na", "evidence": []}
         codes = [f["code"] for f in report["findings"]
                  if f["lane"] == lane and f["severity"] != "info"]
         print("   %-11s %s  %s" % (lane, STATUS_MARK[cell["status"]],

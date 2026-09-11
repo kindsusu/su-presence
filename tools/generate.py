@@ -55,7 +55,9 @@ UA_GROUPS = [
     ("Anthropic", ["ClaudeBot", "Claude-SearchBot", "Claude-User"]),
     ("Perplexity", ["PerplexityBot", "Perplexity-User"]),
     ("Google (Gemini 그라운딩·학습 스위치 — UA가 아니라 robots 토큰)", ["Google-Extended"]),
-    ("네이버·다음 (NEO 레인)", ["Yeti", "Daumoa"]),
+    ("네이버 (NEO 레인)", ["Yeti"]),
+    # 다음은 UA 토큰이 둘이다. Daumoa 만 적으면 DAUM 으로 오는 요청이 규칙 밖에 남는다.
+    ("다음·카카오 (KEO 레인)", ["Daumoa", "DAUM"]),
 ]
 
 TITLE_SEPS = ["|", "—", "–", "-", "·", ":"]

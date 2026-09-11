@@ -22,6 +22,20 @@ CODE()  { curl -sL -o /dev/null -w '%{http_code}' --max-time 15 -A "$UA" -- "$1"
 COUNT() { grep -oi "$1" | wc -l | tr -d ' '; }
 NCHAR() { wc -m | tr -d ' '; }
 
+# 태그만 지우면 inline <script>/<style> 본문이 '본문 텍스트'로 잡힌다.
+# 그러면 CSR 셸이 텍스트 풍부한 페이지로 보여, CSR 탐지기가 CSR을 통과시킨다.
+VISIBLE() {
+  perl -0777 -pe 's{<script\b.*?</script>}{ }gis; s{<style\b.*?</style>}{ }gis; s{<!--.*?-->}{ }gs' 2>/dev/null \
+    | sed 's/<[^>]*>/ /g' | tr -s ' \n' ' '
+}
+
+# 속성 순서·따옴표 종류에 의존하지 않는 추출 (stdin: HTML)
+#   $1 = 태그 매칭 정규식, $2 = 뽑을 속성명
+ATTR() {
+  tr '\n' ' ' | sed 's/>/>\n/g' | grep -iE "$1" | head -1 \
+    | grep -oiE "$2=(\"[^\"]*\"|'[^']*')" | head -1 | sed -E 's/^[^=]*=.//; s/.$//'
+}
+
 # robots.txt에서 특정 UA의 실효 정책 판정. stdin=robots.txt, $1=UA
 # 출력: explicit-allow|explicit-block|explicit-partial|star-allow|star-block|star-partial|none
 # Python 크롤러와 같은 파서를 사용해 Shell/Python 판정 차이를 막는다.
@@ -59,9 +73,9 @@ H1=$(printf '%s' "$HTML" | COUNT '<h1')
 OG=$(printf '%s' "$HTML" | COUNT 'og:')
 LD=$(printf '%s' "$HTML" | grep -oiF 'application/ld+json' | wc -l | tr -d ' ')
 TITLE=$(printf '%s' "$HTML" | grep -oiE '<title[^>]*>[^<]*' | head -1 | sed 's/<[^>]*>//')
-DESC=$(printf '%s' "$HTML" | grep -oiE 'name="description"[^>]*content="[^"]*' | head -1 | sed 's/.*content="//')
-CANON=$(printf '%s' "$HTML" | grep -oiE 'rel="canonical"[^>]*' | head -1 | cut -c1-70)
-TEXT=$(printf '%s' "$HTML" | sed 's/<[^>]*>//g' | tr -s ' \n' ' ' | NCHAR)
+DESC=$(printf '%s' "$HTML" | ATTR '<meta[^>]*name=.?description' 'content')
+CANON=$(printf '%s' "$HTML" | ATTR '<link[^>]*rel=.?canonical' 'href')
+TEXT=$(printf '%s' "$HTML" | VISIBLE | NCHAR)
 NAVER_V=$(printf '%s' "$HTML" | grep -oi 'naver-site-verification' | head -1)
 
 echo "   h1 태그        : ${H1}개"
@@ -70,7 +84,8 @@ echo "   meta desc      : $(printf '%s' "$DESC" | NCHAR)자  (권장 한글 70~8
 echo "   og: 태그       : ${OG}개"
 echo "   JSON-LD        : ${LD}개"
 echo "   canonical      : ${CANON:-(없음)}"
-echo "   본문 텍스트량  : 약 ${TEXT}자   ← 적으면 CSR 의심 (SSR 확인 필요)"
+echo "   본문 텍스트량  : 약 ${TEXT}자   (script/style 제외한 실제 텍스트)"
+[ "${TEXT:-0}" -lt 500 ] && echo "   └ 500자 미만 — CSR 셸 가능성. 크롤러는 빈 페이지로 본다"
 echo "   네이버 소유확인: $([ -n "$NAVER_V" ] && echo '✅ naver-site-verification 있음' || echo '없음 (서치어드바이저 미연결 가능성)')"
 
 echo ""
@@ -121,7 +136,7 @@ echo ""
 echo "── 3. GEO: AI 크롤러 정책 (robots.txt 실효 판정) ──"
 for ua in GPTBot OAI-SearchBot ChatGPT-User Googlebot Bingbot \
           ClaudeBot Claude-SearchBot Claude-User \
-          PerplexityBot Perplexity-User Google-Extended Yeti; do
+          PerplexityBot Perplexity-User Google-Extended Yeti DAUM Daumoa; do
   V=$(printf '%s' "$RB" | POLICY "$ua")
   case "$V" in
     explicit-allow)   STATE="✅ 명시 허용" ;;

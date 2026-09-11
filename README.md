@@ -113,6 +113,7 @@ save it as `-filled.csv`, or pass the actual saved filename to `import`.
 | `generate` | `deploy/`, `DEPLOY.md` | Reviewable deployment drafts, never a completed deployment |
 | `verify deploy` | `verify.json`, `VERIFY.md` | Live-response checks after deployment; exit `1` is a verified failure and `2` is incomplete or invalid scope |
 | `measure` | manual form, `log.jsonl`, `summary.json`, `MEASURE.md` | Repeated citation observations for a fixed cohort; API and web UI are separate surfaces |
+| `measure_kr.py` | console tally, `--json` | **Naver + Daum automated measurement** — organic visibility plus AI Briefing / AI Summary firing and cited sources. `--repeat` for repetition; a truncated response aborts instead of recording a zero |
 | `drift` | immutable `history/`, `drift.json`, `DRIFT.md` | Compared snapshots and a due date; `next_due` does not schedule work |
 
 The plugin metadata version is **2.0.0**. Reliability and workflow changes on `main` are documented under [Unreleased in the changelog](CHANGELOG.md); this does not imply a published GitHub release or a version bump.
@@ -122,6 +123,7 @@ The plugin metadata version is **2.0.0**. Reliability and workflow changes on `m
 - [Full tool guide](tools/README.md) — commands, schemas, exit codes, and generated files
 - [Operating procedure](SKILL.md) — choosing a lane and using the skill from an installed location
 - [Evidence boundaries](ops/evidence.md) — what a crawler audit can and cannot prove
+- [Per-engine measurement recipes](ops/measure-playbook.md) — how to actually reach each engine, and the traps
 - [Documentation index](docs/README.md)
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
@@ -131,7 +133,10 @@ The plugin metadata version is **2.0.0**. Reliability and workflow changes on `m
 - Python 3.10+ standard library only; `tools/audit.sh` additionally needs bash and curl.
 - The audit reads raw HTTP HTML. It does not prove JavaScript rendering, vendor index state, rankings, or citations.
 - Citation is observed through a fixed, repeated query cohort. It is never guaranteed by technical readiness; errors and unmeasured rows are kept separate from non-citations.
-- Naver and Daum/Kakao are first-class lanes. Registration, third-party reputation, and production deployment still require human decisions and access.
+- **Measurement coverage is written next to the number.** Full sweep (`0/7`), representative query (`0 hits`) and not-measured are distinct; a partial sweep is never written as a full one.
+- **A `0` may be your own tooling.** Bursts of repeated requests make search engines return truncated pages. A response that fails the sanity gate is recorded as a failed measurement, not as zero.
+- Engines that require sign-in (ChatGPT, Gemini, Claude) are measured in each service's **temporary / incognito mode**. Anything the model drew from the account profile is not a web citation and is excluded from the tally.
+- Naver and Daum/Kakao are first-class lanes. Registration, third-party reputation, and production deployment still require human decisions and access, and citation measurement for both is automated in `tools/measure_kr.py`.
 - The bounded crawl defaults to 300 pages. If coverage is incomplete, the generator will not produce a replacement sitemap.
 
 Run the local test suite with:

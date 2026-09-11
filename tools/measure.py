@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""su-multi-geo M4 — AI 인용 측정. "고쳤다"가 아니라 "몇 회 중 몇 번 인용됐다"를 남긴다.
+"""su-presence M4 — AI 인용 측정. "고쳤다"가 아니라 "몇 회 중 몇 번 인용됐다"를 남긴다.
 
 사용:
     python tools/measure.py init   out/<host>/audit.json
@@ -641,7 +641,7 @@ def render_form(host: str, date_str: str, queries: list, engines: list, runs: in
 <div class="wrap">
   <h1>AI 인용 측정 — %(host)s</h1>
   <p class="sub">측정일 %(date)s · 질의 %(nq)d개 × 엔진 %(ne)d개 × %(runs)d회 = %(total)d행 ·
-     su-multi-geo measure.py · 오프라인 파일이다(외부 연결 없음)</p>
+     su-presence measure.py · 오프라인 파일이다(외부 연결 없음)</p>
 
   <div class="card">
     <strong>측정 규칙 — 하나라도 어기면 숫자가 오염된다</strong>
@@ -1124,7 +1124,7 @@ def render_measure_md(summary: dict) -> str:
     host = summary["target"]["host"]
     win = summary["window"]
     out = ["# AI 인용 측정 — %s" % host, "",
-           "생성: %s · su-multi-geo measure.py"
+           "생성: %s · su-presence measure.py"
            % summary["generated_at"].replace("T", " "), ""]
 
     out += ["```"] + summary["headline"] + ["```", ""]

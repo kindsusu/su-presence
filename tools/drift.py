@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""su-multi-geo M5 — 기준선 스냅샷 + 드리프트 비교.
+"""su-presence M5 — 기준선 스냅샷 + 드리프트 비교.
 
 "언제 무엇을 다시 잰다"를 기억이 아니라 파일로 강제한다.
 
@@ -639,7 +639,7 @@ def _pct(rate):
 
 def render_drift_md(drift: dict) -> str:
     out = ["# 드리프트 — %s" % (drift["target"].get("host") or "?"), "",
-           "%s → %s (기준선 %s) · su-multi-geo drift.py"
+           "%s → %s (기준선 %s) · su-presence drift.py"
            % (drift["from"], drift["to"], drift.get("baseline")), ""]
 
     for warn in drift.get("warnings") or []:
@@ -831,7 +831,7 @@ def timeline_rows(outdir: str, index: dict) -> list:
 
 def render_timeline_md(host: str, index: dict, rows: list) -> str:
     out = ["# 추이 — %s" % host, "",
-           "기준선 %s · 다음 재측정 %s · su-multi-geo drift.py"
+           "기준선 %s · 다음 재측정 %s · su-presence drift.py"
            % (index.get("baseline_date") or "미지정", index.get("next_due") or "미정"), "",
            "| 날짜 | 페이지 | 중복 title | JSON-LD | noindex | 비브랜드 인용률 | 브랜드 인용률 | 메모 |",
            "|---|---|---|---|---|---|---|---|"]

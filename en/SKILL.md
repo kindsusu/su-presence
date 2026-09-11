@@ -1,9 +1,9 @@
 ---
-name: su-multi-geo
+name: su-presence
 description: Diagnose and improve website SEO and AI-search accessibility, generate deployment drafts, verify live changes, and measure citations across search engines.
 ---
 
-# su-multi-geo — audit, build, verify, measure
+# su-presence — audit, build, verify, measure
 
 Treat technical accessibility, search indexing, AI citations, traffic, and conversions as separate
 results. Never report a crawler score as proof of ranking or citation performance. The Korean

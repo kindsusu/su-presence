@@ -1,8 +1,8 @@
-# su-multi-GEO
+# su-presence
 
-![su-multi-GEO — five engines, one audit lens](assets/su-multi-geo.png)
+![su-presence — seven lanes, one audit lens](assets/su-presence.png)
 
-> multi-engine GEO, hand-tuned by **su** ([kindsusu](https://github.com/kindsusu))
+> Are we present in search and AI answers? SEO, AEO, GEO, LLMO, Naver and Daum as one surface. Hand-tuned by **su** ([kindsusu](https://github.com/kindsusu))
 
 <p align="center">
   <a href="README.md"><b>English</b></a> ·
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/kindsusu/su-multi-geo/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-multi-geo/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="version 2.0.0" src="https://img.shields.io/badge/version-2.0.0-0E6B5C">
   <img alt="stdlib only, zero dependencies" src="https://img.shields.io/badge/stdlib%20only-zero%20dependencies-1A2B28">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-0E6B5C">
@@ -27,8 +27,8 @@ Choose one installation path. The plugin is convenient for Claude Code; a clone 
 ### Install the plugin
 
 ```text
-/plugin marketplace add kindsusu/su-multi-geo
-/plugin install su-multi-geo@su-multi-geo
+/plugin marketplace add kindsusu/su-presence
+/plugin install su-presence@su-presence
 ```
 
 Run commands from the installed skill directory, not from the project being audited:
@@ -41,8 +41,8 @@ python <skill-root>/tools/seo_geo.py audit https://example.com --out <project>/o
 ### Clone and run locally
 
 ```bash
-git clone https://github.com/kindsusu/su-multi-geo.git
-cd su-multi-geo
+git clone https://github.com/kindsusu/su-presence.git
+cd su-presence
 python tools/seo_geo.py doctor
 python tools/seo_geo.py audit https://example.com --out out
 ```

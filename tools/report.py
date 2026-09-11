@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""su-multi-geo — audit.json을 독립 HTML 보고서로 만든다.
+"""su-presence — audit.json을 독립 HTML 보고서로 만든다.
 
 사용:
     python tools/report.py out/<host>/audit.json [--lang ko|en] [--out <경로>]
@@ -36,7 +36,7 @@ L = {
     "ko": {
         "eyebrow": "Phase 0 — 검색·AI 접근성 기술 진단",
         "doc_title": "%s 검색·AI 인용 진단",
-        "meta": "기준 시각 %s · 크롤 %d페이지 · su-multi-geo",
+        "meta": "기준 시각 %s · 크롤 %d페이지 · su-presence",
         "theme": "화면 밝기 전환",
         "prev": "이전", "next": "다음",
         "footer": "이 보고서의 모든 수치는 자바스크립트 없이 받은 HTML을 직접 측정한 값이다. "
@@ -91,7 +91,7 @@ L = {
     "en": {
         "eyebrow": "Phase 0 — search and AI accessibility audit",
         "doc_title": "%s search and AI-citation audit",
-        "meta": "As of %s · %d pages crawled · su-multi-geo",
+        "meta": "As of %s · %d pages crawled · su-presence",
         "theme": "Toggle theme",
         "prev": "Previous", "next": "Next",
         "footer": "Every number here was measured directly from HTML received without JavaScript. "

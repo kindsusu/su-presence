@@ -1,9 +1,9 @@
 ---
-name: su-multi-geo
+name: su-presence
 description: Diagnose and improve website SEO and AI-search accessibility, generate deployment drafts, verify live changes, and measure citations across search engines. Use for website SEO/GEO audits, crawler policy, structured data, and citation measurement.
 ---
 
-# su-multi-geo — 진단·구현·검증·측정
+# su-presence — 진단·구현·검증·측정
 
 기술 접근성, 검색 색인, AI 인용, 유입·전환을 **별도 결과**로 다룬다.
 크롤 점수를 인용 실적이나 순위 상승으로 보고하지 않는다. 기준은 [ops/evidence.md](ops/evidence.md).

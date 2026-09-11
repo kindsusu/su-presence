@@ -118,7 +118,7 @@ class TestEndToEnd(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.tmp = tempfile.mkdtemp(prefix="su-multi-geo-e2e-")
+        cls.tmp = tempfile.mkdtemp(prefix="su-presence-e2e-")
         cls.docroot = os.path.join(cls.tmp, "www")
         shutil.copytree(os.path.join(FIXTURES, "site"), cls.docroot)
         cls.outroot = os.path.join(cls.tmp, "out")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""su-multi-geo M2 — 진단 결과를 배포 가능한 산출물 초안으로 만든다.
+"""su-presence M2 — 진단 결과를 배포 가능한 산출물 초안으로 만든다.
 
 사용:
     python tools/generate.py all     out/<host>/audit.json [--site out/<host>/site.json]
@@ -351,7 +351,7 @@ def gen_robots(ctx: Ctx) -> None:
 
     lines = []
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    lines.append("# ── su-multi-geo: AI·검색 크롤러 명시 (%s 생성) ──" % stamp)
+    lines.append("# ── su-presence: AI·검색 크롤러 명시 (%s 생성) ──" % stamp)
     lines.append("# 위쪽 기존 규칙은 한 줄도 건드리지 않았다. 아래는 추가분이다.")
     for label, uas in UA_GROUPS:
         block = [ua for ua in uas if ua in add]
@@ -759,7 +759,7 @@ STACK_HINTS = [
 def gen_deploy(ctx: Ctx) -> None:
     n = ctx.notes
     out = ["# 배포 지시서 — %s" % ctx.host, "",
-           "생성: %s · su-multi-geo generate.py" % datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+           "생성: %s · su-presence generate.py" % datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
            "",
            "이 패키지의 모든 파일은 **초안**이다. 값은 진단 크롤(`audit.json`)에서 실측한 것과 "
            "`site.json`에 사람이 적어 준 사실뿐이며, 그 밖의 것은 지어내지 않고 "

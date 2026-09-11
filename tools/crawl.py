@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""su-multi-geo Phase 0 — 사이트 전수 진단 (크롤러의 눈).
+"""su-presence Phase 0 — 사이트 전수 진단 (크롤러의 눈).
 
 사용:
     python tools/crawl.py <도메인|URL> [--max-pages 300] [--delay 0.5] [--out out/]
@@ -1343,7 +1343,7 @@ def main(argv=None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-    ap = argparse.ArgumentParser(description="su-multi-geo 전수 진단")
+    ap = argparse.ArgumentParser(description="su-presence 전수 진단")
     ap.add_argument("target", help="도메인 또는 URL (예: example.com)")
     ap.add_argument("--max-pages", type=int, default=300)
     ap.add_argument("--delay", type=float, default=0.5)

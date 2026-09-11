@@ -1,8 +1,8 @@
-# su-multi-GEO
+# su-presence
 
-![su-multi-GEO — 다섯 엔진, 하나의 진단 렌즈](assets/su-multi-geo.png)
+![su-presence — 일곱 레인, 하나의 진단 렌즈](assets/su-presence.png)
 
-> 멀티 엔진 GEO — **su**(권수, [kindsusu](https://github.com/kindsusu))가 직접 다듬는 스킬
+> 검색·AI 답변에서 우리 자리가 있는가 — SEO·AEO·GEO·LLMO·네이버·다음을 한 표면으로. **su**(권수, [kindsusu](https://github.com/kindsusu))가 직접 다듬는 스킬
 
 <p align="center">
   <a href="README.md">English</a> ·
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/kindsusu/su-multi-geo/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-multi-geo/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="version 2.0.0" src="https://img.shields.io/badge/version-2.0.0-0E6B5C">
   <img alt="stdlib only, zero dependencies" src="https://img.shields.io/badge/stdlib%20only-zero%20dependencies-1A2B28">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-0E6B5C">
@@ -27,8 +27,8 @@
 ### 플러그인 설치
 
 ```text
-/plugin marketplace add kindsusu/su-multi-geo
-/plugin install su-multi-geo@su-multi-geo
+/plugin marketplace add kindsusu/su-presence
+/plugin install su-presence@su-presence
 ```
 
 설치한 스킬의 디렉터리에서 도구를 실행합니다. 진단 대상 프로젝트에 `tools/`가 있다고 가정하지 않습니다.
@@ -41,8 +41,8 @@ python <skill-root>/tools/seo_geo.py audit https://example.com --out <project>/o
 ### 클론 후 로컬 실행
 
 ```bash
-git clone https://github.com/kindsusu/su-multi-geo.git
-cd su-multi-geo
+git clone https://github.com/kindsusu/su-presence.git
+cd su-presence
 python tools/seo_geo.py doctor
 python tools/seo_geo.py audit https://example.com --out out
 ```

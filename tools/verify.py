@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""su-multi-geo M3 — 배포 후 검증. "고쳤다"를 크롤러의 눈으로 증명한다.
+"""su-presence M3 — 배포 후 검증. "고쳤다"를 크롤러의 눈으로 증명한다.
 
 사용:
     python tools/verify.py deploy out/<host>/audit.json [--deploy out/<host>/deploy]
@@ -921,7 +921,7 @@ def render_md(result: dict) -> str:
     target = result["target"]
     head = "배포 검증" if result["mode"] == "deploy" else "전/후 진단 비교"
     out = ["# %s — %s" % (head, target.get("host") or target.get("base") or "?"), "",
-           "생성: %s · su-multi-geo verify.py" % result["generated_at"].replace("T", " "),
+           "생성: %s · su-presence verify.py" % result["generated_at"].replace("T", " "),
            ""]
     s = result["summary"]
     out += ["| 결과 | 수 |", "|---|---|",

@@ -12,8 +12,8 @@ Python 3.10+ is required. The Python tools use the standard library; no `pip ins
 The optional shell inspector and its regression checks also require Bash and curl.
 
 ```bash
-git clone https://github.com/kindsusu/su-multi-geo.git
-cd su-multi-geo
+git clone https://github.com/kindsusu/su-presence.git
+cd su-presence
 python tools/seo_geo.py doctor
 python -m unittest discover tests -q
 bash tools/test_audit.sh

@@ -34,6 +34,6 @@
 부분 크롤의 거짓 완료, 사이트맵 URL 누락 위험, 중복 robots 헤더 손실, API 오류를 분모에
 넣는 문제, 다른 측정 조건의 비교를 수정했다. 최종 기능 검증은 Python 277개·셸 15개이며,
 원격 CI에서도 Windows·macOS·Linux × Python 3.10·3.12·3.13이 통과했다.
-[main CI 실행 기록](https://github.com/kindsusu/su-multi-geo/actions/runs/33977798978).
+[main CI 실행 기록](https://github.com/kindsusu/su-presence/actions/runs/33977798978).
 
 기술 검증 통과와 실제 검색 성과 개선을 분리해 보고한다.

@@ -1,7 +1,7 @@
 # SEO/GEO 신뢰성 개선 결과
 
 작업일: 2026-09-05. 기준 커밋: `f7f97af1e98fa7abe7a53112e0c31999ddfd37ff`.
-구현 커밋: [`009122d`](https://github.com/kindsusu/su-multi-geo/commit/009122d5f4bc3362f22a33249a1d8d90d871c69c).
+구현 커밋: [`009122d`](https://github.com/kindsusu/su-presence/commit/009122d5f4bc3362f22a33249a1d8d90d871c69c).
 2026-09-06 (한국 시간) `main` 반영 완료. 운영 사이트 배포는 수행하지 않았다.
 
 기존 진단·초안 생성·배포 검증·측정 도구의 연결을 유지하면서, 누락이나 관측 실패를 성공으로
@@ -37,7 +37,7 @@
 
 로컬 실행 환경은 Windows / Python 3.12.3이다. 반영 후 원격 CI에서도 Windows·macOS·Linux ×
 Python 3.10·3.12·3.13의 9개 작업이 모두 통과했다.
-[main CI 실행 기록](https://github.com/kindsusu/su-multi-geo/actions/runs/33977798978).
+[main CI 실행 기록](https://github.com/kindsusu/su-presence/actions/runs/33977798978).
 
 ## 실행
 

@@ -1,9 +1,9 @@
 {
-  "name": "su-multi-geo",
+  "name": "su-presence",
   "description": "Multi-engine GEO — audits and implements SEO·AEO·GEO·LLMO·NEO(Naver) with separate lanes for ChatGPT, Gemini, Claude, and Perplexity. Crawler-eye audit, corrected crawler policy, engine-specific measurement.",
   "version": "2.0.0",
   "author": { "name": "kindsusu" },
-  "homepage": "https://github.com/kindsusu/su-multi-geo",
+  "homepage": "https://github.com/kindsusu/su-presence",
   "license": "PolyForm-Noncommercial-1.0.0",
   "keywords": ["seo", "aeo", "geo", "llmo", "naver", "llms-txt", "ai-search", "gemini", "chatgpt", "claude"]
 }

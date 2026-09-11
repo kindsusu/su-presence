@@ -71,7 +71,7 @@ BROWSER_ENGINES = {
     "claude":     ("Claude",     "https://claude.ai/new",
                    "시크릿 모드 — 우상단 유령 아이콘 (프로필 유래 서술은 집계 제외)"),
     "perplexity": ("Perplexity", "https://www.perplexity.ai/",
-                   "비로그인도 가능 — 스레드 URL은 공개라 캡처까지 된다"),
+                   "로그인 필요 (2026-09 확인) — 비로그인은 '가입한 뒤 다시'로 막힌다. 스레드 URL은 공개라 캡처는 된다"),
 }
 
 

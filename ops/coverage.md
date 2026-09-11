@@ -21,7 +21,7 @@
 | **AEO** | 구글 AI 개요 발동·인용 | `collect.py` | 무인 | — |
 | AEO | Bing Copilot | `measure.py` 폼 | 로그인 | 브라우저 |
 | **GEO** | ChatGPT | `collect.py` → 브라우저 | **로그인** | 로그인만 |
-| GEO | Perplexity | `collect.py` → 브라우저 | 비로그인 가능 | — |
+| GEO | Perplexity | `collect.py` → 브라우저 | **로그인** | 로그인만 |
 | GEO | Gemini | `collect.py` → 브라우저 | **로그인** | 로그인만 |
 | GEO | Claude | `collect.py` → 브라우저 | **로그인** | 로그인만 |
 | **LLMO** | 엔티티 일관성 (상호·번호·주소) | `audit.sh` + 수기 | 반자동 | 채널 목록 제공 |

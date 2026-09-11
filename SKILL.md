@@ -52,7 +52,8 @@ JS 렌더링·WAF·검색엔진 색인은 별도 증거가 필요하다. 초안/
 | 답변에 적합한 콘텐츠 | [lanes/aeo.md](lanes/aeo.md) |
 | 엔진별 인용 접근성 | [lanes/geo.md](lanes/geo.md) |
 | 검색을 끈 모델 지식 관측 | [lanes/llmo.md](lanes/llmo.md) |
-| 네이버·다음 시장 | [lanes/naver.md](lanes/naver.md) |
+| 네이버 검색·AI 브리핑 (NEO) | [lanes/naver.md](lanes/naver.md) |
+| 다음·카카오 검색·AI 요약 (KEO) | [lanes/daum.md](lanes/daum.md) |
 | 제3자 정보·평판 | [lanes/reputation.md](lanes/reputation.md) |
 
 공식 설명·조건·가격·사례의 사실과 출처·기준일을 확정한다. 고객 판단에 유용한 고유 근거를 보강한다.
@@ -82,6 +83,34 @@ CSS 숨김과 의미적 사실성은 필요한 경우 브라우저와 원자료�
 
 [ops/measure.md](ops/measure.md)에 따라 질의·엔진·표면·언어/지역·로그인/검색 상태·회차를 고정한다.
 
+**어느 표면을 안 쟀는지 먼저 확인한다.** 빈칸을 모른 채 낸 보고는 "인용 0"과 "안 봤음"을
+같은 칸에 적는다. 레인 × 표면 전체 목록은 [ops/coverage.md](ops/coverage.md)가 정본이다.
+
+```bash
+python <skill-root>/tools/seo_geo.py collect <audit.json> --coverage
+```
+
+수집은 접근 방식으로 셋으로 갈린다. **"로그인 필요"는 "수동"이 아니다** — 사람은 로그인만 하고
+질의·판정·출처 추출은 에이전트가 한다.
+
+| 접근 | 표면 | 명령 |
+|---|---|---|
+| 무인 | 네이버 · 다음 · 구글 AI개요 | `collect <audit.json> --runs 10` |
+| 브라우저 경유 | ChatGPT · Gemini · Claude · Perplexity | `collect <audit.json> --browser` 로 자리 예약 → 브라우저로 측정 → `--record` 로 되받기 |
+| 수동 | GSC · 서치어드바이저 색인 수 | 계정 화면을 사람이 본다 |
+
+```bash
+python <skill-root>/tools/seo_geo.py collect <audit.json> --runs 10 --pause 5
+python <skill-root>/tools/seo_geo.py collect <audit.json> --browser
+python <skill-root>/tools/seo_geo.py collect <audit.json> --record chatgpt --query B1 --cited https://example.com/page --brand yes --search on
+```
+
+`--browser`는 막힌 엔진을 `unmeasured`로 예약하고 **무엇에 로그인해야 하는지 출력한다.**
+자격증명은 도구에 넣지 않는다. 측정 결과는 `--record`로 같은 log.jsonl에 `observed`로 돌아오고,
+`measure report`가 그대로 집계한다. 엔진별 중립 모드(임시채팅·시크릿)와 접근 함정은
+[ops/measure-playbook.md](ops/measure-playbook.md)에 있다.
+
+
 ```bash
 python <skill-root>/tools/seo_geo.py measure init <audit.json>
 python <skill-root>/tools/seo_geo.py measure form <audit.json> --engines chatgpt,google_aio --runs 5
@@ -93,6 +122,10 @@ python <skill-root>/tools/seo_geo.py drift snapshot <audit.json> --measure <summ
 질의는 실제 고객 질문에서 고른다. 수동 결과는 직접 관측한 것만 입력한다. API와 제품 웹 UI는 다른 표면이다.
 키가 없으면 수동 폼을 사용한다. 유료 실행은 예상 호출 수를 알리고 승인된 범위에서만 한다.
 키는 환경변수에 두고 로그에 기록하지 않는다.
+
+**못 잰 것을 0으로 적지 않는다.** 로그의 `outcome`이 `observed`/`unmeasured`/`error`를 구분하고
+집계는 `observed`만 분모에 넣는다. 표에는 `0/0` 대신 `미측정(n)`이 찍힌다 — 한번 0으로 보고된
+값은 사실로 굳기 때문이다. 반복 요청으로 축소 응답을 받으면 건전성 게이트가 `unmeasured`로 남긴다.
 
 기본 report는 최신 측정일 결과다. `--cumulative`는 누적 탐색용이며 배포 전후 비교에 섞지 않는다.
 API 실패를 미인용으로 세지 않는다. 질문/표면/회차 구성이 달라지면 직접 비교를 보류한다.

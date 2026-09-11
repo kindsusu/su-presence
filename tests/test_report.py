@@ -87,8 +87,9 @@ class TestRender(unittest.TestCase):
             for n in range(1, 9):
                 self.assertIn('<section id="p%d">' % n, html)
 
-    def test_six_chips_one_per_lane(self):
-        self.assertEqual(self.ko.count('class="chip '), 6)
+    def test_one_chip_per_lane(self):
+        # 레인이 늘면 이 숫자도 같이 는다. 고정 6은 KEO 를 세면서 깨졌다.
+        self.assertEqual(self.ko.count('class="chip '), len(report.LANES))
         for lane in report.LANES:
             self.assertIn('<span class="lane">%s</span>' % lane, self.ko)
 

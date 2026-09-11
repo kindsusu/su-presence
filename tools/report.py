@@ -26,7 +26,7 @@ ROOT = os.path.dirname(HERE)
 TEMPLATE = os.path.join(ROOT, "templates", "report.html")
 GLOSSARY = os.path.join(ROOT, "templates", "glossary.json")
 
-LANES = ["SEO", "AEO", "GEO", "LLMO", "NEO", "reputation"]
+LANES = ["SEO", "AEO", "GEO", "LLMO", "NEO", "KEO", "reputation"]
 SEV_ORDER = {"critical": 0, "warn": 1, "info": 2}
 
 
@@ -83,7 +83,8 @@ L = {
             "AEO": "인용 층. 검색결과 상단 답변 박스에 우리 문장이 뽑혀 나가는가.",
             "GEO": "인용 층. ChatGPT·Gemini·Claude·Perplexity가 답을 만들 때 우리를 근거로 쓰는가.",
             "LLMO": "각인 층. 검색을 거치지 않아도 모델이 우리를 하나의 대상으로 아는가.",
-            "NEO": "인용 층(국내). 네이버·다음 색인과 AI 브리핑 출처에 우리가 있는가.",
+            "NEO": "인용 층(네이버). 네이버 색인과 AI 브리핑 출처에 우리가 있는가.",
+            "KEO": "인용 층(다음·카카오). 다음 웹검색과 AI 요약 출처에 우리가 있는가. 네이버와 크롤러·소유확인·등록 절차가 모두 달라 따로 본다.",
             "reputation": "각인 층. 제3자가 우리를 어떻게 설명하는가. 사이트 밖이라 크롤로는 잴 수 없다 — 사람이 점검한다.",
         },
     },
@@ -137,7 +138,8 @@ L = {
             "AEO": "Citation layer. Does our sentence get pulled into the answer box?",
             "GEO": "Citation layer. Do ChatGPT, Gemini, Claude and Perplexity use us as evidence?",
             "LLMO": "Recall layer. Does the model know us as one entity without searching?",
-            "NEO": "Citation layer, Korea. Are we in Naver/Daum's index and AI Briefing sources?",
+            "NEO": "Citation layer, Naver. Are we in Naver's index and AI Briefing sources?",
+            "KEO": "Citation layer, Daum/Kakao. Are we in Daum web search and AI summary sources? Different crawlers, ownership proof and registration than Naver, so it is tracked separately.",
             "reputation": "Recall layer. How third parties describe us. Outside the site, so a crawl cannot measure it — a human checks.",
         },
     },
@@ -172,19 +174,28 @@ MSG_EN = {
     "SOFT_404": "A missing address returns HTTP {status} instead of 404 — soft 404s burn crawl budget.",
     "REDIRECT_HOPS": "The home page takes {hops} redirect hops — cut it to one.",
     "ALT_HOST_UNREACHABLE": "The www/apex variant {host} is unreachable ({result}) — visitors and crawlers arriving there are lost.",
+    "MIRROR_PUBLIC": "A staging mirror at {host} is publicly indexable (HTTP {status}) — if it gets cited instead of production, our description hardens around a dev server.",
+    "MIRROR_PRESENT": "A staging mirror at {host} is reachable (HTTP {status}). robots blocks it, but links and citations still leak — close it with auth or an IP allowlist.",
+    "MIRROR_WILDCARD_DNS": "Every subdomain answers — this looks like wildcard DNS, so mirror detection cannot be trusted. Have a human check the DNS config.",
     "NAVER_VERIFY_MISSING": "No naver-site-verification meta — Search Advisor may not be connected.",
     "AI_CRAWLER_BLOCKED": "Search or retrieval bots are restricted — review the affected engine's access policy.",
     "AI_CRAWLER_PARTIAL": "AI crawlers are partially restricted — read the rules directly.",
     "AI_CRAWLER_UNDECLARED": "AI crawlers are not declared in robots.txt — allowed by default, but left to chance.",
-    "NAVER_CRAWLER_BLOCKED": "Korean search crawlers are blocked — the whole NEO lane is shut.",
+    "NAVER_CRAWLER_BLOCKED": "Naver's search crawler is blocked — the whole NEO lane is shut.",
+    "DAUM_CRAWLER_BLOCKED": "Daum's search crawler is blocked — the whole KEO lane is shut.",
+    "DAUM_CRAWLER_UNDECLARED": "Daum crawler UAs are not declared in robots.txt — Daumoa and DAUM are separate tokens, so naming only one leaves the other to chance.",
 }
 
 # 권고 로드맵 규칙: code -> (순서, 국문 조치, 영문 조치, 서버 접근 필요)
 ROADMAP = {
+    "MIRROR_PUBLIC": (0, "개발·스테이징 미러를 인증·IP 제한으로 닫는다. 색인된 적이 있으면 제거 요청까지 한다.",
+                      "Close the staging mirror with auth or an IP allowlist; request removal if it was ever indexed.", True),
     "NOINDEX": (1, "색인하려는 페이지인지 확인하고, 의도하지 않은 noindex만 수정한다.",
                 "Confirm indexing intent; remove only unintended noindex directives.", True),
-    "NAVER_CRAWLER_BLOCKED": (2, "robots.txt에서 Yeti·Daumoa 차단을 푼다.",
-                              "Unblock Yeti and Daumoa in robots.txt.", True),
+    "NAVER_CRAWLER_BLOCKED": (2, "robots.txt에서 Yeti 차단을 푼다.",
+                              "Unblock Yeti in robots.txt.", True),
+    "DAUM_CRAWLER_BLOCKED": (2, "robots.txt에서 Daumoa·DAUM 차단을 푼다 — 둘은 별개 토큰이다.",
+                             "Unblock both Daumoa and DAUM in robots.txt — they are separate tokens.", True),
     "AI_CRAWLER_BLOCKED": (3, "목표 엔진의 검색·열람 정책을 확인한다. 학습 허용 여부는 별도로 결정한다.",
                            "Review search/retrieval access for target engines separately from training consent.", True),
     "THIN_TEXT": (4, "원시 HTML과 렌더링 본문을 대조하고 필요한 콘텐츠를 SSR 또는 사전 렌더링으로 제공한다.",
@@ -397,7 +408,7 @@ def section_summary(report, lab, ann, lang):
 
     chips = []
     for lane in LANES:
-        cell = report["scorecard"][lane]
+        cell = report["scorecard"].get(lane) or {"status": "na", "evidence": []}
         n = len(cell["evidence"])
         detail = ("%d" % n) if cell["status"] != "na" else "—"
         chips.append(
@@ -502,9 +513,9 @@ def section_shape(report, lab, ann, lang):
 def section_lanes(report, lab, ann, lang):
     out = []
     for lane in LANES:
-        cell = report["scorecard"][lane]
+        cell = report["scorecard"].get(lane) or {"status": "na", "evidence": []}
         out.append('<h3>%s %s</h3>' % (escape(lane), pill(cell["status"], lab["status"][cell["status"]])))
-        out.append('<p class="lede">%s</p>' % ann(lab["lane_note"][lane]))
+        out.append('<p class="lede">%s</p>' % ann(lab["lane_note"].get(lane, lane)))
         mine = [f for f in report["findings"] if f["lane"] == lane]
         if not mine:
             out.append('<div class="note">%s</div>' % escape(lab["no_findings"]))

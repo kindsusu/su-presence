@@ -14,6 +14,7 @@ crawl → report → generate → [사람이 배포] → verify → (14일) craw
 | `audit.json` | `su-multi-geo/audit/1` | `crawl.py` | `report` `generate` `verify` `measure` `drift` |
 | `verify.json` | `su-multi-geo/verify/1` | `verify.py` | `drift`(스냅샷) |
 | `measure/queries.json` | `su-multi-geo/queries/1` (v2도 읽기 지원) | 사람(`measure.py init`이 현재 v1 템플릿을 복사) | `measure` |
+| `collect.py` | 전 표면 인용 수집 — 무인(네이버·다음·구글) + 브라우저 경유(ChatGPT·Gemini·Claude·Perplexity) + `--coverage` 빈칸 점검. `ops/coverage.md` · `ops/measure-playbook.md` |
 | `measure/log.jsonl` | `su-multi-geo/measure-row/2` (v1 읽기 지원) | `measure.py import`·`auto` | `measure report` |
 | `measure/summary.json` | `su-multi-geo/measure/2` (drift가 v1도 읽음) | `measure.py report` | `drift` |
 | `history/index.json` | `su-multi-geo/history/1` | `drift.py snapshot` | `drift` |
@@ -127,7 +128,7 @@ exit 1을 반환한다. `seo_geo.py audit`도 인터럽트 시 성공 관측을 
  "scorecard":{"SEO":{"status":"ok|warn|bad|na","evidence":["TITLE_DUPLICATE"]}}}
 ```
 
-레인은 여섯이다: `SEO` `AEO` `GEO` `LLMO` `NEO` `reputation`.
+레인은 일곱이다: `SEO` `AEO` `GEO` `LLMO` `NEO`(네이버) `KEO`(다음·카카오) `reputation`.
 `reputation`은 사이트 밖 표면이라 크롤로 잴 수 없다 — 항상 `na`로 두고 사람이 점검한다.
 
 ## report.py — 보고서 생성

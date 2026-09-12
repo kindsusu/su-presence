@@ -11,14 +11,19 @@ crawl → report → generate → [사람이 배포] → verify → (14일) craw
 
 | 파일 | 스키마 | 만드는 도구 | 읽는 도구 |
 |---|---|---|---|
-| `audit.json` | `su-multi-geo/audit/1` | `crawl.py` | `report` `generate` `verify` `measure` `drift` |
-| `verify.json` | `su-multi-geo/verify/1` | `verify.py` | `drift`(스냅샷) |
-| `measure/queries.json` | `su-multi-geo/queries/1` (v2도 읽기 지원) | 사람(`measure.py init`이 현재 v1 템플릿을 복사) | `measure` |
+| `audit.json` | `su-presence/audit/1` | `crawl.py` | `report` `generate` `verify` `measure` `drift` |
+| `verify.json` | `su-presence/verify/1` | `verify.py` | `drift`(스냅샷) |
+| `measure/queries.json` | `su-presence/queries/1` (v2도 읽기 지원) | 사람(`measure.py init`이 현재 v1 템플릿을 복사) | `measure` |
 | `collect.py` | 전 표면 인용 수집 — 무인(네이버·다음·구글) + 브라우저 경유(ChatGPT·Gemini·Claude·Perplexity) + `--coverage` 빈칸 점검. `ops/coverage.md` · `ops/measure-playbook.md` |
-| `measure/log.jsonl` | `su-multi-geo/measure-row/2` (v1 읽기 지원) | `measure.py import`·`auto` | `measure report` |
-| `measure/summary.json` | `su-multi-geo/measure/2` (drift가 v1도 읽음) | `measure.py report` | `drift` |
-| `history/index.json` | `su-multi-geo/history/1` | `drift.py snapshot` | `drift` |
-| `drift.json` | `su-multi-geo/drift/1` | `drift.py compare` | 사람 |
+| `measure/log.jsonl` | `su-presence/measure-row/2` (v1 읽기 지원) | `measure.py import`·`auto` | `measure report` |
+| `measure/summary.json` | `su-presence/measure/2` (drift가 v1도 읽음) | `measure.py report` | `drift` |
+| `history/index.json` | `su-presence/history/1` (옛 `su-multi-geo/history/1` 읽기 지원) | `drift.py snapshot` | `drift` |
+| `drift.json` | `su-presence/drift/1` | `drift.py compare` | 사람 |
+
+> **옛 `su-multi-geo/...` 스키마도 전부 읽는다.** 2026-09-12 이름 변경 때 쓰기만 새 이름으로
+> 바꾸고 읽기는 신·구를 모두 받게 했다. 호환을 잃으면 이미 만들어진 기준선이 **에러 없이
+> 조용히 사라진다** — 도구가 "우리 것이 아니다" 로 판정하고 버리기 때문이다.
+> 검증은 `tests/test_legacy_schemas.py` 가 한다.
 
 필드를 바꾸면 스키마 버전을 올린다. 측정 v1은 명시적으로 호환 읽기하며, 그 밖의 알 수 없는
 스키마는 거부하거나 집계에서 제외한다.
@@ -85,7 +90,7 @@ python tools/crawl.py https://example.com --max-pages 500 --delay 1.0 --out repo
 홈과 같은 호스트의 sitemap 시드에서 시작해 내부 링크를 BFS로 따라간다. URL에서는
 프래그먼트만 제거하고 쿼리스트링은 보존하므로, 쿼리가 다른 URL은 별도 후보가 될 수 있다.
 이미지·CSS·JS 같은 자산은 건너뛴다. **robots.txt의 Disallow는 크롤할 때 존중한다.**
-User-Agent는 `su-multi-geo-audit/2.0`으로 밝히고 다닌다.
+User-Agent는 `su-presence-audit/2.1`으로 밝히고 다닌다.
 
 페이지마다 재는 것: 상태 코드·최종 URL·title·meta description·meta robots·
 `X-Robots-Tag`·canonical·h1·JSON-LD 개수와 `@type`·본문 글자 수(바이트 아님)·
@@ -108,7 +113,7 @@ exit 1을 반환한다. `seo_geo.py audit`도 인터럽트 시 성공 관측을 
 유효한 HTTP 200 robots 응답의 전체 본문이며, robots 응답이 없거나 HTML 오류 본문이면 빈 문자열이다.
 
 ```json
-{"schema":"su-multi-geo/audit/1","generated_at":"ISO8601",
+{"schema":"su-presence/audit/1","generated_at":"ISO8601",
  "target":{"input":"...","base":"https://host","host":"host"},
  "site":{"robots":{"status":200,"present":true,"raw":"...","policies":{"GPTBot":"star-allow"},"sitemap_declared":[]},
          "sitemaps":[{"url":"...","status":200,"is_index":false,"url_count":0}],
@@ -170,7 +175,7 @@ python tools/generate.py meta out/example.com/audit.json --out /tmp/draft
 옵션: `--site <site.json>` (없으면 회사 사실 없이 만들 수 있는 것만), `--out <폴더>`
 (기본 `audit.json` 옆의 `deploy/`).
 
-생성된 파일은 `deploy/.su-multi-geo-generated.json` manifest에 기록한다. 다음 실행은 이
+생성된 파일은 `deploy/.su-presence-generated.json` manifest에 기록한다. 다음 실행은 이
 manifest에서 같은 생성 범주의 낡은 파일만 정리하므로 사용자 파일과 소유권이 섞이지 않는다.
 
 ### 불완전 크롤에서는 sitemap 교체를 보류한다
@@ -277,7 +282,7 @@ python tools/verify.py diff out/example.com/audit.json out/after/example.com/aud
 ### verify.json — 계약
 
 ```json
-{"schema":"su-multi-geo/verify/1","mode":"deploy|diff","generated_at":"ISO8601",
+{"schema":"su-presence/verify/1","mode":"deploy|diff","generated_at":"ISO8601",
  "target":{"base":"https://host","host":"host","deploy":"out/host/deploy"},
  "checks":[{"id":"sitemap.locs","status":"pass|fail|warn|skip","message":"...","evidence":{}}],
  "summary":{"pass":0,"fail":0,"warn":0,"skip":0},
@@ -329,10 +334,10 @@ API 키가 하나도 없어도 측정 루프는 완전히 돈다. 자동화는 �
 ### 계약
 
 ```
-out/<host>/measure/queries.json   `init`은 현재 su-multi-geo/queries/1 템플릿을 복사하며, /2도 읽는다
+out/<host>/measure/queries.json   `init`은 현재 su-presence/queries/1 템플릿을 복사하며, /2도 읽는다
   {"queries":[{"id":"Q01","text":"...","type":"brand|nonbrand","note":""}]}
 
-out/<host>/measure/log.jsonl      su-multi-geo/measure-row/2  · append-only · 한 줄 = 질의 1회
+out/<host>/measure/log.jsonl      su-presence/measure-row/2  · append-only · 한 줄 = 질의 1회
   {"date":"2026-09-15","query_id":"Q01","engine":"chatgpt","run_no":1,
    "mode":"manual|api","surface":"chatgpt_web_ui|api","locale":"ko-KR",
    "login_state":"signed_out|signed_in|unknown|not_applicable","search_enabled":true,
@@ -341,7 +346,7 @@ out/<host>/measure/log.jsonl      su-multi-geo/measure-row/2  · append-only · 
    "cited_urls":["https://example.com/pricing"],"brand_mentioned":true,
    "competitor_domains":["competitor.com"],"note":"","recorded_at":"ISO8601"}
 
-out/<host>/measure/summary.json   su-multi-geo/measure/2   · report가 생성
+out/<host>/measure/summary.json   su-presence/measure/2   · report가 생성
 ```
 
 `engine`은 고정 목록이다: `chatgpt` `google_aio` `gemini` `claude` `perplexity`
@@ -428,7 +433,7 @@ python tools/drift.py timeline out/example.com/audit.json
 | `audit-<YYYY-MM-DD>.json` | `crawl.py` 결과 사본 (필수) |
 | `measure-<YYYY-MM-DD>.json` | `measure.py report`의 `summary.json` 사본 (`--measure`) |
 | `verify-<YYYY-MM-DD>.json` | `verify.py`의 `verify.json` 사본 (`--verify`) |
-| `index.json` | 스키마 `su-multi-geo/history/1` — 스냅샷 목록·`baseline_date`·`next_due` |
+| `index.json` | 스키마 `su-presence/history/1` — 스냅샷 목록·`baseline_date`·`next_due` |
 
 - **같은 날짜 같은 종류는 `--force` 없이 거부한다.** 기준선을 조용히 덮어쓰면 추이가 거짓말이 된다
 - 첫 audit 스냅샷이 자동으로 기준선이 된다. 나중에 옮기려면 `--baseline`
@@ -476,7 +481,7 @@ python tools/drift.py timeline out/example.com/audit.json
 ### drift.json — 계약
 
 ```json
-{"schema":"su-multi-geo/drift/1","from":"2026-09-01","to":"2026-09-15",
+{"schema":"su-presence/drift/1","from":"2026-09-01","to":"2026-09-15",
  "baseline":"2026-09-01","baseline_age_days":14,"warnings":["..."],
  "metrics":{"before":{},"after":{}},
  "audit_diff":{"resolved":[],"new":[],"persisting":[],"scorecard":{},"stats":{},"pages":{}},

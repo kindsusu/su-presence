@@ -51,8 +51,8 @@ def audit(args):
 def status(args):
     audit_path = Path(args.audit).resolve()
     root = audit_path.parent
-    result = {"schema": "su-multi-geo/status/1", "audit": str(audit_path), "artifacts": {}}
-    names = {"audit": audit_path, "deploy": root / "deploy" / ".su-multi-geo-generated.json",
+    result = {"schema": "su-presence/status/1", "audit": str(audit_path), "artifacts": {}}
+    names = {"audit": audit_path, "deploy": root / "deploy" / ".su-presence-generated.json",
              "verify": root / "verify.json", "measure": root / "measure" / "summary.json",
              "drift": root / "drift.json"}
     for name, path in names.items():

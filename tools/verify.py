@@ -36,8 +36,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import crawl  # noqa: E402   (fetch·PageParser·robots 정책·normalize를 재사용)
 import generate  # noqa: E402  (slug_of — 패키지 파일명 ↔ URL 역매핑)
 
-SCHEMA = "su-multi-geo/verify/1"
-AUDIT_SCHEMA_PREFIX = "su-multi-geo/audit/"
+SCHEMA = "su-presence/verify/1"
+AUDIT_SCHEMA_PREFIX = ("su-presence/audit/", "su-multi-geo/audit/")
+JSONLD_MANIFEST_SCHEMAS = ("su-presence/jsonld-manifest/1",
+                           "su-multi-geo/jsonld-manifest/1")
 
 ORDER = {"fail": 0, "warn": 1, "pass": 2, "skip": 3}
 MARK = {"fail": "❌", "warn": "⚠️", "pass": "✅", "skip": "—"}
@@ -460,7 +462,7 @@ def jsonld_targets(pkg: dict, audit: dict, base: str) -> list:
     manifest_obj = pkg.get("jsonld_manifest")
     manifest_present = manifest_obj is not None
     manifest_valid = (isinstance(manifest_obj, dict)
-                      and manifest_obj.get("schema") == "su-multi-geo/jsonld-manifest/1"
+                      and manifest_obj.get("schema") in JSONLD_MANIFEST_SCHEMAS
                       and isinstance(manifest_obj.get("files"), dict))
     manifest = manifest_obj["files"] if manifest_valid else ({} if manifest_present else None)
     out = []

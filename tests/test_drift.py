@@ -148,7 +148,7 @@ class TestSnapshot(DriftCase):
     def test_first_snapshot_becomes_baseline(self):
         self.snap(audit(), "2026-09-01")
         index = self.index()
-        self.assertEqual(index["schema"], "su-multi-geo/history/1")
+        self.assertEqual(index["schema"], drift.SCHEMA_HISTORY)
         self.assertEqual(index["baseline_date"], "2026-09-01")
         self.assertEqual(len(index["snapshots"]), 1)
         self.assertEqual(index["snapshots"][0]["kind"], "audit")
@@ -458,7 +458,7 @@ class TestOutputs(DriftCase):
         self.two(audit(), audit())
         self.compare()
         result = self.result()
-        self.assertEqual(result["schema"], "su-multi-geo/drift/1")
+        self.assertEqual(result["schema"], drift.SCHEMA_DRIFT)
         self.assertEqual(result["from"], "2026-09-01")
         self.assertEqual(result["to"], "2026-09-15")
         self.assertEqual(result["baseline"], "2026-09-01")

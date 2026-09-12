@@ -383,7 +383,7 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual(len(rows), 16)          # 두 측정일 × 8행
         self.assertEqual({r["engine"] for r in rows}, {"chatgpt"})
         summary = read_json(os.path.join(self.measure_dir, "summary.json"))
-        self.assertTrue(summary["schema"].startswith("su-multi-geo/measure/"))
+        self.assertTrue(summary["schema"].startswith("su-presence/measure/"))
 
     # ─────────────────────────────────────────────── drift
 

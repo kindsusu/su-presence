@@ -45,12 +45,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import crawl  # noqa: E402  (host_of — 호스트 판정을 복제하지 않는다)
 
-SCHEMA_QUERIES = "su-multi-geo/queries/2"
-LEGACY_QUERIES_SCHEMAS = ("su-multi-geo/queries/1",)
-SCHEMA_ROW = "su-multi-geo/measure-row/2"
-LEGACY_ROW_SCHEMAS = ("su-multi-geo/measure-row/1",)
-SCHEMA_SUMMARY = "su-multi-geo/measure/2"
-AUDIT_SCHEMA_PREFIX = "su-multi-geo/audit/"
+# 쓰기는 새 이름, 읽기는 신·구 둘 다. 옛 이름을 빼면 기존 스냅샷을 못 읽는다.
+SCHEMA_QUERIES = "su-presence/queries/2"
+LEGACY_QUERIES_SCHEMAS = ("su-presence/queries/1",
+                          "su-multi-geo/queries/2", "su-multi-geo/queries/1")
+SCHEMA_ROW = "su-presence/measure-row/2"
+LEGACY_ROW_SCHEMAS = ("su-presence/measure-row/1",
+                      "su-multi-geo/measure-row/2", "su-multi-geo/measure-row/1")
+SCHEMA_SUMMARY = "su-presence/measure/2"
+LEGACY_SUMMARY_SCHEMAS = ("su-multi-geo/measure/2", "su-multi-geo/measure/1")
+# startswith 는 튜플을 받는다 — 접두를 튜플로 두면 분기가 늘지 않는다.
+AUDIT_SCHEMA_PREFIX = ("su-presence/audit/", "su-multi-geo/audit/")
 
 # 엔진 고정 목록 — 값이 늘면 스키마 버전을 올린다
 ENGINES = OrderedDict([
@@ -538,7 +543,7 @@ textarea{width:100%;height:220px;margin-top:12px;font-family:ui-monospace,Menlo,
 """
 
 FORM_JS = r"""
-var KEY = "su-multi-geo:measure:" + DATA.host + ":" + DATA.date;
+var KEY = "su-presence:measure:" + DATA.host + ":" + DATA.date;
 var state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { state = {}; }
 

@@ -6,7 +6,7 @@
     python tools/crawl.py <도메인|URL> [--max-pages 300] [--delay 0.5] [--out out/]
 
 출력:
-    <out>/<host>/audit.json   (스키마: su-multi-geo/audit/1)
+    <out>/<host>/audit.json   (스키마: su-presence/audit/1)
     콘솔 요약 (audit.sh와 같은 톤)
 
 원칙
@@ -36,8 +36,9 @@ from collections import Counter, deque
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 
-UA = "su-multi-geo-audit/2.0"
-SCHEMA = "su-multi-geo/audit/1"
+# 신분은 도구 이름을 따른다. audit.sh 도 같은 토큰을 쓴다.
+UA = "su-presence-audit/2.1"
+SCHEMA = "su-presence/audit/1"
 TIMEOUT = 15
 MAX_BODY = 4_000_000
 

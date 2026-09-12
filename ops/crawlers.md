@@ -1,4 +1,4 @@
-# 크롤러 정책 — 3사 구조가 서로 다르다
+# 크롤러 정책 — 용도가 다르면 정책도 갈라야 한다
 
 AI 크롤러는 **용도가 세 종류**고, robots.txt 정책은 용도별로 나눠 짜야 한다.
 무정책 = 우연에 맡기는 것이다.
@@ -11,14 +11,31 @@ AI 크롤러는 **용도가 세 종류**고, robots.txt 정책은 용도별로 �
 
 ## 벤더별 정책표
 
-| 벤더 | 학습 | 검색 색인 | 실시간 fetch |
-|---|---|---|---|
-| **OpenAI** | `GPTBot` | `OAI-SearchBot` | `ChatGPT-User` |
-| **Anthropic** | `ClaudeBot` | `Claude-SearchBot` | `Claude-User` |
-| **Perplexity** | — | `PerplexityBot` | `Perplexity-User` |
-| **Google** | `Google-Extended` ⚠️ | (Googlebot) | (Googlebot) |
-| **네이버** | — | `Yeti` | — |
-| 기타 | `CCBot`, `Applebot-Extended`, `Bytespider`, `Meta-ExternalAgent` | | |
+| 벤더 | 학습 | 검색 색인 | 실시간 fetch | 공식 문서 | 확인일 |
+|---|---|---|---|---|---|
+| **OpenAI** | `GPTBot` | `OAI-SearchBot` | `ChatGPT-User` | [developers.openai.com/api/docs/bots](https://developers.openai.com/api/docs/bots) | 2026-09-12 |
+| **Anthropic** | `ClaudeBot` | `Claude-SearchBot` | `Claude-User` | [support.claude.com](https://support.claude.com/en/articles/8896518-does-anthropic-crawl-data-from-the-web-and-how-can-site-owners-block-the-crawler) · 기계판독 [bots.json](https://claude.com/crawling/bots.json) | 2026-09-12 |
+| **Perplexity** | — | `PerplexityBot` | `Perplexity-User` | [perplexity.ai/perplexitybot](https://www.perplexity.ai/perplexitybot) | 2026-08-30 |
+| **Google** | `Google-Extended` ⚠️ | `Googlebot` | `Googlebot` | [google-common-crawlers](https://developers.google.com/crawling/docs/crawlers-fetchers/google-common-crawlers) | 2026-08-30 |
+| **Microsoft** | — | `Bingbot` | — | [bing.com/webmasters](https://www.bing.com/webmasters/help/which-crawlers-does-bing-use-8c184ec0) | 2026-08-30 |
+| **네이버** (NEO) | — | `Yeti` | — | [searchadvisor.naver.com](https://searchadvisor.naver.com/guide/seo-basic-robots) | 2026-08-30 |
+| **다음** (KEO) | — | `DAUM` · `Daumoa` | — | [webmaster.daum.net](https://webmaster.daum.net/) | 2026-09-11 |
+| 기타 (학습만) | `CCBot` · `Applebot-Extended` · `Bytespider` · `Meta-ExternalAgent` | | | 각사 문서 | 2026-08-30 |
+
+> **`OAI-AdsBot`** — 2026년 확인된 OpenAI의 네 번째 봇으로, **광고 랜딩페이지 안전성 검증** 용도다.
+> 인용 유입이 목표라면 불필요하다. **OpenAI 광고를 집행할 때만** 허용하면 된다
+> (집행 중인데 막혀 있으면 소재 심사가 막힌다).
+
+### 다음(Daum)은 토큰이 둘이다 — 둘 다 적어야 한다
+
+공식 문서는 `DAUM`, 업계 관행은 `Daumoa`로 갈려 있다. **robots.txt는 가장 구체적인 UA 그룹
+하나만 적용하므로**, `Daumoa`만 적어두면 `DAUM`으로 오는 요청은 `*` 그룹으로 떨어진다.
+`crawl.py`는 둘 중 하나라도 막혀 있으면 `DAUM_CRAWLER_BLOCKED`(critical)를 낸다.
+
+### Googlebot·Bingbot은 선언보다 **차단돼 있지 않은지**가 중요하다
+
+일반 검색 크롤러라 기본 허용이 전제다. 굳이 `Allow: /`를 쓸 필요는 없고, **실수로 막혀 있지
+않은지**만 확인하면 된다. 이 둘이 막히면 AI 표면 이전에 검색 자체가 닫힌다.
 
 ## ⚠️ Google-Extended는 크롤러가 아니다 — 구조가 다르다
 
@@ -71,8 +88,18 @@ Allow: /
 User-agent: Yeti
 Allow: /
 
+# ── 다음·카카오 (KEO 레인 — 토큰 둘 다 필요) ──
+User-agent: Daumoa
+Allow: /
+User-agent: DAUM
+Allow: /
+
 Sitemap: https://example.com/sitemap.xml
 ```
+
+이 블록은 `tools/generate.py`의 `UA_GROUPS`와 **같은 목록이어야 한다.** 어긋나면
+`tests/test_generate.py`의 대조 테스트가 깨진다 — 문서만 고치고 도구를 안 고치는(또는 그 반대)
+사고를 막기 위한 장치다.
 
 **콘텐츠가 자산이라 학습만 막고 싶다면** 학습 열(`GPTBot`, `ClaudeBot`, `Google-Extended`,
 `CCBot`)을 검색·fetch 역할과 분리해 검토한다. 검색·fetch 차단은 해당 봇의 직접 경로를 제한한다.
@@ -93,8 +120,12 @@ curl -sL https://example.com/robots.txt          # 실제 배포본 확인
 
 ## 유지보수
 
-**명단은 변한다.** Anthropic은 2026년 2월 크롤러 문서를 개정했다.
-**분기마다 각사 크롤러 문서를 재확인**하고 이 파일을 갱신하라. 갱신 시 확인일을 적는다.
+**명단은 변한다.** Anthropic은 2026년 2월 크롤러 문서를 개정했고, 2026년 9월 확인에서는
+OpenAI에 `OAI-AdsBot`이 늘어 있었으며 공식 문서 위치도 `developers.openai.com`으로 옮겨져 있었다.
 
-- 마지막 확인: 2026-08-30
-- 출처: OpenAI / Anthropic / Google 각사 크롤러 공식 문서
+**분기마다 위 표의 「공식 문서」 링크를 하나씩 열어 재확인**하고, 바뀐 행의 **확인일을 갱신**한다.
+표의 확인일이 행마다 따로 있는 이유다 — 전체를 한 번에 못 보더라도 어느 행이 낡았는지는 남는다.
+
+- Anthropic은 [`claude.com/crawling/bots.json`](https://claude.com/crawling/bots.json)으로
+  **기계 판독 가능한 명단**을 제공한다. 자동 대조를 붙일 여지가 있다
+- 다음 재확인 예정: **2026-12** (마지막 전수 확인 2026-08-30, 부분 갱신 2026-09-12)

@@ -128,7 +128,7 @@ Do not run this protocol by hand. Once the record format drifts between people, 
 
 ```bash
 python tools/measure.py init   out/<host>/audit.json   # blank query set — a human fills it in
-python tools/measure.py form   out/<host>/audit.json --engines chatgpt,google_aio --runs 5
+python tools/measure.py form   out/<host>/audit.json --engines chatgpt,gemini,claude,perplexity --runs 5
 #   → measure/form-<date>.csv (Excel) + measure/form-<date>.html (offline entry form)
 #   ── a human now measures, signed out, in a private window ──
 python tools/measure.py import out/<host>/audit.json measure/form-<date>-filled.csv

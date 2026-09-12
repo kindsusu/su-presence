@@ -113,7 +113,7 @@ python <skill-root>/tools/seo_geo.py collect <audit.json> --record chatgpt --que
 
 ```bash
 python <skill-root>/tools/seo_geo.py measure init <audit.json>
-python <skill-root>/tools/seo_geo.py measure form <audit.json> --engines chatgpt,google_aio --runs 5
+python <skill-root>/tools/seo_geo.py measure form <audit.json> --engines chatgpt,gemini,claude,perplexity --runs 5
 python <skill-root>/tools/seo_geo.py measure import <audit.json> <filled.csv>
 python <skill-root>/tools/seo_geo.py measure report <audit.json>
 python <skill-root>/tools/seo_geo.py drift snapshot <audit.json> --measure <summary.json>

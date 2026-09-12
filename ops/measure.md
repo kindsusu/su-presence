@@ -177,7 +177,7 @@ URL 열이 비어 있으면 만들 페이지가 없다는 뜻이고, 같은 URL�
 
 ```bash
 python tools/measure.py init   out/<host>/audit.json   # 질의 세트 빈칸 만들기 → 사람이 채운다
-python tools/measure.py form   out/<host>/audit.json --engines chatgpt,google_aio --runs 5
+python tools/measure.py form   out/<host>/audit.json --engines chatgpt,gemini,claude,perplexity --runs 5
 #   → measure/form-<날짜>.csv (엑셀) + measure/form-<날짜>.html (오프라인 입력 폼)
 #   ── 여기서 사람이 비로그인·시크릿 창으로 실제 측정한다 ──
 python tools/measure.py import out/<host>/audit.json measure/form-<날짜>-filled.csv

@@ -65,8 +65,12 @@ ENGINES = OrderedDict([
     ("other", "기타"),
 ])
 
-# ops/measure.md "엔진 우선순위" — 전부 못 재면 이 둘부터
-DEFAULT_ENGINES = ["chatgpt", "google_aio"]
+# collect.py 가 무인으로 재는 엔진. 폼에 넣으면 사람에게 이미 자동화된 일을 시키는 것이다.
+COLLECTED_ENGINES = ("naver_ai", "daum", "google_aio")
+
+# 수동 폼의 기본값 — 브라우저 조작이 필요한 대화형 엔진만 남긴다.
+# 검색 엔진 3종은 `collect.py` 가 무인으로 재므로 기본값에서 뺐다.
+DEFAULT_ENGINES = ["chatgpt", "gemini", "claude", "perplexity"]
 
 # 자동화 가능한 엔진은 둘뿐이다. 나머지는 수동 폼으로만 잰다.
 AUTO_ENGINES = ("chatgpt", "claude")
@@ -84,12 +88,43 @@ CSV_FIELDS = ["date", "query_id", "query_text", "type", "engine", "run_no",
 
 # ⚠️ 모델명은 각사 사정으로 바뀐다. 여기 값은 출발점일 뿐이다 —
 #    OPENAI_MODEL / ANTHROPIC_MODEL 환경변수로 덮어쓰고, 현재 값은 각사 문서에서 확인하라.
-OPENAI_MODEL_DEFAULT = "gpt-4.1"
-ANTHROPIC_MODEL_DEFAULT = "claude-sonnet-4-5"
+#    확인일 2026-09-12. 이전 기본값(gpt-4.1 / claude-sonnet-4-5)은 현행 목록에서 사라져 있었다.
+OPENAI_MODEL_DEFAULT = "gpt-5.4-mini"
+ANTHROPIC_MODEL_DEFAULT = "claude-sonnet-5"
 OPENAI_URL = "https://api.openai.com/v1/responses"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
-ANTHROPIC_WEB_SEARCH = {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
+
+# 웹 검색 서버 도구는 변형이 둘이다. 2026-02 변형은 현세대 모델에서만 받는다 —
+# 옛 모델로 덮어쓴 사용자가 400을 맞지 않도록 모델을 보고 고른다.
+WEB_SEARCH_MODERN = "web_search_20260209"
+WEB_SEARCH_BASIC = "web_search_20250305"
+MODERN_SEARCH_MODELS = ("claude-opus-5", "claude-opus-4-8", "claude-opus-4-7",
+                        "claude-opus-4-6", "claude-sonnet-5", "claude-sonnet-4-6")
+
+
+def anthropic_web_search(model: str) -> dict:
+    tool_type = WEB_SEARCH_MODERN if model in MODERN_SEARCH_MODELS else WEB_SEARCH_BASIC
+    return {"type": tool_type, "name": "web_search", "max_uses": 5}
+
+
+# 1M 토큰당 (입력, 출력) USD. 확인일 2026-09-12 — 공식 가격 페이지가 정본이다.
+# 모르는 모델이면 추정을 아예 하지 않는다. 틀린 추정은 추정 없는 것보다 나쁘다.
+PRICES = {
+    "claude-opus-5": (5.00, 25.00),
+    "claude-sonnet-5": (2.00, 10.00),
+    "claude-haiku-4-5": (1.00, 5.00),
+    "gpt-5.4-mini": (0.75, 4.50),
+    "gpt-5.4": (2.50, 15.00),
+}
+# 검색 1,000회당 USD. Anthropic 발표값 — OpenAI 쪽은 미확인이라 0으로 두고 경고한다.
+SEARCH_PRICE_PER_1K = {"claude": 10.00, "chatgpt": None}
+
+# 호출 1회의 토큰 규모. 검색 결과가 입력으로 들어오는 몫이 비용을 지배하고,
+# 질의에 따라 3배까지 벌어진다 — 그래서 단일 값이 아니라 범위로 낸다.
+EST_INPUT_TOKENS = (5_000, 15_000)
+EST_OUTPUT_TOKENS = 700
+EST_SEARCHES_PER_CALL = 3
 API_TIMEOUT = 180
 
 RULES = [
@@ -400,7 +435,11 @@ def cmd_init(args) -> int:
 # ─────────────────────────────────────────────────────────── form
 
 def pick_engines(raw) -> tuple:
-    """--engines 문자열 → (유효 엔진, 무시된 값)."""
+    """--engines 문자열 → (유효 엔진, 무시된 값).
+
+    명시된 엔진은 무인 수집 대상이어도 **빼지 않는다.** 사람이 일부러 적은 것을
+    말없이 버리면 그게 더 나쁘다 — cmd_form 이 안내만 덧붙인다.
+    """
     if not raw:
         return list(DEFAULT_ENGINES), []
     want, bad, seen = [], [], set()
@@ -712,6 +751,11 @@ def cmd_form(args) -> int:
     if bad:
         print("⚠️ 모르는 엔진은 뺐다: %s" % ", ".join(bad))
         print("   쓸 수 있는 값: %s" % ", ".join(ENGINES))
+    already = [e for e in engines if e in COLLECTED_ENGINES]
+    if already:
+        print("참고: %s 은(는) collect.py 가 무인으로 잰다 — 손으로 채울 필요가 없다."
+              % ", ".join(ENGINES[e] for e in already))
+        print("   python tools/collect.py %s --runs 10" % args.audit)
     todo = queries_todo(queries)
     if todo:
         print("⚠️ 아직 빈 칸인 질의가 있다 (%s) — 채우고 다시 만들어라." % ", ".join(todo))
@@ -723,6 +767,10 @@ def cmd_form(args) -> int:
     print("  웹 폼  : %s" % html_path)
     print("")
     print("채운 뒤: python tools/measure.py import %s <채운 CSV>" % args.audit)
+    print("")
+    print("브라우저로 재는 엔진은 폼 대신 collect.py 가 더 빠르다 — 로그인만 하면")
+    print("에이전트가 질의·판정·출처 추출까지 하고 결과를 같은 로그에 적는다:")
+    print("  python tools/collect.py %s --browser" % args.audit)
     return 0
 
 
@@ -1307,7 +1355,7 @@ def ask_anthropic(send, query: str, api_key: str, model: str) -> tuple:
     """Anthropic Messages API + 서버 도구 web_search → (인용 URL, 응답 텍스트, 오류)."""
     payload = {"model": model, "max_tokens": 1024,
                "messages": [{"role": "user", "content": query}],
-               "tools": [dict(ANTHROPIC_WEB_SEARCH)]}
+               "tools": [anthropic_web_search(model)]}
     data = send(ANTHROPIC_URL, payload,
                 {"x-api-key": api_key, "anthropic-version": ANTHROPIC_VERSION}) or {}
     if data.get("_error"):
@@ -1336,6 +1384,19 @@ def brand_hit(text: str, host: str, site_name: str) -> bool:
     low = (text or "").lower()
     needles = [n for n in (site_name, bare(host)) if n]
     return any(n.lower() in low for n in needles)
+
+
+def estimate_cost(engine: str, model: str, calls: int):
+    """(최소, 최대) USD. 가격을 모르면 None — 지어내지 않는다."""
+    price = PRICES.get(model)
+    if not price or calls <= 0:
+        return None
+    in_rate, out_rate = price
+    out_cost = calls * EST_OUTPUT_TOKENS / 1_000_000 * out_rate
+    search_rate = SEARCH_PRICE_PER_1K.get(engine)
+    search = (calls * EST_SEARCHES_PER_CALL / 1000 * search_rate) if search_rate else 0.0
+    lo, hi = (calls * n / 1_000_000 * in_rate + out_cost + search for n in EST_INPUT_TOKENS)
+    return lo, hi
 
 
 def run_auto(queries: list, engines: list, runs: int, host: str, keys: dict,
@@ -1422,7 +1483,22 @@ def cmd_auto(args) -> int:
           % (len(engines), len(queries), runs, calls))
     for engine in engines:
         print("  · %s (model=%s)" % (ENGINES[engine], models[engine]))
+    total_lo, total_hi, unknown = 0.0, 0.0, []
+    for engine in engines:
+        est = estimate_cost(engine, models[engine], len(queries) * runs)
+        if est is None:
+            unknown.append(ENGINES[engine])
+            continue
+        total_lo, total_hi = total_lo + est[0], total_hi + est[1]
+    if total_hi:
+        print("  예상 비용 **약 $%.2f ~ $%.2f** (추정 — 검색 결과 토큰량에 좌우된다)"
+              % (total_lo, total_hi))
+    if unknown:
+        print("  ⚠️ 가격을 모르는 모델이라 추정에서 뺐다: %s" % ", ".join(unknown))
+    if any(SEARCH_PRICE_PER_1K.get(e) is None for e in engines):
+        print("  ⚠️ 일부 엔진은 웹 검색 도구 요금이 미확인이다 — 위 추정에 안 들어갔다.")
     print("  ⚠️ 웹 검색 도구 호출 비용을 포함해 **비용은 전부 사용자 부담**이다.")
+    print("     첫 실행은 --runs 1 로 실제 청구액을 확인한 뒤 늘려라.")
     print("  ⚠️ API 응답은 비로그인 웹 UI와 다른 표면이다 — 수동 측정을 대체하지 않는다.")
     if not args.yes:
         try:

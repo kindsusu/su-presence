@@ -14,7 +14,9 @@ if [ -z "$DOMAIN" ]; then
 fi
 case "$DOMAIN" in http*) URL="$DOMAIN" ;; *) URL="https://$DOMAIN" ;; esac
 BASE="${URL%/}"
-UA='Mozilla/5.0 (compatible; multi-geo-audit/1.0)'
+# crawl.py 와 같은 신분으로 다닌다. 토큰이 갈리면 상대 서버 로그에서 한 도구로 안 보인다.
+# Mozilla 껍데기는 의도적이다 — 맨 토큰만 보내면 축소 응답을 주는 사이트가 있다.
+UA='Mozilla/5.0 (compatible; su-multi-geo-audit/2.0)'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 C()     { curl -sL  --max-time 20 -A "$UA" -- "$@"; }

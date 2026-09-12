@@ -58,7 +58,8 @@ Read only the relevant playbooks:
 | Answer-ready content | [AEO](lanes/aeo.md) |
 | Engine-specific citation access | [GEO](lanes/geo.md) |
 | Model knowledge without search | [LLMO](lanes/llmo.md) |
-| Naver and Daum | [Naver](lanes/naver.md) |
+| Naver search and AI Briefing (NEO) | [Naver](lanes/naver.md) |
+| Daum and Kakao search and AI Summary (KEO) | [Daum](lanes/daum.md) |
 | Third-party information and reputation | [reputation](lanes/reputation.md) |
 
 ```bash
@@ -87,6 +88,39 @@ and primary records when CSS visibility or factual meaning matters.
 ## 4. Measure citations and outcomes
 
 Keep the query set, engine, product surface, locale, login/search state, and run design fixed.
+
+**First establish which surfaces you did not measure.** A report written without knowing its
+blanks puts "zero citations" and "never looked" in the same cell. The full lane × surface
+list lives in [coverage](ops/coverage.md).
+
+```bash
+python <skill-root>/tools/seo_geo.py collect <audit.json> --coverage
+```
+
+Collection splits into three access types. **"Requires sign-in" is not "manual"** — the human
+signs in and nothing else; the agent runs the query, the verdict and the source extraction.
+
+| Access | Surfaces | Command |
+|---|---|---|
+| Unattended | Naver · Daum · Google AI Overviews | `collect <audit.json> --runs 10` |
+| Via browser | ChatGPT · Gemini · Claude · Perplexity | `collect <audit.json> --browser` to reserve, measure in the browser, then `--record` to write it back |
+| Manual | GSC · Search Advisor index counts | a human reads the account screen |
+
+```bash
+python <skill-root>/tools/seo_geo.py collect <audit.json> --runs 10 --pause 5
+python <skill-root>/tools/seo_geo.py collect <audit.json> --browser
+python <skill-root>/tools/seo_geo.py collect <audit.json> --record chatgpt --query B1 --cited https://example.com/page --brand yes --search on
+```
+
+`--browser` reserves blocked engines as `unmeasured` and **prints what to sign into.** Credentials
+never go into the tool. Results come back through `--record` as `observed` in the same
+`log.jsonl`, and `measure report` aggregates them together. Per-engine neutral modes (temporary
+chat, incognito) and access traps are in [measure-playbook](ops/measure-playbook.md).
+
+**Never write an unmeasured cell as zero.** The log's `outcome` field separates
+`observed` / `unmeasured` / `error`, and only `observed` enters the denominator. Tables print
+`not measured (n)` instead of `0/0`, because a zero once reported hardens into fact. When repeated
+requests draw a truncated response, the sanity gate records `unmeasured` rather than a zero.
 
 ```bash
 python <skill-root>/tools/seo_geo.py measure init <audit.json>

@@ -55,18 +55,18 @@ class TestRobotsPolicy(unittest.TestCase):
 
 class TestCrawlRules(unittest.TestCase):
     def test_prefers_own_group_over_star(self):
-        raw = "User-agent: *\nDisallow: /\n\nUser-agent: su-multi-geo-audit\nAllow: /\n"
-        rules = crawl.crawl_rules(raw, "su-multi-geo-audit")
+        raw = "User-agent: *\nDisallow: /\n\nUser-agent: su-presence-audit\nAllow: /\n"
+        rules = crawl.crawl_rules(raw, crawl.UA.split('/')[0])
         self.assertTrue(crawl.crawl_allowed(rules, "/anything"))
 
     def test_falls_back_to_star(self):
-        rules = crawl.crawl_rules("User-agent: *\nDisallow: /admin/\n", "su-multi-geo-audit")
+        rules = crawl.crawl_rules("User-agent: *\nDisallow: /admin/\n", crawl.UA.split('/')[0])
         self.assertFalse(crawl.crawl_allowed(rules, "/admin/users"))
         self.assertTrue(crawl.crawl_allowed(rules, "/blog/post"))
 
     def test_longest_prefix_wins(self):
         rules = crawl.crawl_rules(
-            "User-agent: *\nDisallow: /docs/\nAllow: /docs/public/\n", "su-multi-geo-audit")
+            "User-agent: *\nDisallow: /docs/\nAllow: /docs/public/\n", crawl.UA.split('/')[0])
         self.assertFalse(crawl.crawl_allowed(rules, "/docs/internal"))
         self.assertTrue(crawl.crawl_allowed(rules, "/docs/public/faq"))
 

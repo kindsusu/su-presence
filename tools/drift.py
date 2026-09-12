@@ -40,9 +40,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import verify  # noqa: E402  (verify_diff — findings/scorecard/stats/pages 비교를 복제하지 않는다)
 
-SCHEMA_HISTORY = "su-multi-geo/history/1"
-SCHEMA_DRIFT = "su-multi-geo/drift/1"
-AUDIT_SCHEMA_PREFIX = "su-multi-geo/audit/"
+SCHEMA_HISTORY = "su-presence/history/1"
+# 옛 이름을 안 받으면 기존 history.json 이 버려지고 **기준선이 조용히 초기화된다.**
+LEGACY_HISTORY_SCHEMAS = ("su-multi-geo/history/1",)
+SCHEMA_DRIFT = "su-presence/drift/1"
+AUDIT_SCHEMA_PREFIX = ("su-presence/audit/", "su-multi-geo/audit/")
+SUMMARY_V2_SCHEMAS = ("su-presence/measure/2", "su-multi-geo/measure/2")
+SUMMARY_SCHEMAS = SUMMARY_V2_SCHEMAS + ("su-multi-geo/measure/1",)
+VERIFY_SCHEMA_PREFIX = ("su-presence/verify/", "su-multi-geo/verify/")
 
 REMEASURE_DAYS = 14      # ops/measure.md 3번 — 변경 후 14일 뒤 재측정
 STALE_DAYS = 30          # ops/measure.md 4번 — 이보다 오래된 기준선은 경고한다
@@ -194,7 +199,7 @@ def measure_cohort(summary: dict) -> dict:
     cohort_rows.sort(key=lambda c: tuple(str(c.get(k) or "") for k in
                                          ("engine", "mode", "surface", "locale", "login_state",
                                           "search_enabled", "model", "campaign_id")))
-    return {"schema_family": "v2" if schema == "su-multi-geo/measure/2" else "legacy-v1",
+    return {"schema_family": "v2" if schema in SUMMARY_V2_SCHEMAS else "legacy-v1",
             "query_set": qset.get("fingerprint"),
             "scope": (summary.get("window") or {}).get("scope"),
             "surfaces": conditions.get("surfaces"),
@@ -241,7 +246,8 @@ def load_index(outdir: str, host: str = "") -> dict:
     path = index_path(outdir)
     if os.path.exists(path):
         index = load_json(path)
-        if index.get("schema") != SCHEMA_HISTORY or not isinstance(index.get("snapshots"), list):
+        if (index.get("schema") not in (SCHEMA_HISTORY,) + LEGACY_HISTORY_SCHEMAS
+                or not isinstance(index.get("snapshots"), list)):
             raise SystemExit("지원하지 않거나 손상된 history index: %s" % path)
         if host and index.get("host") and index["host"].lower() != host.lower():
             raise SystemExit("history host 불일치: %s != %s" % (index["host"], host))
@@ -321,10 +327,9 @@ def validate_snapshot_payload(kind: str, payload: dict, host: str, src: str) -> 
     if not isinstance(payload, dict):
         raise SystemExit("%s JSON 객체가 아니다: %s" % (kind, src))
     schema = str(payload.get("schema") or "")
-    valid = ((kind == "audit" and schema.startswith("su-multi-geo/audit/")) or
-             (kind == "measure" and schema in ("su-multi-geo/measure/1",
-                                                 "su-multi-geo/measure/2")) or
-             (kind == "verify" and schema.startswith("su-multi-geo/verify/")))
+    valid = ((kind == "audit" and schema.startswith(AUDIT_SCHEMA_PREFIX)) or
+             (kind == "measure" and schema in SUMMARY_SCHEMAS) or
+             (kind == "verify" and schema.startswith(VERIFY_SCHEMA_PREFIX)))
     if not valid:
         raise SystemExit("%s 스키마가 아니다: %s (%s)" % (kind, schema or "없음", src))
     payload_host = ((payload.get("target") or {}).get("host") or "").lower()

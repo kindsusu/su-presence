@@ -40,9 +40,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import crawl  # noqa: E402  (normalize·robots 파서·길이 기준을 그대로 쓴다)
 
-SCHEMA_PREFIX = "su-multi-geo/audit/"
+SCHEMA_PREFIX = ("su-presence/audit/", "su-multi-geo/audit/")
 TODO = "<<TODO: %s>>"
-OWNERSHIP_MANIFEST = ".su-multi-geo-generated.json"
+OWNERSHIP_MANIFEST = ".su-presence-generated.json"
+# 옛 배포본에 남은 manifest 도 읽는다 — 못 읽으면 우리가 만든 파일을 못 알아본다.
+LEGACY_OWNERSHIP_MANIFESTS = (".su-multi-geo-generated.json",)
+OWNERSHIP_SCHEMAS = ("su-presence/generated-files/1",
+                     "su-multi-geo/generated-files/1")
 JSONLD_MANIFEST = "jsonld/manifest.json"
 
 # 사이트맵 한도(5만 URL·50MB)에 여유를 둔 분할 기준
@@ -657,7 +661,7 @@ def gen_jsonld(ctx: Ctx) -> None:
         manifest[name] = url
 
     ctx.write_json(JSONLD_MANIFEST, {
-        "schema": "su-multi-geo/jsonld-manifest/1", "files": manifest})
+        "schema": "su-presence/jsonld-manifest/1", "files": manifest})
 
     ctx.notes["jsonld_made"] = made
     ctx.notes["jsonld_pages"] = {url: len(objs) for url, objs in per_page.items()}
@@ -938,7 +942,7 @@ def _read_ownership_manifest(outdir: str) -> dict:
     try:
         with open(path, encoding="utf-8") as fh:
             obj = json.load(fh)
-        return obj if obj.get("schema") == "su-multi-geo/generated-files/1" else {}
+        return obj if obj.get("schema") in OWNERSHIP_SCHEMAS else {}
     except (OSError, ValueError, TypeError, AttributeError):
         return {}
 
@@ -964,7 +968,7 @@ def _finalize_owned_files(ctx: Ctx, old: dict, sub: str) -> None:
         path = os.path.abspath(os.path.join(ctx.outdir, rel))
         if path.startswith(root) and os.path.isfile(path):
             os.remove(path)
-    manifest = {"schema": "su-multi-geo/generated-files/1", "files": sorted(final)}
+    manifest = {"schema": "su-presence/generated-files/1", "files": sorted(final)}
     path = os.path.join(ctx.outdir, OWNERSHIP_MANIFEST)
     os.makedirs(ctx.outdir, exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as fh:

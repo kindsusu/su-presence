@@ -738,7 +738,7 @@ def main(argv=None) -> int:
 
     with open(args.audit, encoding="utf-8") as fh:
         report = json.load(fh)
-    if not str(report.get("schema", "")).startswith("su-multi-geo/audit/"):
+    if not str(report.get("schema", "")).startswith(("su-presence/audit/", "su-multi-geo/audit/")):
         sys.stderr.write("audit.json 스키마가 아니다: %s\n" % report.get("schema"))
         return 1
 

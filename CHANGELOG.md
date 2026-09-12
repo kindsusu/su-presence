@@ -5,6 +5,28 @@
 
 ## [Unreleased]
 
+### 스키마 식별자 이행 — su-multi-geo/… → su-presence/…
+
+이름 변경(위 항목) 때 **데이터에 박힌 식별자는 일부러 동결**했다. 이제 이행한다.
+**쓰기는 새 이름, 읽기는 신·구 둘 다.**
+
+| 옮긴 것 | |
+|---|---|
+| 스키마 16종 | `audit/1` `queries/2` `measure-row/2` `measure/2` `verify/1` `history/1` `drift/1` `status/1` `jsonld-manifest/1` `generated-files/1` |
+| 크롤러 UA | `su-multi-geo-audit/2.0` → `su-presence-audit/2.1` (`crawl.py`·`audit.sh` 동일) |
+| 소유권 manifest | `.su-multi-geo-generated.json` → `.su-presence-generated.json` (옛 파일명도 읽는다) |
+| 브라우저 저장 키 | `su-multi-geo:measure:` → `su-presence:measure:` |
+
+**읽기 호환을 잃으면 기존 기준선이 에러 없이 조용히 사라진다** — 도구가 파일을
+"우리 것이 아니다" 로 판정하고 버리기 때문이다. 특히 `drift.py` 의 history 인덱스가
+그렇다. 실제 09-11 기준선으로 읽기를 확인했고 수치가 동일했다.
+
+`tests/test_legacy_schemas.py` 신설 — 쓰기가 새 이름인지, 읽기가 옛 이름을 받는지,
+그리고 **엉뚱한 스키마는 여전히 거부하는지**까지 본다. 총 315 테스트.
+
+> 앞 항목의 "바꾸지 않은 것" 표는 이 커밋으로 해소됐다. 남은 것은 **브라우저 저장 키를
+> 바꾸면서 진행 중이던 수동 폼 입력이 한 번 날아간다**는 점뿐이다 (폼을 다시 열면 된다).
+
 ### 이름 변경 — su-multi-geo → su-presence
 
 `multi-geo` 는 GEO 한 레인만 가리키는데 실제로는 SEO·AEO·GEO·LLMO·NEO·KEO 일곱을 다룬다.

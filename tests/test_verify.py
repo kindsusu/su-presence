@@ -159,7 +159,7 @@ class TestHealthyDeploy(DeployBase):
 
     def test_all_green(self):
         result = self.run_verify()
-        self.assertEqual(result["schema"], "su-multi-geo/verify/1")
+        self.assertEqual(result["schema"], verify.SCHEMA)
         self.assertEqual(result["mode"], "deploy")
         self.assertEqual(result["summary"]["fail"], 0, result["checks"])
         self.assertEqual(result["exit_code"], 0)

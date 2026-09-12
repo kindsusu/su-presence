@@ -22,6 +22,18 @@ git diff --check
 
 Tests use synthetic fixtures and local HTTP servers. They do not need paid API keys or external
 site access. On Windows use Git Bash for the shell command; Python commands work in PowerShell.
+
+The suite runs from any working directory — point discovery at an absolute path when checking an
+installed copy of the skill:
+
+```bash
+python -m unittest discover /path/to/su-presence/tests -q
+```
+
+`tests/test_suite_is_portable.py` guards this. Two modules once imported the `tests` package
+without putting the repository root on `sys.path`, so they only worked when the current directory
+happened to be the repository root; elsewhere 21 tests vanished with an import error while the
+rest still passed — **it looked like a green run.**
 CI runs the suite on Ubuntu, Windows and macOS with Python 3.10, 3.12 and 3.13.
 
 ## Changes and reviews

@@ -290,7 +290,7 @@ python tools/verify.py diff out/example.com/audit.json out/after/example.com/aud
 
 ```bash
 python tools/measure.py init   out/example.com/audit.json
-python tools/measure.py form   out/example.com/audit.json --engines chatgpt,google_aio --runs 5
+python tools/measure.py form   out/example.com/audit.json --engines chatgpt,gemini,claude,perplexity --runs 5
 python tools/measure.py import out/example.com/audit.json out/example.com/measure/form-2026-09-15.csv
 python tools/measure.py report out/example.com/audit.json
 python tools/measure.py report out/example.com/audit.json --since 2026-09-01 --until 2026-09-30 --cumulative
@@ -308,7 +308,7 @@ python tools/measure.py auto   out/example.com/audit.json --engines chatgpt,clau
 | `report` | 로그 집계 — 엔진별 인용률·인용 URL 빈도·추이·재측정일 | `summary.json` + `MEASURE.md` |
 | `auto` | **선택.** 환경변수에 키가 있을 때만 ChatGPT·Claude 자동 질의 | `log.jsonl`에 append |
 
-옵션: `--engines`(쉼표 구분, 기본 `chatgpt,google_aio`) · `--runs`(기본 5) ·
+옵션: `--engines`(쉼표 구분, 기본은 **브라우저 조작이 필요한 대화형 엔진만** — `chatgpt,gemini,claude,perplexity`. 네이버·다음·구글 AI개요는 `collect.py` 가 무인으로 잰다) · `--runs`(기본 5) ·
 `--date YYYY-MM-DD`(기본 오늘) · `--since`·`--until`·`--cumulative`(report) ·
 `--delay`·`--yes`(auto).
 

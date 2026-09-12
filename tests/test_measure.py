@@ -107,6 +107,30 @@ class TestHelpers(unittest.TestCase):
         self.assertFalse(measure.is_ours("https://competitor.com/a", HOST))
         self.assertFalse(measure.is_ours("https://notexample.com/a", HOST))
 
+    def test_web_search_variant_follows_the_model(self):
+        """2026-02 변형은 현세대 모델 전용이다. 옛 모델에 보내면 400 이 난다."""
+        self.assertEqual(measure.anthropic_web_search("claude-sonnet-5")["type"],
+                         measure.WEB_SEARCH_MODERN)
+        self.assertEqual(measure.anthropic_web_search("claude-3-5-sonnet")["type"],
+                         measure.WEB_SEARCH_BASIC)
+
+    def test_default_models_are_priced(self):
+        """기본 모델이 가격표에 없으면 비용 추정이 조용히 사라진다."""
+        for model in (measure.OPENAI_MODEL_DEFAULT, measure.ANTHROPIC_MODEL_DEFAULT):
+            self.assertIn(model, measure.PRICES, "%s 가 PRICES 에 없다" % model)
+
+    def test_cost_estimate_is_a_range_and_scales(self):
+        lo, hi = measure.estimate_cost("claude", "claude-sonnet-5", 40)
+        self.assertLess(lo, hi)
+        lo2, hi2 = measure.estimate_cost("claude", "claude-sonnet-5", 80)
+        self.assertAlmostEqual(lo2, lo * 2, places=6)
+        self.assertAlmostEqual(hi2, hi * 2, places=6)
+
+    def test_unknown_model_estimates_nothing(self):
+        """모르는 가격을 지어내면 추정이 없는 것보다 나쁘다."""
+        self.assertIsNone(measure.estimate_cost("claude", "claude-sonnet-4-5", 40))
+        self.assertIsNone(measure.estimate_cost("claude", "claude-sonnet-5", 0))
+
     def test_pick_engines(self):
         self.assertEqual(measure.pick_engines(None), (measure.DEFAULT_ENGINES, []))
         self.assertEqual(measure.pick_engines("chatgpt,gemini"), (["chatgpt", "gemini"], []))
@@ -169,10 +193,21 @@ class TestForm(Fixture):
         self.assertEqual(rows[0]["date"], "2026-09-15")
         self.assertEqual(rows[0]["query_text"], "예시 브랜드 요금")
 
-    def test_default_engines_are_the_priority_two(self):
+    def test_form_defaults_to_engines_a_human_must_drive(self):
+        """무인 수집되는 엔진을 폼 기본값에 넣으면 이미 자동화된 일을 사람에게 시킨다."""
         self.run_cli(["form", self.audit, "--date", "2026-09-15"])
         rows = list(csv.DictReader(io.StringIO(self.read("form-2026-09-15.csv").lstrip("﻿"))))
-        self.assertEqual(sorted({r["engine"] for r in rows}), ["chatgpt", "google_aio"])
+        engines = sorted({r["engine"] for r in rows})
+        self.assertEqual(engines, sorted(measure.DEFAULT_ENGINES))
+        overlap = sorted(set(engines) & set(measure.COLLECTED_ENGINES))
+        self.assertEqual(overlap, [],
+                         "collect.py 가 무인으로 재는 엔진이 폼 기본값에 있다: %s" % overlap)
+
+    def test_explicitly_named_collected_engine_is_kept(self):
+        """사람이 일부러 적은 엔진을 말없이 버리지 않는다 — 안내만 덧붙인다."""
+        self.run_cli(["form", self.audit, "--engines", "google_aio", "--date", "2026-09-15"])
+        rows = list(csv.DictReader(io.StringIO(self.read("form-2026-09-15.csv").lstrip("﻿"))))
+        self.assertEqual(sorted({r["engine"] for r in rows}), ["google_aio"])
 
     def test_html_form_is_offline_and_has_rules(self):
         self.run_cli(["form", self.audit, "--engines", "chatgpt", "--runs", "5",
@@ -510,7 +545,9 @@ class TestAuto(Fixture):
                                 send=send, delay=0, date_str="2026-09-15")
         got = rows[0]
         self.assertEqual(send.calls[0]["url"], measure.ANTHROPIC_URL)
-        self.assertEqual(send.calls[0]["payload"]["tools"][0]["type"], "web_search_20250305")
+        # 도구 변형은 모델을 따라간다 — 기본 모델이 현세대면 현세대 변형이어야 한다
+        self.assertEqual(send.calls[0]["payload"]["tools"][0]["type"],
+                         measure.anthropic_web_search(measure.ANTHROPIC_MODEL_DEFAULT)["type"])
         self.assertEqual(send.calls[0]["headers"]["anthropic-version"],
                          measure.ANTHROPIC_VERSION)
         self.assertEqual(got["cited_urls"], ["https://example.com/faq"])   # 검색결과는 제외

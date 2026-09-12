@@ -62,7 +62,7 @@ The audit writes `out/<host>/audit.json` and `report.html`. It honours applicabl
 python tools/seo_geo.py audit https://example.com --out out
 python tools/seo_geo.py measure init out/example.com/audit.json
 python tools/seo_geo.py measure form out/example.com/audit.json \
-  --engines chatgpt,google_aio --runs 5
+  --engines chatgpt,gemini,claude,perplexity --runs 5
 python tools/seo_geo.py measure import out/example.com/audit.json \
   out/example.com/measure/form-YYYY-MM-DD-filled.csv
 python tools/seo_geo.py measure report out/example.com/audit.json
@@ -91,7 +91,7 @@ On a later date, use the same query cohort and conditions. Re-audit, import the 
 ```bash
 python tools/seo_geo.py audit https://example.com --out out
 python tools/seo_geo.py measure form out/example.com/audit.json \
-  --engines chatgpt,google_aio --runs 5
+  --engines chatgpt,gemini,claude,perplexity --runs 5
 python tools/seo_geo.py measure import out/example.com/audit.json \
   out/example.com/measure/form-YYYY-MM-DD-filled.csv
 python tools/seo_geo.py measure report out/example.com/audit.json

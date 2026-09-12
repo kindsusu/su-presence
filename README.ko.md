@@ -62,7 +62,7 @@ python tools/seo_geo.py audit https://example.com --out out
 python tools/seo_geo.py audit https://example.com --out out
 python tools/seo_geo.py measure init out/example.com/audit.json
 python tools/seo_geo.py measure form out/example.com/audit.json \
-  --engines chatgpt,google_aio --runs 5
+  --engines chatgpt,gemini,claude,perplexity --runs 5
 python tools/seo_geo.py measure import out/example.com/audit.json \
   out/example.com/measure/form-YYYY-MM-DD-filled.csv
 python tools/seo_geo.py measure report out/example.com/audit.json
@@ -94,7 +94,7 @@ python tools/seo_geo.py verify deploy out/example.com/audit.json
 ```bash
 python tools/seo_geo.py audit https://example.com --out out
 python tools/seo_geo.py measure form out/example.com/audit.json \
-  --engines chatgpt,google_aio --runs 5
+  --engines chatgpt,gemini,claude,perplexity --runs 5
 python tools/seo_geo.py measure import out/example.com/audit.json \
   out/example.com/measure/form-YYYY-MM-DD-filled.csv
 python tools/seo_geo.py measure report out/example.com/audit.json

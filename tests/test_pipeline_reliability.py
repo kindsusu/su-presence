@@ -4,8 +4,15 @@
 import json
 import os
 import shutil
+import sys
 import tempfile
 import unittest
+
+# `tests` 패키지는 저장소 루트가, 도구는 tools/ 가 경로에 있어야 import 된다.
+# 다른 모듈이 먼저 경로를 넣어주길 기대하지 않는다 — 이 파일 하나만 돌려도 동작해야 한다.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+sys.path.insert(0, ROOT)
 
 from tests import test_generate as genfix
 from tests import test_verify as verfix

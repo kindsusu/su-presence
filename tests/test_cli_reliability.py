@@ -8,7 +8,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+# `tests` 패키지를 import 하려면 **저장소 루트**가 경로에 있어야 한다.
+# 루트에서 실행할 때만 cwd 덕에 우연히 되던 것을 명시한다 — 설치된 스킬처럼
+# 다른 위치에서 돌려도 같은 결과가 나와야 한다.
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT))
 import seo_geo
 import report
 from tests.test_report import AUDIT

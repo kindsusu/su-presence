@@ -113,7 +113,7 @@ save it as `-filled.csv`, or pass the actual saved filename to `import`.
 | `generate` | `deploy/`, `DEPLOY.md` | Reviewable deployment drafts, never a completed deployment |
 | `verify deploy` | `verify.json`, `VERIFY.md` | Live-response checks after deployment; exit `1` is a verified failure and `2` is incomplete or invalid scope |
 | `measure` | manual form, `log.jsonl`, `summary.json`, `MEASURE.md` | Repeated citation observations for a fixed cohort; API and web UI are separate surfaces |
-| `collect.py` | rows in `measure/log.jsonl` | **Gap-free collection across every surface.** Unattended for Naver / Daum / Google AI Overviews; `--browser` reserves the login-walled engines as `unmeasured` and prints what to sign into; `--record` takes the browser result back into the same log; `--coverage` names the blanks. A truncated response is recorded as `unmeasured`, never as a zero |
+| `collect.py` | rows in `measure/log.jsonl` | **Gap-free collection across every surface.** Naver, Daum, and Google AI Overviews are unattended; `--browser` reserves login-walled engines as `unmeasured`; `--record` returns browser observations to the same log; `--coverage` names blanks. A truncated response, unavailable AI-source boundary, or source-fetch/parse failure is `unmeasured`, never zero. Organic search-result links are not AI citations. |
 | `drift` | immutable `history/`, `drift.json`, `DRIFT.md` | Compared snapshots and a due date; `next_due` does not schedule work |
 
 The plugin metadata version is **2.0.0**. Reliability and workflow changes on `main` are documented under [Unreleased in the changelog](CHANGELOG.md); this does not imply a published GitHub release or a version bump.
@@ -133,11 +133,13 @@ The plugin metadata version is **2.0.0**. Reliability and workflow changes on `m
 - Python 3.10+ standard library only; `tools/audit.sh` additionally needs bash and curl.
 - The audit reads raw HTTP HTML. It does not prove JavaScript rendering, vendor index state, rankings, or citations.
 - Citation is observed through a fixed, repeated query cohort. It is never guaranteed by technical readiness; errors and unmeasured rows are kept separate from non-citations.
+- Automated and browser rows made by `collect.py` carry a query fingerprint and campaign. Current and legacy v2 rows whose fingerprint is blank or no longer matches the query are excluded from aggregation and reported as incompatible; preserve those logs and re-measure them. Legacy v1 remains readable.
 - **Measurement coverage is written next to the number.** Full sweep (`0/7`), representative query (`0 hits`) and not-measured are distinct; a partial sweep is never written as a full one.
 - **A `0` may be your own tooling.** Bursts of repeated requests make search engines return truncated pages. A response that fails the sanity gate is recorded as a failed measurement, not as zero.
 - Engines that require sign-in (ChatGPT, Gemini, Claude) are measured in each service's **temporary / incognito mode**. Anything the model drew from the account profile is not a web citation and is excluded from the tally.
 - Naver (NEO) and Daum/Kakao (KEO) are **separate first-class lanes** — different crawler tokens, ownership proof and AI models. Citation measurement for both is automated in `tools/collect.py`. Registration, third-party reputation, and production deployment still require human decisions and access.
-- The bounded crawl defaults to 300 pages. If coverage is incomplete, the generator will not produce a replacement sitemap.
+- The bounded crawl defaults to 300 pages. A failed declared sitemap or sitemap-index child makes coverage incomplete and blocks a replacement sitemap; an undeclared default sitemap returning 404 or 410 is optional.
+- Mirror checks distinguish root `noindex`, robots-blocked, unrestricted, and unknown states; they do not prove every mirror host is indexable. A normal `www` to apex redirect is connectivity, not failure.
 
 Run the local test suite with:
 

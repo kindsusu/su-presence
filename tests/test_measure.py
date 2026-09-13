@@ -352,10 +352,12 @@ class TestImport(Fixture):
 # ─────────────────────────────────────────────────────────── report
 
 def log_row(date, qid, engine, run_no, cited, urls=(), mentioned=None, comps=(), mode="manual"):
+    query = next((q for q in QUERIES if q["id"] == qid), None)
     return measure.make_row(date, qid, engine, run_no, mode,
                             True if mode == "manual" else None,
                             cited, list(urls),
-                            cited if mentioned is None else mentioned, list(comps))
+                            cited if mentioned is None else mentioned, list(comps),
+                            query_fingerprint_value=measure.query_fingerprint(query) if query else "")
 
 
 class TestReport(Fixture):

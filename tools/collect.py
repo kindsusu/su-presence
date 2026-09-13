@@ -37,6 +37,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import unicodedata
+from html.parser import HTMLParser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -77,6 +78,10 @@ BROWSER_ENGINES = {
 
 class Throttled(RuntimeError):
     """축소 응답 — 측정값으로 쓰면 안 된다."""
+
+
+class Unmeasured(RuntimeError):
+    """출처나 판정 경계를 읽지 못해 측정값으로 확정할 수 없는 응답."""
 
 
 # ───────────────────────────────────────────────────────────── HTTP
@@ -155,12 +160,49 @@ def visible(html):
     return re.sub(r"<!--.*?-->", " ", html, flags=re.S)
 
 
-def seen(html, host):
-    return bool(re.search(re.escape(host), visible(html), re.I))
+class _VisibleText(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.suppressed = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() in ("title", "form", "textarea"):
+            self.suppressed += 1
+
+    def handle_startendtag(self, tag, attrs):
+        return
+
+    def handle_endtag(self, tag):
+        if tag.lower() in ("title", "form", "textarea") and self.suppressed:
+            self.suppressed -= 1
+
+    def handle_data(self, data):
+        if not self.suppressed:
+            self.parts.append(data)
+
+
+def visible_text(html):
+    """태그 속성·스크립트가 아닌 실제 텍스트 노드만 돌려준다."""
+    parser = _VisibleText()
+    parser.feed(visible(html))
+    return " ".join(parser.parts)
+
+
+def seen(html, host, query=""):
+    text = visible_text(html)
+    def keep_owned_url(match):
+        return match.group(0) if measure.is_ours(match.group(0), host) else " "
+    text = re.sub(r"https?://[^\s<>'\"]+", keep_owned_url, text, flags=re.I)
+    labels = [re.escape(x) for x in measure.bare(host).split(".") if x]
+    if not labels:
+        return False
+    hostname = r"(?:[a-z0-9-]+\.)*" + r"\.".join(labels)
+    return bool(re.search(r"(?<![a-z0-9-])" + hostname + r"(?![a-z0-9.-])", text, re.I))
 
 
 def cited_urls_in(urls, host):
-    return [u for u in urls if host.lower() in u.lower()]
+    return [u for u in urls if measure.is_ours(u, host)]
 
 
 def domains_of(urls):
@@ -177,13 +219,78 @@ def domains_of(urls):
     return sorted(set(out))
 
 
+class _GoogleAioSources(HTMLParser):
+    """명시적인 AI 개요 컨테이너 안의 링크만 모은다."""
+
+    VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input",
+                 "link", "meta", "param", "source", "track", "wbr"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack = []
+        self.sources = []
+        self.found_boundary = False
+        self.closed_boundary = False
+        self.invalid_boundary = False
+
+    @staticmethod
+    def _is_boundary(attrs):
+        values = {k.lower(): str(v or "") for k, v in attrs}
+        attrid = values.get("data-attrid", "").lower()
+        return attrid == "sgeanswer"
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if self.stack:
+            if tag not in self.VOID_TAGS:
+                self.stack.append(tag)
+        elif self._is_boundary(attrs):
+            self.stack = [tag]
+            self.found_boundary = True
+        if self.stack and tag == "a":
+            href = dict(attrs).get("href")
+            if href and href.startswith(("http://", "https://")):
+                self.sources.append(href)
+
+    def handle_startendtag(self, tag, attrs):
+        if self.stack and tag.lower() == "a":
+            href = dict(attrs).get("href")
+            if href and href.startswith(("http://", "https://")):
+                self.sources.append(href)
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if not self.stack:
+            return
+        if self.stack[-1] != tag:
+            self.invalid_boundary = True
+            return
+        self.stack.pop()
+        if not self.stack:
+            self.closed_boundary = True
+
+
+def google_aio_sources(html):
+    parser = _GoogleAioSources()
+    parser.feed(html)
+    if (not parser.found_boundary or not parser.closed_boundary or parser.stack or
+            parser.invalid_boundary):
+        raise Unmeasured("google AI 개요 출처 컨테이너를 판정할 수 없다")
+    sources = [u for u in parser.sources
+               if not measure.is_ours(u, "google.com") and
+               not measure.is_ours(u, "gstatic.com")]
+    if not sources:
+        raise Unmeasured("google AI 개요 출처 링크를 확인할 수 없다")
+    return sources
+
+
 # ─────────────────────────────────────────────────────────── 엔진
 
 def naver(q, host):
     """네이버 자연검색 + AI 브리핑. 모바일 기준 (네이버는 모바일 우선)."""
     url = "https://m.search.naver.com/search.naver?query=" + urllib.parse.quote(q)
     html = _gate("naver", _get(url, UA_MO), q)
-    organic = seen(html, host)
+    organic = seen(html, host, q)
 
     fired = bool(re.search(r'data-block-id="ai-briefing/', html))
     sources = []
@@ -194,30 +301,51 @@ def naver(q, host):
             ref = "https://m.search.naver.com/search.naver?query=" + urllib.parse.quote(q)
             try:
                 body = _get(api, UA_MO, referer=ref, accept="text/event-stream", timeout=45)
-            except Exception:
-                body = ""
+            except Exception as exc:
+                raise Unmeasured("naver AI 브리핑 출처 API 실패: %s" % exc.__class__.__name__) from exc
             ev = None
+            got_sources_event = False
             for line in body.splitlines():
                 if line.startswith("event:"):
                     ev = line[6:].strip()
                     continue
                 if not line.startswith("data:") or ev != "sources":
                     continue
+                got_sources_event = True
                 try:
                     arr = json.loads(line[5:].strip())
-                except Exception:
-                    continue
-                if isinstance(arr, list):
-                    sources += [x["url"] for x in arr
-                                if isinstance(x, dict) and x.get("url")]
+                except (TypeError, ValueError) as exc:
+                    raise Unmeasured("naver AI 브리핑 sources JSON이 유효하지 않다") from exc
+                if not isinstance(arr, list):
+                    raise Unmeasured("naver AI 브리핑 sources가 배열이 아니다")
+                for item in arr:
+                    if not isinstance(item, dict) or not isinstance(item.get("url"), str):
+                        raise Unmeasured("naver AI 브리핑 source 항목이 유효하지 않다")
+                    parts = urllib.parse.urlsplit(item["url"])
+                    if parts.scheme not in ("http", "https") or not parts.netloc:
+                        raise Unmeasured("naver AI 브리핑 source URL이 유효하지 않다")
+                    sources.append(item["url"])
+            if not got_sources_event:
+                raise Unmeasured("naver AI 브리핑 sources 이벤트가 없다")
         else:
             m2 = re.search(r'"sources"\s*:\s*(\[.*?\])\s*[,}]', html, flags=re.S)
             if m2:
                 try:
-                    sources = [x.get("url", "") for x in json.loads(m2.group(1))
-                               if isinstance(x, dict)]
-                except Exception:
-                    pass
+                    parsed = json.loads(m2.group(1))
+                    if not isinstance(parsed, list):
+                        raise ValueError("sources is not a list")
+                    sources = []
+                    for item in parsed:
+                        if not isinstance(item, dict) or not isinstance(item.get("url"), str):
+                            raise ValueError("invalid source item")
+                        parts = urllib.parse.urlsplit(item["url"])
+                        if parts.scheme not in ("http", "https") or not parts.netloc:
+                            raise ValueError("invalid source URL")
+                        sources.append(item["url"])
+                except (TypeError, ValueError) as exc:
+                    raise Unmeasured("naver AI 브리핑 내장 sources JSON이 유효하지 않다") from exc
+            else:
+                raise Unmeasured("naver AI 브리핑 출처 경로를 찾지 못했다")
     return organic, fired, [u for u in sources if u]
 
 
@@ -225,7 +353,7 @@ def daum(q, host):
     """다음 웹검색 + AI 요약. 단순 HTTP 는 축소 SERP 를 준다 — 렌더링 DOM 을 쓴다."""
     url = "https://search.daum.net/search?w=tot&q=" + urllib.parse.quote(q)
     html = _gate("daum", _render(url), q)
-    organic = seen(html, host)
+    organic = seen(html, host, q)
     fired = bool(re.search(r'disp-attr="AIO"|aioColl', html))
     sources = re.findall(r'"url"\s*:\s*"([^"]+)"\s*,\s*"gsid"', html) if fired else []
     return organic, fired, sources
@@ -238,14 +366,12 @@ def google(q, host):
     if re.search(r"recaptcha|비정상적인 트래픽", html, re.I):
         raise Throttled("google CAPTCHA — 사람이 확인해야 한다. 0으로 기록하지 않는다.")
     html = _gate("google", html, q)
-    organic = seen(html, host)
-    vis = visible(html)
+    organic = seen(html, host, q)
+    vis = visible_text(html)
     fired = "AI 개요" in vis
     sources = []
     if fired:
-        raw = re.findall(r'href="(https?://[^"]+)"', html)
-        sources = [u for u in raw
-                   if "google." not in u and "gstatic" not in u][:40]
+        sources = google_aio_sources(html)
     return organic, fired, sources
 
 
@@ -364,7 +490,7 @@ UNATTENDED = (("naver_ai", "네이버", naver),
 
 # ─────────────────────────────────────────────────────────── 실행
 
-def record_one(a, mdir, host, today) -> int:
+def record_one(a, mdir, host, today, queries) -> int:
     """브라우저에서 잰 한 건을 무인 수집분과 같은 로그·같은 스키마로 적는다.
 
     로그인 벽은 '측정 불가'가 아니라 '사람이 로그인, 에이전트가 측정'이다.
@@ -377,11 +503,20 @@ def record_one(a, mdir, host, today) -> int:
     if not a.query:
         sys.stderr.write("--record 에는 --query <질의 id> 가 필요하다\n")
         return 2
+    qindex = {q["id"]: q for q in queries}
+    if a.query not in qindex:
+        sys.stderr.write("queries.json에 없는 질의 id: %s\n" % a.query)
+        return 2
 
-    ours = [u.strip() for u in a.cited.split(",") if u.strip()]
+    supplied = [u.strip() for u in a.cited.split(",") if u.strip()]
+    ours = [u for u in supplied if measure.is_ours(u, host)]
     foreign = [d for d in (x.strip() for x in a.competitors.split(",")) if d]
-    if ours and not any(measure.is_ours(u, host) for u in ours):
-        sys.stderr.write("경고: --cited 중 %s 도메인이 하나도 없다. 우리 URL 인지 확인하라\n" % host)
+    if supplied and not ours:
+        sys.stderr.write("--cited에 %s 소유 URL이 없다\n" % host)
+        return 2
+
+    campaign = measure.query_set_fingerprint(queries)[:16]
+    query = qindex[a.query]
 
     row = measure.make_row(
         today, a.query, a.record, a.run, "browser",
@@ -390,7 +525,8 @@ def record_one(a, mdir, host, today) -> int:
         note=a.note or "브라우저 측정",
         outcome="observed", surface=a.record,
         login_state={"in": "signed_in", "out": "signed_out", "unknown": "unknown"}[a.login],
-        search_enabled={"on": True, "off": False, "unknown": None}[a.search])
+        search_enabled={"on": True, "off": False, "unknown": None}[a.search],
+        campaign_id=campaign, query_fingerprint_value=measure.query_fingerprint(query))
 
     log = os.path.join(mdir, "log.jsonl")
     measure.append_rows(log, [row])
@@ -455,7 +591,7 @@ def main(argv=None) -> int:
 
     today = measure.today_str()
     if a.record:                       # 되받기·점검은 실행 계획을 찍을 일이 없다
-        return record_one(a, mdir, host, today)
+        return record_one(a, mdir, host, today, queries)
     if a.coverage:
         return coverage_report(audit, mdir)
 
@@ -465,31 +601,37 @@ def main(argv=None) -> int:
               % (a.runs, measure.MIN_RUNS_WARN))
 
     rows, tally = [], {}
+    campaign = measure.query_set_fingerprint(queries)[:16]
     for qi in queries:
         qid, qtext = qi.get("id"), qi.get("text", "")
         for engine, label, fn in UNATTENDED:
             for run in range(1, a.runs + 1):
                 try:
                     organic, fired, srcs = fn(qtext, host)
-                except Throttled as exc:
+                except (Throttled, Unmeasured) as exc:
                     print("  [중단] %s" % exc)
                     rows.append(measure.make_row(
                         today, qid, engine, run, "auto", True, None, [], False, [],
-                        note="스로틀·차단으로 미측정", outcome="unmeasured",
-                        error=str(exc)[:200], surface=engine, login_state="signed_out"))
+                        note="출처·응답 확인 불가로 미측정", outcome="unmeasured",
+                        error=str(exc)[:200], surface=engine, login_state="signed_out",
+                        campaign_id=campaign,
+                        query_fingerprint_value=measure.query_fingerprint(qi)))
                     break
                 except Exception as exc:                      # noqa: BLE001
                     rows.append(measure.make_row(
                         today, qid, engine, run, "auto", True, None, [], False, [],
                         note="수집 오류", outcome="error", error=str(exc)[:200],
-                        surface=engine, login_state="signed_out"))
+                        surface=engine, login_state="signed_out", campaign_id=campaign,
+                        query_fingerprint_value=measure.query_fingerprint(qi)))
                     break
                 ours = cited_urls_in(srcs, host)
                 rows.append(measure.make_row(
                     today, qid, engine, run, "auto", True, bool(ours), ours,
-                    organic, [d for d in domains_of(srcs) if host not in d],
+                    organic, [d for d in domains_of(srcs) if not measure.is_ours(d, host)],
                     note=("AI 답변 발동" if fired else "AI 답변 미발동"),
-                    outcome="observed", surface=engine, login_state="signed_out"))
+                    outcome="observed", surface=engine, login_state="signed_out",
+                    campaign_id=campaign,
+                    query_fingerprint_value=measure.query_fingerprint(qi)))
                 slot = tally.setdefault((qid, engine),
                                         {"obs": 0, "organic": 0, "fired": 0, "cited": 0})
                 slot["obs"] += 1
@@ -516,7 +658,9 @@ def main(argv=None) -> int:
             rows.append(measure.make_row(
                 today, qi.get("id"), key, 1, "browser", None, None, [], False, [],
                 note="로그인 브라우저 필요 — 에이전트가 이어서 측정",
-                outcome="unmeasured", surface=key, login_state="unknown"))
+                outcome="unmeasured", surface=key, login_state="unknown",
+                campaign_id=campaign,
+                query_fingerprint_value=measure.query_fingerprint(qi), reservation=True))
 
     # 저장이 출력보다 먼저다. 콘솔에서 죽어도 수집분은 디스크에 남아야 한다.
     log = os.path.join(mdir, "log.jsonl")

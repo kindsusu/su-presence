@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+### 2026-09-13 — 수집·측정 신뢰성 보강
+
+- robots.txt에 선언된 sitemap과 sitemap index가 참조한 자식은 필수로 확인한다. 이들 중 하나라도
+  실패하면 진단은 불완전하며 교체용 sitemap XML 생성을 보류한다. 선언되지 않은 기본 후보의
+  404·410은 선택적 부재로 허용한다.
+- Google은 AI Overview의 명시된 출처 영역만, 네이버는 유효한 AI 브리핑 출처만 인용으로 기록한다.
+  경계를 식별하지 못하거나 출처 조회·파싱이 실패하면 0건이 아니라 `unmeasured`다. URL은 hostname
+  경계로 비교한다.
+- `collect.py`가 만드는 자동·브라우저 측정 행에 질의 fingerprint와 campaign을 남기고, 현재 질의와 맞지 않거나 빈 fingerprint인
+  v2 행은 원본을 보존한 채 집계에서 제외한다. `quality.incompatible_rows`로 제외 수를 보고하며,
+  과거 빈 fingerprint 행은 재측정해야 한다. v1 읽기 호환은 유지한다.
+- 생성기는 새 manifest를 우선하고 실제 구형 manifest 파일명은 fallback으로 읽는다. 새 manifest는
+  원자적으로 저장하며 status는 신·구 파일명을 탐색한다. 선택적 provenance 필드를 추가했으며 호환 가능한 선택 필드라 schema 버전은
+  올리지 않았다.
+- 미러는 root의 `noindex`와 robots 차단·미차단·미확인을 구분한다. 모든 호스트의 색인 가능 여부를
+  단정하지 않으며, 정상 `www → apex` 리다이렉트는 접속 실패가 아니다.
+
 ### 스키마 식별자 이행 — su-multi-geo/… → su-presence/…
 
 이름 변경(위 항목) 때 **데이터에 박힌 식별자는 일부러 동결**했다. 이제 이행한다.

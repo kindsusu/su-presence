@@ -49,10 +49,17 @@ def audit(args):
 
 
 def status(args):
+    import generate
+
     audit_path = Path(args.audit).resolve()
     root = audit_path.parent
     result = {"schema": "su-presence/status/1", "audit": str(audit_path), "artifacts": {}}
-    names = {"audit": audit_path, "deploy": root / "deploy" / ".su-presence-generated.json",
+    deploy_dir = root / "deploy"
+    deploy_path = deploy_dir / generate.OWNERSHIP_MANIFEST
+    if not deploy_path.exists():
+        deploy_path = next((deploy_dir / name for name in generate.LEGACY_OWNERSHIP_MANIFESTS
+                            if (deploy_dir / name).exists()), deploy_path)
+    names = {"audit": audit_path, "deploy": deploy_path,
              "verify": root / "verify.json", "measure": root / "measure" / "summary.json",
              "drift": root / "drift.json"}
     for name, path in names.items():

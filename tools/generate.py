@@ -31,6 +31,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import urllib.parse
 from collections import Counter, OrderedDict
 from datetime import datetime, timezone
@@ -153,10 +154,45 @@ def sitemap_safety(ctx: Ctx, urls: list | None = None) -> dict:
     coverage = _coverage(ctx)
     known = _known_sitemap_urls(ctx)
     missing = sorted(set(known) - set(urls))
+    site = ctx.audit.get("site") or {}
+    declared = set()
+    for value in ((site.get("robots") or {}).get("sitemap_declared") or []):
+        try:
+            declared.add(crawl.normalize(value))
+        except (TypeError, ValueError):
+            continue
+    failed_sitemaps = []
+    default_paths = {crawl.normalize(ctx.base.rstrip("/") + "/" + name)
+                     for name in ("sitemap.xml", "sitemap_index.xml")}
+    for item in site.get("sitemaps") or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            normalized = crawl.normalize(item.get("url") or "")
+            was_declared = normalized in declared
+            was_default = normalized in default_paths
+        except (TypeError, ValueError):
+            was_declared = False
+            was_default = False
+        # 새 audit은 선언된 sitemap과 그 index 자식에 required=true를 기록한다.
+        # 기본 경로 외의 관측은 선언/index에서 발견된 URL이다. 과거 false-complete
+        # audit에서도 실패를 차단하고, 선택적 기본 경로의 명시적 부재만 허용한다.
+        optional_absence = (was_default and not was_declared and not item.get("required")
+                            and item.get("status") in (404, 410) and not item.get("error")
+                            and not item.get("truncated"))
+        if optional_absence:
+            continue
+        if (item.get("status") != 200 or item.get("error") or
+                item.get("parsed") is False or item.get("truncated")):
+            failed_sitemaps.append(item.get("url") or "(URL 없음)")
     if coverage and coverage.get("complete") is not True:
         reasons = coverage.get("reasons") or ["크롤 범위가 완전하지 않다"]
         return {"safe": False, "verified": True, "missing": missing,
                 "reason": "; ".join(str(x) for x in reasons)}
+    if failed_sitemaps:
+        return {"safe": False, "verified": True, "missing": missing,
+                "reason": "선언되거나 참조된 sitemap 확인 실패: %s" %
+                          ", ".join(failed_sitemaps)}
     if not coverage and missing:
         return {"safe": False, "verified": False, "missing": missing,
                 "reason": "완성도 정보가 없는 구형 audit에서 기존 sitemap URL 누락이 확인됐다"}
@@ -938,13 +974,19 @@ def run(sub: str, audit: dict, site: dict, outdir: str) -> Ctx:
 
 
 def _read_ownership_manifest(outdir: str) -> dict:
-    path = os.path.join(outdir, OWNERSHIP_MANIFEST)
-    try:
-        with open(path, encoding="utf-8") as fh:
-            obj = json.load(fh)
-        return obj if obj.get("schema") in OWNERSHIP_SCHEMAS else {}
-    except (OSError, ValueError, TypeError, AttributeError):
-        return {}
+    """새 manifest를 우선하고, 없을 때만 구형 파일명으로 이행한다."""
+    paths = [os.path.join(outdir, OWNERSHIP_MANIFEST)]
+    if not os.path.exists(paths[0]):
+        paths.extend(os.path.join(outdir, name) for name in LEGACY_OWNERSHIP_MANIFESTS)
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                obj = json.load(fh)
+            if obj.get("schema") in OWNERSHIP_SCHEMAS and isinstance(obj.get("files"), list):
+                return obj
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+    return {}
 
 
 def _category(rel: str) -> str:
@@ -969,11 +1011,19 @@ def _finalize_owned_files(ctx: Ctx, old: dict, sub: str) -> None:
         if path.startswith(root) and os.path.isfile(path):
             os.remove(path)
     manifest = {"schema": "su-presence/generated-files/1", "files": sorted(final)}
-    path = os.path.join(ctx.outdir, OWNERSHIP_MANIFEST)
     os.makedirs(ctx.outdir, exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="\n") as fh:
-        json.dump(manifest, fh, ensure_ascii=False, indent=2)
-        fh.write("\n")
+    path = os.path.join(ctx.outdir, OWNERSHIP_MANIFEST)
+    fd, temporary = tempfile.mkstemp(prefix=".generated-", dir=ctx.outdir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(manifest, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
 
 
 def load_json(path: str) -> dict:

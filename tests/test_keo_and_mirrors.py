@@ -114,7 +114,8 @@ class TestMirrorProbe(unittest.TestCase):
                    "mirrors": {"checked": ["dev.example.com"], "wildcard_suspect": False,
                                "found": [{"host": "dev.example.com", "status": 200,
                                           "final_url": "https://dev.example.com/",
-                                          "robots_blocks_all": False}]}}
+                                          "robots_blocks_all": False,
+                                          "indexability": "unrestricted"}]}}
         site = {"robots": {"status": 200, "present": True, "raw": "",
                            "policies": {}, "sitemap_declared": []},
                 "sitemaps": [], "sitemap_urls": [], "sitemap_vs_crawl": {},

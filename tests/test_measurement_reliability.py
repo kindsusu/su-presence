@@ -87,6 +87,82 @@ class MeasureV2(unittest.TestCase):
         self.assertEqual(result["rows"], 0)
         self.assertEqual(result["quality"]["incompatible_rows"], 1)
 
+    def test_legacy_v2_changed_fingerprint_is_excluded(self):
+        expected = measure.query_fingerprint(Q[0])
+        row = mrow("2026-09-05", 1, True)
+        row["schema"] = "su-multi-geo/measure-row/2"
+        row["query_fingerprint"] = measure.stable_hash("old question")
+        result = measure.aggregate([row], Q, HOST, BASE)
+        self.assertNotEqual(row["query_fingerprint"], expected)
+        self.assertEqual(result["rows"], 0)
+        self.assertEqual(result["quality"]["incompatible_rows"], 1)
+
+    def test_v2_blank_fingerprint_is_excluded(self):
+        row = mrow("2026-09-05", 1, True)
+        row["query_fingerprint"] = ""
+        result = measure.aggregate([row], Q, HOST, BASE)
+        self.assertEqual(result["rows"], 0)
+        self.assertEqual(result["quality"]["incompatible_rows"], 1)
+
+    def test_v1_without_fingerprint_remains_readable(self):
+        row = mrow("2026-09-05", 1, True)
+        row["schema"] = "su-multi-geo/measure-row/1"
+        row.pop("query_fingerprint")
+        result = measure.aggregate([row], Q, HOST, BASE)
+        self.assertEqual(result["rows"], 1)
+        self.assertEqual(result["quality"]["incompatible_rows"], 0)
+
+    def test_unmeasured_attempt_is_not_regression_eligible(self):
+        row = mrow("2026-09-05", 1, None, outcome="unmeasured")
+        result = measure.aggregate([row], Q, HOST, BASE)
+        self.assertEqual(result["quality"]["unmeasured"], 1)
+        self.assertFalse(result["quality"]["regression_eligible"])
+
+    def test_latest_ignores_old_incompatible_row_after_valid_remeasurement(self):
+        old = mrow("2026-09-01", 1, True)
+        old["query_fingerprint"] = ""
+        current = mrow("2026-09-15", 1, True)
+        result = measure.aggregate([old, current], Q, HOST, BASE, cumulative=False)
+        self.assertEqual(result["rows"], 1)
+        self.assertEqual(result["quality"]["incompatible_rows"], 0)
+        self.assertTrue(result["quality"]["regression_eligible"])
+
+    def test_latest_invalid_attempt_does_not_fall_back_to_previous_day(self):
+        old = mrow("2026-09-01", 1, True)
+        current = mrow("2026-09-15", 1, True)
+        current["query_fingerprint"] = ""
+        result = measure.aggregate([old, current], Q, HOST, BASE, cumulative=False)
+        self.assertEqual(result["rows"], 0)
+        self.assertEqual(result["quality"]["incompatible_rows"], 1)
+        self.assertEqual(result["window"]["latest"], "2026-09-15")
+        self.assertFalse(result["quality"]["regression_eligible"])
+        self.assertEqual(result["freshness"]["last_observed"], "2026-09-01")
+        self.assertEqual(result["next_measure"], "2026-09-15")
+
+    def test_unmeasured_attempt_does_not_refresh_last_observation(self):
+        row = mrow("2026-09-15", 1, None, outcome="unmeasured")
+        result = measure.aggregate([row], Q, HOST, BASE, cumulative=False)
+        self.assertEqual(result["window"]["latest"], "2026-09-15")
+        self.assertIsNone(result["freshness"]["last_observed"])
+        self.assertIsNone(result["next_measure"])
+
+    def test_fulfilled_reservation_is_hidden_but_other_unmeasured_is_kept(self):
+        campaign = "campaign-a"
+        fp = measure.query_fingerprint(Q[0])
+        reserved = mrow("2026-09-05", 1, None, mode="browser", outcome="unmeasured",
+                        login_state="unknown", campaign_id=campaign, reservation=True)
+        reserved["query_fingerprint"] = fp
+        observed = mrow("2026-09-05", 1, False, mode="browser", login_state="signed_in",
+                        campaign_id=campaign)
+        ordinary = mrow("2026-09-05", 2, None, mode="browser", outcome="unmeasured",
+                        login_state="unknown", campaign_id=campaign)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "log.jsonl")
+            measure.append_rows(path, [reserved, observed, ordinary])
+            rows = measure.load_log(path)
+        self.assertEqual([(r["run_no"], r["outcome"]) for r in rows],
+                         [(1, "observed"), (2, "unmeasured")])
+
 
 class DriftReliability(unittest.TestCase):
     def test_identical_detailed_cohort_is_comparable(self):

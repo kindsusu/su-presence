@@ -46,6 +46,62 @@ class GenerateReliability(unittest.TestCase):
                          ["https://example.com/orphan"])
         self.assertFalse(os.path.exists(os.path.join(self.out, "sitemap.xml")))
 
+    def test_declared_sitemap_failure_blocks_even_false_complete_legacy_audit(self):
+        report = genfix.audit(coverage={"complete": True, "reasons": []})
+        sitemap = "https://example.com/list.xml"
+        report["site"]["robots"]["sitemap_declared"] = [sitemap]
+        report["site"]["sitemaps"] = [{"url": sitemap, "status": 503,
+                                         "parsed": False, "error": None,
+                                         "is_index": False, "url_count": 0}]
+
+        ctx = generate.run("sitemap", report, {}, self.out)
+
+        self.assertTrue(ctx.notes["sitemap_blocked"])
+        self.assertIn("sitemap 확인 실패", ctx.notes["sitemap_safety"]["reason"])
+        self.assertFalse(os.path.exists(os.path.join(self.out, "sitemap.xml")))
+
+    def test_optional_default_sitemap_404_does_not_block_generation(self):
+        report = genfix.audit(coverage={"complete": True, "reasons": []})
+        report["site"]["robots"]["sitemap_declared"] = []
+        report["site"]["sitemaps"] = [{"url": "https://example.com/sitemap.xml",
+                                         "status": 404, "parsed": False, "error": None,
+                                         "is_index": False, "url_count": 0}]
+
+        generate.run("sitemap", report, {}, self.out)
+
+        self.assertTrue(os.path.exists(os.path.join(self.out, "sitemap.xml")))
+
+    def test_required_index_child_failure_blocks_generation(self):
+        report = genfix.audit(coverage={"complete": True, "reasons": []})
+        index = "https://example.com/sitemap-index.xml"
+        child = "https://example.com/child.xml"
+        report["site"]["robots"]["sitemap_declared"] = [index]
+        report["site"]["sitemaps"] = [
+            {"url": index, "status": 200, "parsed": True, "error": None,
+             "required": True, "is_index": True, "url_count": 1},
+            {"url": child, "status": 503, "parsed": False, "error": None,
+             "required": True, "is_index": False, "url_count": 0},
+        ]
+
+        ctx = generate.run("sitemap", report, {}, self.out)
+
+        self.assertTrue(ctx.notes["sitemap_blocked"])
+        self.assertIn(child, ctx.notes["sitemap_safety"]["reason"])
+        self.assertFalse(os.path.exists(os.path.join(self.out, "sitemap.xml")))
+
+    def test_legacy_index_child_without_provenance_also_blocks_generation(self):
+        report = genfix.audit(coverage={"complete": True, "reasons": []})
+        report["site"]["robots"]["sitemap_declared"] = ["https://example.com/sitemap.xml"]
+        report["site"]["sitemaps"] = [
+            {"url": "https://example.com/sitemap.xml", "status": 200, "parsed": True,
+             "is_index": True, "url_count": 1},
+            {"url": "https://example.com/products.xml", "status": 503,
+             "parsed": False, "is_index": False, "url_count": 0},
+        ]
+        ctx = generate.run("sitemap", report, {}, self.out)
+        self.assertTrue(ctx.notes["sitemap_blocked"])
+        self.assertFalse(os.path.exists(os.path.join(self.out, "sitemap.xml")))
+
     def test_redirect_source_is_not_put_in_sitemap(self):
         report = genfix.audit(pages=[genfix.page("https://example.com/old",
                                       final_url="https://example.com/new", canonical=None),

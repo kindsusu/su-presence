@@ -317,7 +317,7 @@ def row_key(row: dict) -> tuple:
 def make_row(date_str, query_id, engine, run_no, mode, signed_out, cited,
              cited_urls, brand_mentioned, competitor_domains, note="", *, outcome=None,
              error=None, surface=None, locale="", login_state=None, search_enabled=None,
-             campaign_id="", query_fingerprint_value="", model="") -> dict:
+             campaign_id="", query_fingerprint_value="", model="", reservation=False) -> dict:
     outcome = outcome or ("observed" if cited is not None else ("error" if error else "unmeasured"))
     return OrderedDict([
         ("schema", SCHEMA_ROW),
@@ -334,6 +334,7 @@ def make_row(date_str, query_id, engine, run_no, mode, signed_out, cited,
         ("campaign_id", campaign_id or ""),
         ("query_fingerprint", query_fingerprint_value or ""),
         ("model", model or ""),
+        ("reservation", bool(reservation)),
         ("signed_out", signed_out),
         ("outcome", outcome),
         ("error", error or None),
@@ -379,7 +380,19 @@ def load_log(path: str) -> list:
                     "observed", "error", "unmeasured"):
                 continue
             latest[row_key(row)] = row
-    return list(latest.values())
+    rows = list(latest.values())
+    # --browser 예약은 로그에 보존하되, 같은 측정 슬롯의 실제 browser 관측이 오면 충족된다.
+    # 로그인·검색 조건이 다른 일반 미측정 행은 이 규칙의 대상이 아니다.
+    def reservation_key(row):
+        return (row.get("date"), row.get("query_id"), row.get("query_fingerprint") or "",
+                row.get("engine"), row.get("run_no"), row.get("mode") or "manual",
+                row.get("campaign_id") or "")
+
+    fulfilled = {reservation_key(row) for row in rows
+                 if row.get("outcome") == "observed"}
+    return [row for row in rows
+            if not (row.get("reservation") is True and
+                    reservation_key(row) in fulfilled)]
 
 
 # ─────────────────────────────────────────────────────────── init
@@ -936,18 +949,21 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
         rows = [r for r in rows if r.get("date", "") >= since]
     if until:
         rows = [r for r in rows if r.get("date", "") <= until]
-    # v2 행은 질의 문장/유형 fingerprint가 맞아야 같은 cohort다. v1은 명시적 legacy로 읽는다.
-    incompatible = [r for r in rows if r.get("schema") == SCHEMA_ROW and
-                    r.get("query_fingerprint") and
-                    r.get("query_fingerprint") != query_fingerprint(qindex[r["query_id"]])]
+    # 신·구 v2는 fingerprint가 있어야 같은 cohort다. v1에는 필드가 없으므로 계속 읽는다.
+    v2_schemas = (SCHEMA_ROW, "su-multi-geo/measure-row/2")
+    attempt_dates = sorted({r["date"] for r in rows})
+    all_incompatible = [r for r in rows if r.get("schema") in v2_schemas and
+                        r.get("query_fingerprint") != query_fingerprint(qindex[r["query_id"]])]
+    trend_rows = [r for r in rows if r not in all_incompatible]
+    # 최신 회차가 전부 무효여도 이전 정상일로 조용히 후퇴하지 않는다.
+    if not cumulative and attempt_dates:
+        rows = [r for r in rows if r["date"] == attempt_dates[-1]]
+    incompatible = [r for r in rows if r in all_incompatible]
     rows = [r for r in rows if r not in incompatible]
     rows.sort(key=lambda r: (r.get("date", ""), r.get("query_id", ""),
                              r.get("engine", ""), r.get("run_no", 0)))
 
-    dates = sorted({r["date"] for r in rows})
-    trend_rows = list(rows)
-    if not cumulative and dates:
-        rows = [r for r in rows if r["date"] == dates[-1]]
+    dates = attempt_dates
     engines_seen = [e for e in ENGINES if any(r["engine"] == e for r in rows)]
 
     # 엔진 × 유형 — 회차 합산
@@ -1085,9 +1101,11 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
     for bucket in by_query.values():
         bucket["urls"] = [{"url": u, "count": n} for u, n in bucket.pop("_urls").most_common(10)]
 
+    observed_dates = sorted({r["date"] for r in trend_rows
+                             if (r.get("outcome") or "observed") == "observed"})
     next_measure = None
-    if dates:
-        last = parse_date(dates[-1])
+    if observed_dates:
+        last = parse_date(observed_dates[-1])
         if last:
             next_measure = (last + timedelta(days=REMEASURE_DAYS)).isoformat()
 
@@ -1099,9 +1117,9 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "target": {"base": base, "host": host},
         "window": {"since": since, "until": until, "scope": "cumulative" if cumulative else "latest",
-                   "dates": dates, "selected_dates": dates if cumulative else dates[-1:],
-                   "baseline": dates[0] if dates else None,
-                   "latest": dates[-1] if dates else None},
+                    "dates": attempt_dates, "selected_dates": attempt_dates if cumulative else attempt_dates[-1:],
+                    "baseline": attempt_dates[0] if attempt_dates else None,
+                    "latest": attempt_dates[-1] if attempt_dates else None},
         "query_set": {"fingerprint": query_set_fingerprint(queries),
                       "query_fingerprints": {q["id"]: query_fingerprint(q) for q in queries}},
         "queries": {"total": len(queries),
@@ -1113,7 +1131,8 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
                     "unmeasured": attempts - observed - errors,
                     "error_rate": _rate(errors, attempts),
                     "incompatible_rows": len(incompatible),
-                    "regression_eligible": errors == 0 and not incompatible},
+                    "regression_eligible": errors == 0 and
+                    attempts - observed - errors == 0 and not incompatible},
         "modes": dict(modes),
         "conditions": {
             "modes": sorted({r.get("mode") or "manual" for r in rows}),
@@ -1134,7 +1153,7 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
         "by_query": list(by_query.values()),
         "trend": trend,
         "next_measure": next_measure,
-        "freshness": {"last_observed": dates[-1] if dates else None,
+        "freshness": {"last_observed": observed_dates[-1] if observed_dates else None,
                       "next_due": next_measure,
                       "scheduled": False,
                       "note": "next_due는 계산값이며 외부 스케줄러 등록 상태가 아니다"},

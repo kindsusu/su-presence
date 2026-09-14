@@ -101,22 +101,29 @@ OG 태그·네이버 소유확인·`lang`·응답 시간.
 크롤 결과와의 차집합), `llms.txt`, 404 프로브, 리다이렉트 홉, www↔apex 변형 접속
 (대상이 IP·localhost면 변형이 없으므로 `na`로 남기고 조회하지 않는다).
 
-`coverage`는 전수성의 증명이 아니라 이번 실행의 관측 범위다. 페이지 한도 도달, 탐색 큐 절단,
-시작 URL의 robots 차단, 네트워크/HTTP 오류, robots·sitemap 오류가 있으면
+`coverage`는 전수성의 증명이 아니라 이번 실행의 관측 범위다. robots.txt에 선언된 sitemap과
+sitemap index가 참조한 자식은 `required=true`로 기록하며, 이들의 네트워크·HTTP·파싱 실패도
+불완전 사유다. 선언되지 않은 기본 후보의 404·410은 선택적 부재다. 페이지 한도 도달, 탐색 큐 절단,
+시작 URL의 robots 차단, 네트워크/HTTP 오류, robots·필수 sitemap 오류가 있으면
 `coverage.complete=false`가 된다. 이때 `crawl.py`는 결과를 쓴 뒤 exit 2를 반환한다.
 `crawl.py`를 Ctrl+C로 중단하면 현재 구현은 완료된 보고서를 만들거나 부분 결과를 저장하지 않고
 exit 1을 반환한다. `seo_geo.py audit`도 인터럽트 시 성공 관측을 저장하지 않고 exit 130을 반환한다.
 
+미러 프로브는 응답만으로 전 호스트의 색인 가능 여부를 단정하지 않는다. root의 `noindex`,
+robots 차단, robots 미차단, robots·root 확인 실패를 구분해 기록한다. 정상적인 `www`에서 apex로의
+같은 사이트 리다이렉트는 연결 실패가 아니라 `redirect` 결과다.
+
 ### audit.json — 계약
 
-`report.py`와 이후 도구가 이 스키마를 쓴다. 필드를 바꾸면 버전(`schema`)을 올린다. `robots.raw`는
+`report.py`와 이후 도구가 이 스키마를 쓴다. 필수 필드의 의미나 구조를 바꾸면 버전(`schema`)을 올린다.
+호환되는 선택 provenance 필드는 같은 버전에 추가할 수 있다. `robots.raw`는
 유효한 HTTP 200 robots 응답의 전체 본문이며, robots 응답이 없거나 HTML 오류 본문이면 빈 문자열이다.
 
 ```json
 {"schema":"su-presence/audit/1","generated_at":"ISO8601",
  "target":{"input":"...","base":"https://host","host":"host"},
  "site":{"robots":{"status":200,"present":true,"raw":"...","policies":{"GPTBot":"star-allow"},"sitemap_declared":[]},
-         "sitemaps":[{"url":"...","status":200,"is_index":false,"url_count":0}],
+         "sitemaps":[{"url":"...","status":200,"is_index":false,"url_count":0,"required":true}],
          "sitemap_vs_crawl":{"only_in_sitemap":[],"only_in_crawl":[]},
          "llms":{"llms.txt":404,"llms-full.txt":404},
          "hygiene":{"probe_404":404,"redirect_hops":0,"home_response_ms":0,
@@ -175,13 +182,16 @@ python tools/generate.py meta out/example.com/audit.json --out /tmp/draft
 옵션: `--site <site.json>` (없으면 회사 사실 없이 만들 수 있는 것만), `--out <폴더>`
 (기본 `audit.json` 옆의 `deploy/`).
 
-생성된 파일은 `deploy/.su-presence-generated.json` manifest에 기록한다. 다음 실행은 이
-manifest에서 같은 생성 범주의 낡은 파일만 정리하므로 사용자 파일과 소유권이 섞이지 않는다.
+생성된 파일은 `deploy/.su-presence-generated.json` manifest에 기록한다. 다음 실행은 새 manifest를
+먼저 읽고, 없을 때만 실제 구형 manifest 파일명을 fallback으로 읽는다. 같은 생성 범주의 낡은 파일만
+정리하므로 사용자 파일과 소유권이 섞이지 않는다. 새 manifest는 원자적으로 저장하며, `status`는 신·구
+manifest 파일명을 탐색한다.
 
 ### 불완전 크롤에서는 sitemap 교체를 보류한다
 
-`audit.json`의 `coverage.complete`가 true가 아니거나, 구형 audit에서 기존 sitemap URL이
-새 초안에서 빠질 위험이 확인되면 sitemap XML을 생성하지 않는다. `DEPLOY.md`에 **교체 금지**와
+`audit.json`의 `coverage.complete`가 true가 아니거나, 선언된 sitemap 또는 index 자식 확인이
+실패했거나, 구형 audit에서 기존 sitemap URL이 새 초안에서 빠질 위험이 확인되면 sitemap XML을
+생성하지 않는다. `DEPLOY.md`에 **교체 금지**와
 누락 위험 URL 수를 남기고, robots.txt에도 존재하지 않는 새 sitemap 선언을 추가하지 않는다.
 기존 sitemap을 유지한 채 크롤 한도·실패 원인을 해결하고 `audit` → `generate`를 다시 실행한다.
 
@@ -355,7 +365,13 @@ out/<host>/measure/summary.json   su-presence/measure/2   · report가 생성
 로그는 **append-only**다 — 고치지 말고 다시 넣어라. 날짜·질의·엔진·회차에 더해 mode·surface·
 locale·login·search·campaign까지 같은 관측 키가 여러 번 들어오면 **읽을 때 마지막 것만** 쓴다.
 따라서 같은 회차의 수동 UI와 API 측정은 서로 덮어쓰지 않는다. 기존 v1 질의·행은 읽지만 새
-기록은 v2이며, 알 수 없는 스키마 행은 제외한다.
+기록은 v2이며, 알 수 없는 스키마 행은 제외한다. 현재 질의와 다른 fingerprint 또는 빈 fingerprint인
+신·구 v2 행도 원본은 보존한 채 집계에서 제외하고 `quality.incompatible_rows`에 수를 남긴다.
+그 행은 재측정해야 하며, v1에는 fingerprint가 없으므로 읽기 호환을 유지한다. provenance는 호환되는
+선택 필드라 schema 버전을 올리지 않는다.
+
+`--browser`가 남긴 `reservation=true` 행은 원본에 남는다. 같은 campaign·날짜·질의 ID·fingerprint·
+엔진·회차·mode의 실제 `observed` 행이 들어오면 보고서는 그 예약 행만 집계에서 제외한다.
 
 ### import가 걸러내는 것
 
@@ -371,10 +387,14 @@ locale·login·search·campaign까지 같은 관측 키가 여러 번 들어오�
 - **날짜별 추이** — 첫 측정일이 기준선, 이후는 기준선 대비 증감
 - 기본 headline과 엔진별 비율은 선택 기간의 **최신 측정일만** 집계한다. `trend`는 기간 전체를
   보존하며, 여러 날짜 합산은 `--cumulative`로 명시한다
-- `observed`만 인용률 분모에 넣는다. `error`와 `unmeasured`는 오류율·품질 정보로 따로 내고,
-  오류·질의 fingerprint 불일치가 있으면 `regression_eligible=false`다
+- `observed`만 인용률 분모에 넣는다. `error`와 `unmeasured`, `quality.incompatible_rows`는
+  인용률과 분리해 품질 정보로 낸다. 오류나 호환되지 않는 질의 fingerprint가 있으면
+  `regression_eligible=false`다. `unmeasured`가 있으면 회귀 판정에도 쓸 수 없다.
 - 웹 UI와 API 모델 등 조건 조합은 `cohorts` 표에서 분리한다
 - `ops/measure.md` 6번과 같은 형식의 한 줄 요약과 **다음 재측정 예정일**(마지막 측정 +14일)
+
+최신 회차가 전부 무효여도 이전 정상 회차를 최신 결과로 대신 표시하지 않는다. 과거 무효 행은
+이후 정상 회차의 비교 적격성을 막지 않으며, 실패·미측정은 마지막 관측일과 재측정 예정일을 갱신하지 않는다.
 
 `브랜드 4/4`(질의 단위: 한 번이라도 인용된 질의 수)와 `ChatGPT 20/30`(회차 합산)은
 **다른 숫자다.** 둘 다 낸다.
@@ -397,6 +417,13 @@ Gemini·Perplexity·Google AI Overviews·네이버·다음·Copilot은 자동화
   `OPENAI_MODEL` / `ANTHROPIC_MODEL` 환경변수로 덮어쓴다
 - ⚠️ **API 응답은 비로그인 웹 UI와 다른 표면이다.** 자동 측정은 수동 측정을 대체하지 않는다 —
   추세를 싸게 자주 보는 보조 수단으로만 써라
+
+### collect.py — 검색 페이지의 AI 출처 수집
+
+`collect.py`는 검색 결과 전체의 링크를 인용으로 세지 않는다. Google은 AI Overview의 명시된 출처
+영역을 식별했을 때만 그 URL을 기록한다. 네이버는 AI 브리핑의 유효한 출처 데이터만 기록한다.
+AI 출처 경계를 찾을 수 없거나 출처 조회·파싱이 실패하면 해당 행은 `unmeasured`이며 `cited=false`가
+아니다. 자사 인용 여부는 URL 문자열 부분 일치가 아닌 정규화한 hostname 경계로 판정한다.
 
 ### 안전선 — 키와 비용
 

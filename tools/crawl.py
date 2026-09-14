@@ -502,10 +502,27 @@ def probe_mirrors(host: str) -> dict:
         if res["error"] == "external_redirect_blocked":
             continue
         rb = fetch("https://%s/robots.txt" % cand)
-        raw = (rb.get("body") or "") if rb["status"] == 200 else ""
+        raw = (rb.get("body") or "") if rb["status"] == 200 and not rb.get("error") else ""
+        robots_known = (rb["status"] in (404, 410) and not rb.get("error")) or (
+            rb["status"] == 200 and not rb.get("error") and not raw.lstrip().startswith("<"))
+        if not robots_known:
+            raw = ""
         blocked = robots_policy(raw, "Googlebot").endswith("block") if raw else False
+        page = page_record("https://%s/" % cand, res)
+        directives = sorted(_robots_directives(page))
+        if res["status"] == 200 and "noindex" in directives:
+            indexability = "noindex"
+        elif blocked:
+            indexability = "robots_blocked"
+        elif (robots_known and res["status"] == 200 and not res.get("error")
+              and res.get("body") and "html" in (res.get("content_type") or "").lower()):
+            indexability = "unrestricted"
+        else:
+            indexability = "unknown"
         found.append({"host": cand, "status": res["status"],
-                      "final_url": res["final_url"], "robots_blocks_all": blocked})
+                      "final_url": res["final_url"], "robots_blocks_all": blocked,
+                      "indexability": indexability, "robots_directives": directives,
+                      "checked_url": "https://%s/" % cand})
     # 와일드카드 DNS면 아무 접두나 응답한다. 전부 떴다면 발견이 아니라 설정이다.
     wildcard = len(found) >= max(4, len(checked) - 1)
     return {"checked": checked, "found": [] if wildcard else found,
@@ -693,7 +710,15 @@ def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap
         alt_result = "na"
     else:
         alt = fetch("https://%s/" % alt_host)
-        if alt["error"]:
+        destination = urllib.parse.urlsplit(alt.get("final_url") or "")
+        if (alt["error"] == "external_redirect_blocked"
+                and alt["status"] in (301, 302, 303, 307, 308)
+                and destination.scheme in ("http", "https")
+                and destination.netloc.lower() == host):
+            # fetch deliberately does not follow cross-host redirects. A redirect
+            # from www/apex to the audited host is still an observed valid handoff.
+            alt_result = "redirect"
+        elif alt["error"]:
             alt_result = alt["error"] if alt["error"] in ("tls_fail", "dns_fail") else "error"
         elif alt["redirects"]:
             alt_result = "redirect"
@@ -741,6 +766,7 @@ def sitemap_candidates(base: str, host: str, declared: list) -> list:
 def read_sitemaps(base: str, host: str, declared: list):
     """선언된 사이트맵 + 표준 경로 2종을 읽는다."""
     candidates = sitemap_candidates(base, host, declared)
+    required = set(declared) & set(candidates)
     results = []
     urls = []
     queue = deque(candidates)
@@ -776,6 +802,7 @@ def read_sitemaps(base: str, host: str, declared: list):
         if is_index:
             for child in locs[:100]:
                 if child.startswith(("http://", "https://")) and host_of(child) == host:
+                    required.add(child)
                     queue.append(child)
         else:
             urls.extend(locs)
@@ -788,6 +815,10 @@ def read_sitemaps(base: str, host: str, declared: list):
         results.extend({"url": url, "status": None, "is_index": False, "url_count": 0,
                         "parsed": False, "truncated": True, "error": "inspection_limit"}
                        for url in pending)
+    # A default path may already have been fetched before an index references it.
+    # Assign provenance after traversal so that its failure is not lost.
+    for result in results:
+        result["required"] = result["url"] in required
     return results, urls
 
 
@@ -1078,15 +1109,26 @@ def _check_site(findings, base, site, ok):
 
     mirrors = hygiene.get("mirrors") or {}
     for m in mirrors.get("found") or []:
-        if m["robots_blocks_all"]:
+        indexability = m.get("indexability", "unknown")
+        if indexability == "noindex":
+            add(findings, "SEO", "info", "MIRROR_NOINDEX",
+                "미러 %s의 루트 페이지는 공개 접근 가능하지만 noindex가 관측됐다. "
+                "이 결과로 다른 경로의 색인 상태까지 판단하지 않는다."
+                % m["host"], ["https://%s/" % m["host"]], m)
+        elif m["robots_blocks_all"]:
             add(findings, "SEO", "warn", "MIRROR_PRESENT",
                 "개발·스테이징 미러 %s 가 공개돼 있다 (HTTP %s). robots로 막혀 있지만 "
                 "링크·인용으로는 새어 나간다 — 인증이나 IP 제한으로 닫아라."
                 % (m["host"], m["status"]), ["https://%s/" % m["host"]], m)
-        else:
+        elif indexability == "unrestricted":
             add(findings, "SEO", "critical", "MIRROR_PUBLIC",
-                "개발·스테이징 미러 %s 가 공개·색인 가능 상태다 (HTTP %s) — 본진 대신 "
-                "이쪽이 인용되면 우리 회사 설명이 개발서버로 굳는다."
+                "개발·스테이징 미러 %s의 루트 페이지가 공개돼 있고 색인 제한이 "
+                "관측되지 않았다 (HTTP %s). 다른 경로와 실제 색인 여부는 별도 확인한다."
+                % (m["host"], m["status"]), ["https://%s/" % m["host"]], m)
+        else:
+            add(findings, "SEO", "info", "MIRROR_INDEXABILITY_UNKNOWN",
+                "미러 %s가 응답하지만 루트 페이지의 색인 제한 여부는 미확인이다 "
+                "(HTTP %s). 응답 본문·헤더와 robots.txt를 확인한다."
                 % (m["host"], m["status"]), ["https://%s/" % m["host"]], m)
     if mirrors.get("wildcard_suspect"):
         add(findings, "SEO", "info", "MIRROR_WILDCARD_DNS",
@@ -1312,6 +1354,11 @@ def build_report(target: str, max_pages: int, delay: float, allow_noindex=None) 
     if robots["status"] != 200 or robots.get("error"):
         coverage["complete"] = False
         coverage["reasons"] = list(dict.fromkeys(coverage["reasons"] + ["robots_unavailable"]))
+    if any(s.get("status") != 200 and
+           (s.get("required") or s.get("status") not in (404, 410) or s.get("error"))
+           for s in sitemap_data[0]):
+        coverage["complete"] = False
+        coverage["reasons"] = list(dict.fromkeys(coverage["reasons"] + ["sitemap_unavailable"]))
     if any(s.get("status") == 200 and not s.get("parsed", True) for s in sitemap_data[0]):
         coverage["complete"] = False
         coverage["reasons"] = list(dict.fromkeys(coverage["reasons"] + ["sitemap_invalid"]))

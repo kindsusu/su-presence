@@ -46,7 +46,7 @@ def audit(**kw):
     policies = {ua: "star-partial" for ua in crawl.ALL_UAS}
     policies["GPTBot"] = "explicit-block"
     base = {
-        "schema": "su-multi-geo/audit/1",
+        "schema": crawl.SCHEMA,
         "generated_at": "2026-09-03T00:00:00+00:00",
         "target": {"input": "example.com", "base": "https://example.com",
                    "host": "example.com"},

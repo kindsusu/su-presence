@@ -14,12 +14,13 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
+import crawl  # noqa: E402
 import report  # noqa: E402
 
 XSS_URL = 'https://example.com/<script>alert("x")</script>'
 
 AUDIT = {
-    "schema": "su-multi-geo/audit/1",
+    "schema": crawl.SCHEMA,
     "generated_at": "2026-01-02T03:04:05+00:00",
     "target": {"input": "example.com", "base": "https://example.com", "host": "example.com"},
     "site": {

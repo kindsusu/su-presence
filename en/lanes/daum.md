@@ -4,6 +4,9 @@ Bundled into one cell with Naver, neither one is visible. **The crawler tokens d
 ownership proof differs, the registration flow differs, and a different model writes the AI
 summary.** That is why this is its own lane.
 
+> Why it was split, and what leaked while it was bundled, is in the
+> [decision record](../../docs/decisions/2026-09-11-keo-lane.md).
+
 Daum's user base skews older, as a general observation.
 **If your target customers include middle-aged and older users, this lane is real demand, not a
 side channel.**

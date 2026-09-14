@@ -1,5 +1,5 @@
 {
-  "schema": "su-multi-geo/queries/1",
+  "schema": "su-presence/queries/2",
   "_readme": [
     "tests/test_e2e.py가 out/<host>/measure/queries.json 자리에 넣는 픽스처다.",
     "templates/queries.example.json과 달리 <<TODO>>가 없다 — 사람이 다 채운 뒤의 상태를 흉내낸다."

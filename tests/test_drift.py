@@ -15,6 +15,7 @@ from datetime import date, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
 
+import crawl  # noqa: E402
 import drift  # noqa: E402
 
 
@@ -46,7 +47,7 @@ def audit(pages=None, findings=None, scorecard=None, sitemap_urls=2,
              ("SEO", "AEO", "GEO", "LLMO", "NEO", "reputation")}
     board.update(scorecard or {})
     return {
-        "schema": "su-multi-geo/audit/1",
+        "schema": crawl.SCHEMA,
         "generated_at": generated_at,
         "target": {"input": HOST, "base": BASE, "host": HOST},
         "site": {"sitemaps": [{"url": BASE + "/sitemap.xml", "status": 200,

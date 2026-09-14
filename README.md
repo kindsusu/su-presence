@@ -148,6 +148,12 @@ Run the local test suite with:
 python -m unittest discover tests
 ```
 
+## Contributors
+
+- **[kindsusu](https://github.com/kindsusu)** — design, writing, maintenance
+- **Claude** (Anthropic) — drafting, revisions, audit-tool pairing
+- **Codex** (OpenAI) — adversarial code review (security and false-reading defects)
+
 ## License
 
 **PolyForm Noncommercial 1.0.0** — see [LICENSE](LICENSE).

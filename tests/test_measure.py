@@ -15,6 +15,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
 
+import crawl  # noqa: E402
 import measure  # noqa: E402
 
 
@@ -33,7 +34,7 @@ QUERIES = [
 
 def audit_fixture():
     return {
-        "schema": "su-multi-geo/audit/1",
+        "schema": crawl.SCHEMA,
         "generated_at": "2026-09-01T00:00:00+00:00",
         "target": {"input": HOST, "base": BASE, "host": HOST},
         "pages": [{"url": BASE + "/"}, {"url": BASE + "/pricing"},

@@ -9,6 +9,7 @@
 """
 import os
 import sys
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -96,6 +97,39 @@ class TestReadsStillAcceptTheOldName(unittest.TestCase):
     def test_v2_summary_family_detected_under_either_name(self):
         for schema in (OLD + "/measure/2", NEW + "/measure/2"):
             self.assertIn(schema, drift.SUMMARY_V2_SCHEMAS)
+
+
+class TestCurrentNameRoundTrip(unittest.TestCase):
+    """현행 이름으로 쓴 파일을 현행 도구가 다시 읽어야 한다 — 옛 이름 호환의 대칭."""
+
+    def test_queries_and_log_written_now_are_read_back(self):
+        with tempfile.TemporaryDirectory() as mdir:
+            measure.write_json(os.path.join(mdir, "queries.json"),
+                               {"schema": measure.SCHEMA_QUERIES,
+                                "queries": [{"id": "Q01", "text": "요금은 얼마인가요",
+                                             "type": "brand", "note": ""}]})
+            queries = measure.load_queries(mdir)
+            self.assertEqual([q["id"] for q in queries], ["Q01"])
+
+            log = os.path.join(mdir, "log.jsonl")
+            row = measure.make_row("2026-09-05", "Q01", "chatgpt", 1, "manual", True,
+                                   True, [], True, [],
+                                   query_fingerprint_value=queries[0]["fingerprint"])
+            self.assertEqual(row["schema"], measure.SCHEMA_ROW)
+            measure.append_rows(log, [row])
+            self.assertEqual(len(measure.load_log(log)), 1)
+
+    def test_snapshot_written_now_is_read_back(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "out", "example.com")
+            audit_path = os.path.join(out, "audit.json")
+            drift.write_json(audit_path, {"schema": crawl.SCHEMA,
+                                          "target": {"host": "example.com"}, "stats": {}})
+            drift.main(["snapshot", audit_path, "--date", "2026-09-05"])
+            index = drift.load_index(out, "example.com")
+            self.assertEqual(index["schema"], drift.SCHEMA_HISTORY)
+            self.assertEqual(drift.snapshot_json(out, index["snapshots"][0])["schema"],
+                             crawl.SCHEMA)
 
 
 if __name__ == "__main__":

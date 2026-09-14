@@ -13,6 +13,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
 
+import crawl  # noqa: E402
 import verify  # noqa: E402
 
 
@@ -103,7 +104,7 @@ def page(url, **kw):
 
 def audit(**kw):
     base = {
-        "schema": "su-multi-geo/audit/1",
+        "schema": crawl.SCHEMA,
         "generated_at": "2026-09-01T00:00:00+00:00",
         "target": {"input": "example.com", "base": BASE, "host": "example.com"},
         "site": {"robots": {"status": 200, "present": True, "raw": ROBOTS_BEFORE,

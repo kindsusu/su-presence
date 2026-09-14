@@ -148,6 +148,12 @@ python tools/seo_geo.py drift compare out/example.com/audit.json
 python -m unittest discover tests
 ```
 
+## 기여자
+
+- **[kindsusu](https://github.com/kindsusu)** — 설계·저술·운영
+- **Claude** (Anthropic) — 초안·개정·진단 도구 페어 작업
+- **Codex** (OpenAI) — 적대적 코드 리뷰 (보안·오진 결함 발견)
+
 ## 라이선스
 
 **PolyForm Noncommercial 1.0.0** — [LICENSE](LICENSE)를 참조하세요.

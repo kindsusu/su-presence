@@ -204,7 +204,7 @@ class VerifyReliability(verfix.DeployBase):
 
     def test_manifest_mapping_must_be_same_host_and_complete(self):
         self.write("jsonld/manifest.json", json.dumps({
-            "schema": "su-multi-geo/jsonld-manifest/1",
+            "schema": verify.JSONLD_MANIFEST_SCHEMAS[0],
             "files": {"faq.faq.json": "https://evil.example/faq"}}))
         result = self.run_verify()
         self.assertEqual(self.status_of(result, "jsonld.mapping"), "fail")

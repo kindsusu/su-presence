@@ -11,6 +11,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
+import crawl  # noqa: E402
 import drift  # noqa: E402
 import measure  # noqa: E402
 
@@ -218,7 +219,7 @@ class DriftReliability(unittest.TestCase):
             os.makedirs(out)
             audit_path = os.path.join(out, "audit.json")
             measure_path = os.path.join(out, "bad-summary.json")
-            drift.write_json(audit_path, {"schema": "su-multi-geo/audit/1",
+            drift.write_json(audit_path, {"schema": crawl.SCHEMA,
                                           "target": {"host": HOST}, "stats": {}})
             drift.write_json(measure_path, {"schema": "wrong", "target": {"host": HOST}})
             with self.assertRaises(SystemExit):
@@ -235,7 +236,7 @@ class DriftReliability(unittest.TestCase):
             out = os.path.join(tmp, "out", HOST)
             os.makedirs(out)
             audit_path = os.path.join(out, "audit.json")
-            payload = {"schema": "su-multi-geo/audit/1", "target": {"host": HOST},
+            payload = {"schema": crawl.SCHEMA, "target": {"host": HOST},
                        "stats": {}}
             drift.write_json(audit_path, payload)
             drift.main(["snapshot", audit_path, "--date", "2026-09-05"])

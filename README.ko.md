@@ -1,6 +1,6 @@
 # su-presence
 
-![su-presence — 일곱 레인, 하나의 진단 렌즈](assets/su-presence.png)
+![su-presence — Be seen. Be cited. Be verified.](assets/su-presence.png)
 
 > 검색·AI 답변에서 우리 자리가 있는가 — SEO·AEO·GEO·LLMO·네이버·다음을 한 표면으로. **su**(권수, [kindsusu](https://github.com/kindsusu))가 직접 다듬는 스킬
 

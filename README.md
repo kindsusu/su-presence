@@ -1,6 +1,6 @@
 # su-presence
 
-![su-presence — seven lanes, one audit lens](assets/su-presence.png)
+![su-presence — Be seen. Be cited. Be verified.](assets/su-presence.png)
 
 > Are we present in search and AI answers? SEO, AEO, GEO, LLMO, Naver and Daum as one surface. Hand-tuned by **su** ([kindsusu](https://github.com/kindsusu))
 

@@ -1,6 +1,6 @@
 ---
 name: su-presence
-description: Diagnose and improve website SEO and AI-search accessibility, generate deployment drafts, verify live changes, and measure citations across search engines. Use for website SEO/GEO audits, crawler policy, structured data, and citation measurement.
+description: Diagnose and improve website SEO and AI-search accessibility, generate deployment drafts, verify live changes, and measure citations across search engines. Use for website SEO/GEO audits, crawler policy, structured data, and citation measurement. 한국어 요청 예: "우리 사이트 SEO 진단해줘", "AI가 우리 회사를 인용하게 해줘", "챗GPT·제미나이에 우리 사이트 뜨게 해줘", "llms.txt 만들어줘", "네이버·다음 노출 늘려줘", "인용 측정 기준선 잡아줘".
 ---
 
 # su-presence — 진단·구현·검증·측정

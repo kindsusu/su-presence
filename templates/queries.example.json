@@ -1,5 +1,5 @@
 {
-  "schema": "su-multi-geo/queries/1",
+  "schema": "su-presence/queries/2",
 
   "_readme": [
     "measure.py에 넘기는 '고정 질의 세트'다. out/<host>/measure/queries.json으로 복사해 쓴다.",

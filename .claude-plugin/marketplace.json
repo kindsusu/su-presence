@@ -7,7 +7,7 @@
       "name": "su-presence",
       "source": "./",
       "description": "Audits and implements SEO·AEO·GEO·LLMO·NEO(Naver). Per-engine GEO lanes, corrected AI-crawler policy, engine-specific measurement protocol, and a Phase 0 audit script.",
-      "version": "2.0.0"
+      "version": "2.1.0"
     }
   ]
 }

@@ -10,7 +10,7 @@
     python tools/measure.py auto   out/<host>/audit.json --engines chatgpt,claude --runs 5
 
 출력:
-    out/<host>/measure/queries.json    고정 질의 세트  (su-multi-geo/queries/1)
+    out/<host>/measure/queries.json    고정 질의 세트  (su-presence/queries/2)
     out/<host>/measure/log.jsonl       측정 로그 append-only (su-multi-geo/measure-row/1)
     out/<host>/measure/form-<날짜>.csv 수동 입력용 (엑셀·UTF-8 BOM)
     out/<host>/measure/form-<날짜>.html 수동 입력용 오프라인 폼

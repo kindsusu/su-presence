@@ -19,7 +19,7 @@ HTML 보고서를 함께 만들고, 크롤 범위가 불완전하면 파일은 �
 `status` 역시 로컬 산출물 기록만 보여 준다. 배포 상태나 검색 성과를 새로 확인하지 않으며,
 표시된 `next_due`가 실제 예약됐다는 뜻도 아니다.
 
-배포 초안을 만들 때 `generate.py`는 `.su-multi-geo-generated.json` manifest에 자신이 만든
+배포 초안을 만들 때 `generate.py`는 `.su-presence-generated.json` manifest(구명 `.su-multi-geo-generated.json`도 읽는다)에 자신이 만든
 파일만 기록한다. 다음 생성에서 같은 범주의 낡은 산출물을 정리하므로 사용자 파일과 생성 파일을
 구분할 수 있다. `audit.json`의 `coverage.complete`가 true가 아니거나 기존 사이트맵 URL의
 누락 위험이 있으면 교체용 sitemap XML을 만들지 않고 `DEPLOY.md`에 **교체 금지**로 남긴다.

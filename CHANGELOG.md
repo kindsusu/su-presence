@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-09-14
+
+이름을 su-presence로 바꾸고, 다음·카카오를 독립 레인(KEO)으로 세우고, 인용 측정을 자동 수집으로 닫은 판. 크롤러 UA `su-presence-audit/2.1`, 데이터 식별자 `su-presence/…`(구명 읽기 호환).
+
 ### 2026-09-13 — 수집·측정 신뢰성 보강
 
 - robots.txt에 선언된 sitemap과 sitemap index가 참조한 자식은 필수로 확인한다. 이들 중 하나라도

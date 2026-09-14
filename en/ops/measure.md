@@ -20,7 +20,7 @@ HTML report together; an incomplete crawl is preserved but exits 2. `status` rea
 only. It does not re-check deployment or search performance, and a displayed `next_due` is not an
 actual scheduled job.
 
-`generate.py` records only its own files in `.su-multi-geo-generated.json`. If
+`generate.py` records only its own files in `.su-presence-generated.json` (the old `.su-multi-geo-generated.json` is still read). If
 `coverage.complete` is not true or known sitemap URLs may be missing, it withholds replacement
 sitemap XML and marks **do not replace** in `DEPLOY.md`. Keep the existing sitemap, fix crawl limits
 or failures, then rerun `audit` and `generate`.

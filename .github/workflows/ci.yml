@@ -7,6 +7,16 @@ on:
   workflow_dispatch:
 
 jobs:
+  validate:
+    name: Repository content validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python tools/validate.py --root .
+
   test:
     name: ${{ matrix.os }} · Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}

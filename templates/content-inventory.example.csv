@@ -1,0 +1,2 @@
+content_id,url,query_id,primary_question,published_at,modified_at,metric_source,window_start,window_end,impressions,clicks,status,evidence_ref,next_due,last_action,action_date,destination_url
+EXAMPLE-01,https://example.com/example-question,Q01,<<actual question>>,2026-01-01,2026-01-01,GSC,2026-01-01,2026-01-28,,,review,<<private measurement record>>,2026-02-15,,,

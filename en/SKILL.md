@@ -1,6 +1,6 @@
 ---
 name: su-presence
-description: Diagnose and improve website SEO and AI-search accessibility, generate deployment drafts, verify live changes, and measure citations across search engines.
+description: "Diagnose and improve website SEO and AI-search accessibility, generate deployment drafts, verify live changes, and measure citations across search engines."
 ---
 
 # su-presence — audit, build, verify, measure
@@ -55,6 +55,7 @@ Read only the relevant playbooks:
 | Search access, canonical, SSR, sitemap | [SEO](lanes/seo.md) |
 | Training/search/user-fetch policy | [crawlers](ops/crawlers.md) |
 | Query discovery and page mapping | [intent](ops/intent.md) |
+| Content briefs, publishing, and refresh | [content](ops/content.md) |
 | Answer-ready content | [AEO](lanes/aeo.md) |
 | Engine-specific citation access | [GEO](lanes/geo.md) |
 | Model knowledge without search | [LLMO](lanes/llmo.md) |

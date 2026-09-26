@@ -1,6 +1,6 @@
 ---
 name: su-presence
-description: Diagnose and improve website SEO and AI-search accessibility, generate deployment drafts, verify live changes, and measure citations across search engines. Use for website SEO/GEO audits, crawler policy, structured data, and citation measurement. 한국어 요청 예: "우리 사이트 SEO 진단해줘", "AI가 우리 회사를 인용하게 해줘", "챗GPT·제미나이에 우리 사이트 뜨게 해줘", "llms.txt 만들어줘", "네이버·다음 노출 늘려줘", "인용 측정 기준선 잡아줘".
+description: "Diagnose and improve website SEO and AI-search accessibility, generate deployment drafts, verify live changes, and measure citations across search engines. Use for website SEO/GEO audits, crawler policy, structured data, and citation measurement. 한국어 요청 예: \"우리 사이트 SEO 진단해줘\", \"AI가 우리 회사를 인용하게 해줘\", \"챗GPT·제미나이에 우리 사이트 뜨게 해줘\", \"llms.txt 만들어줘\", \"네이버·다음 노출 늘려줘\", \"인용 측정 기준선 잡아줘\"."
 ---
 
 # su-presence — 진단·구현·검증·측정
@@ -49,6 +49,7 @@ JS 렌더링·WAF·검색엔진 색인은 별도 증거가 필요하다. 초안/
 | 검색 접근성·canonical·SSR·사이트맵 | [lanes/seo.md](lanes/seo.md) |
 | 학습/검색/열람 봇 정책 | [ops/crawlers.md](ops/crawlers.md) |
 | 질문 발굴·페이지 매핑 | [ops/intent.md](ops/intent.md) |
+| 글 작성·발행·갱신 운영 | [ops/content.md](ops/content.md) |
 | 답변에 적합한 콘텐츠 | [lanes/aeo.md](lanes/aeo.md) |
 | 엔진별 인용 접근성 | [lanes/geo.md](lanes/geo.md) |
 | 검색을 끈 모델 지식 관측 | [lanes/llmo.md](lanes/llmo.md) |

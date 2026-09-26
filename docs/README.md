@@ -15,6 +15,8 @@
 | 무엇이 바뀌었나 / Change history | [CHANGELOG.md](../CHANGELOG.md) · [2026-09 신뢰성 검증](reviews/2026-09-05-reliability.ko.md) |
 | 왜 그렇게 만들었나 / Design decisions | [결정 기록](decisions/) — 구조를 바꾼 판단과 그 근거 |
 
+Aside 연계의 확인 범위와 권장 방식은 [검토 기록](reviews/2026-09-26-aside.ko.md)을 참고한다.
+
 ## 주제별 지침 · Topic guides
 
 | 주제 / Topic | 한국어 | English |
@@ -28,6 +30,12 @@
 | 외부 평판 / Third-party reputation | [평판](../lanes/reputation.md) | [Reputation](../en/lanes/reputation.md) |
 | 봇 정책 / Crawler policies | [크롤러](../ops/crawlers.md) | [Crawlers](../en/ops/crawlers.md) |
 | 질문·페이지 매핑 / Intent mapping | [의도](../ops/intent.md) | [Intent](../en/ops/intent.md) |
+| 콘텐츠 기획·발행·갱신 / Content operations | [콘텐츠 운영](../ops/content.md) | [Content operations](../en/ops/content.md) |
+
+콘텐츠 작업표는 [인벤토리 CSV](../templates/content-inventory.example.csv)와
+[브리프](../templates/content-brief.example.md)에서 시작한다.
+Start content work with the [inventory CSV](../templates/content-inventory.example.csv) and
+[brief](../templates/content-brief.example.md).
 
 `lanes/`와 `ops/`는 한국어 기준 문서이며 `en/`에 영문 지침을 유지한다.
 실행 도구와 템플릿 경로는 저장소 루트 기준이다. 설치된 스킬을 사용할 때는 해당 스킬의

@@ -15,6 +15,7 @@ The optional shell inspector and its regression checks also require Bash and cur
 git clone https://github.com/kindsusu/su-presence.git
 cd su-presence
 python tools/seo_geo.py doctor
+python tools/validate.py
 python -m unittest discover tests -q
 bash tools/test_audit.sh
 git diff --check

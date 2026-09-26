@@ -1,33 +1,47 @@
-# Per-engine measurement recipes — how you actually get in
+# Per-engine measurement recipes
 
 `measure.md` decides **what to measure and how to write it down.** This document covers **how to
-actually reach each engine.** Everything here was confirmed by measuring, and the traps listed
-are only the ones we walked into ourselves.
+actually reach each engine.** UI labels and access examples below were observed on 2026-09-11.
 
-> As of 2026-09-11. Engine UIs change often — if something stops working, fix this document.
+> Recheck the live UI, sign-in state, and response structure for every measurement. Historical examples are not current observations.
 
 ---
 
 ## What can be automated
 
-| Surface | Automation | How |
+| Surface | Supported path | Run condition |
 |---|---|---|
-| Naver organic | **full** | `urllib` + desktop/mobile UA |
-| Naver AI Briefing | **full** | detect the fender block → SSE API |
-| Daum web search / AI Summary | **full** | headless Chrome DOM dump |
-| Google organic / AI Overviews | **full** | headless + browser UA |
-| Perplexity | semi | **sign-in required** (changed 2026-09). Thread URLs stay public, so captures work |
-| ChatGPT · Gemini · Claude | semi | sign-in required; drive the browser in neutral mode |
-| GSC / Search Advisor index counts | **manual** | account sign-in — this is the only row a human owns |
+| Naver organic / AI Briefing | Public retrieval | `collect.py` uses `urllib`; verify the firing block and sources |
+| Daum web search / AI Summary | Public retrieval | Verify blocks and sources in the rendered DOM; browser runtime must work |
+| Google organic / AI Overviews | Public retrieval | Verify an explicit AI Overview container and source URLs in the rendered DOM; browser runtime must work |
+| Perplexity · ChatGPT · Gemini · Claude | Signed-in web UI | Verify the current session and neutral mode before browser measurement |
+| GSC / Search Advisor index counts | Account console | Read-only inspection when authorized access is available |
 
-Only that last row stays "a human checks it."
+These paths do not guarantee success. Blocks, truncated responses, and unverifiable sources remain `unmeasured`.
+
+## Choose a browser for this task
+
+Use the existing `tools/seo_geo.py audit`, `tools/collect.py`, and `tools/measure.py report`
+paths for site audits, public search retrieval, and reporting. Only when measuring a signed-in
+AI web UI, check that a usable session is available for this task and prefer Aside; see the
+[Aside guide](aside.md). When actually using Aside, read `aside --help` and `aside guide repl`.
+The CLI path is available; MCP is optional. If the session is unavailable, use another suitable
+browser already available. Do not launch or health-check Aside for tasks without browser work.
+Aside's reasoning subscription is a browser-control resource, separate from the measured AI web engine.
+
+Before browser measurement, fix the exact query, engine, web-search setting, sign-in state, and
+neutral mode. Read back the input before sending, then inspect the answer and actual source URLs.
+Record only completed observations with
+`python tools/collect.py <audit.json> --record <engine> --query <id> ...` as `observed`.
+A sign-in wall, CAPTCHA, unverified sources, or incomplete answer is `unmeasured`, not zero citations.
+Authorized account-console inspection may also be performed read-only.
 
 ---
 
 ## Naver
 
-Desktop `search.naver.com/search.naver?query=`, mobile `m.search.naver.com/...`. Both come down
-over plain HTTP. **Treat mobile as the default** — Naver is mobile-first.
+Desktop `search.naver.com/search.naver?query=`, mobile `m.search.naver.com/...`.
+`collect.py` requests mobile results with `urllib`. **Treat mobile as the default** — Naver is mobile-first.
 
 ### AI Briefing
 
@@ -65,7 +79,9 @@ over plain HTTP. **Treat mobile as the default** — Naver is mobile-first.
 
 ## Google
 
-`google.com/search?q=...&hl=ko&gl=kr`. Detect AI Overviews by the localized "AI Overview" string.
+`google.com/search?q=...&hl=ko&gl=kr`. Do not infer AI Overview citations from a display string
+or ordinary search-result links. `collect.py` checks the explicit `data-attrid="sgeanswer"`
+container and its source URLs; an unverifiable boundary or URL is `unmeasured`.
 
 ```
 ⚠️ The default headless UA triggers reCAPTCHA. Do not solve CAPTCHAs.
@@ -82,7 +98,7 @@ over plain HTTP. **Treat mobile as the default** — Naver is mobile-first.
 your request again."* The thread exists with no content, so **do not count this as "zero
 citations"** — it is `unmeasured`.
 
-- Measure in a signed-in browser. The human signs in; the agent runs the query and the verdict.
+- Measure in a signed-in browser. Once a session is available, the agent runs the query and the verdict.
 - The thread URL itself is still publicly reachable, so **evidence captures can be taken from it.**
 - A sign-up modal covers the first visit. Dismiss it before typing, or the query goes nowhere.
 
@@ -149,10 +165,10 @@ In the order that actually worked:
 
 Both **block signed-out access.** Measure in a signed-in browser, in neutral mode.
 
-### The order that works — follow it and both measure automatically
+### Order observed on 2026-09-11 — recheck the current UI
 
 Trying to read the state off the on-screen greeting got it wrong twice.
-**The button's aria-label is the accurate state.**
+At that time, **the button's aria-label** identified the state. Recheck the current label and state change.
 
 | Engine | Off | On |
 |---|---|---|

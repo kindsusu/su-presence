@@ -11,15 +11,21 @@
 
 <p align="center">
   <a href="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="version 2.1.0" src="https://img.shields.io/badge/version-2.1.0-0E6B5C">
-  <img alt="tests 358" src="https://img.shields.io/badge/tests-358-2C7A4B">
+  <img alt="version 2.2.0" src="https://img.shields.io/badge/version-2.2.0-0E6B5C">
+  <img alt="tests 369" src="https://img.shields.io/badge/tests-369-2C7A4B">
   <img alt="stdlib only, zero dependencies" src="https://img.shields.io/badge/stdlib%20only-zero%20dependencies-1A2B28">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-0E6B5C">
   <a href="LICENSE"><img alt="License PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-A96A00"></a>
   <img alt="Korean-first" src="https://img.shields.io/badge/Korean-first-B3372B">
 </p>
 
-**A Korean-first skill for auditing technical search access, drafting site changes, verifying the live result, and measuring AI-search citations.** It keeps SEO, AEO, GEO, LLMO, Naver, and reputation as separate evidence lanes; crawler access, index state, citations, and business outcomes are not treated as the same result.
+**A Korean-first skill for auditing technical search access, drafting site changes, verifying the live result, and measuring AI-search citations.** It keeps SEO, AEO, GEO, LLMO, Naver (NEO), Daum/Kakao (KEO), and reputation as separate evidence lanes; crawler access, index state, citations, and business outcomes are not treated as the same result.
+
+## New in v2.2.0
+
+- Plan evidence-led page updates with the [content operations guide](ops/content.md) ([English](en/ops/content.md)), [content brief template](templates/content-brief.example.md), and [content inventory CSV](templates/content-inventory.example.csv). These are planning records, not performance forecasts.
+- [Aside is optional](ops/aside.md) ([English](en/ops/aside.md)), for authenticated AI web UI work when a suitable existing session is available. Existing Python tools remain the path for audits and aggregation; no installation or sign-in is assumed, and no speed or coverage improvement is promised.
+- Run `python tools/validate.py` to check repository documentation links and consistency.
 
 ## Quick start
 
@@ -117,8 +123,6 @@ save it as `-filled.csv`, or pass the actual saved filename to `import`.
 | `collect.py` | rows in `measure/log.jsonl` | **Gap-free collection across every surface.** Naver, Daum, and Google AI Overviews are unattended; `--browser` reserves login-walled engines as `unmeasured`; `--record` returns browser observations to the same log; `--coverage` names blanks. A truncated response, unavailable AI-source boundary, or source-fetch/parse failure is `unmeasured`, never zero. Organic search-result links are not AI citations. |
 | `drift` | immutable `history/`, `drift.json`, `DRIFT.md` | Compared snapshots and a due date; `next_due` does not schedule work |
 
-The plugin metadata version is **2.0.0**. Reliability and workflow changes on `main` are documented under [Unreleased in the changelog](CHANGELOG.md); this does not imply a published GitHub release or a version bump.
-
 ## Read next
 
 - [Full tool guide](tools/README.md) — commands, schemas, exit codes, and generated files
@@ -141,6 +145,12 @@ The plugin metadata version is **2.0.0**. Reliability and workflow changes on `m
 - Naver (NEO) and Daum/Kakao (KEO) are **separate first-class lanes** — different crawler tokens, ownership proof and AI models. Citation measurement for both is automated in `tools/collect.py`. Registration, third-party reputation, and production deployment still require human decisions and access.
 - The bounded crawl defaults to 300 pages. A failed declared sitemap or sitemap-index child makes coverage incomplete and blocks a replacement sitemap; an undeclared default sitemap returning 404 or 410 is optional.
 - Mirror checks distinguish root `noindex`, robots-blocked, unrestricted, and unknown states; they do not prove every mirror host is indexable. A normal `www` to apex redirect is connectivity, not failure.
+
+Check documentation links and repository consistency with:
+
+```bash
+python tools/validate.py
+```
 
 Run the local test suite with:
 

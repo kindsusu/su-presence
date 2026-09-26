@@ -1,13 +1,13 @@
 {
   "name": "su-presence",
-  "description": "Multi-engine GEO — SEO·AEO·GEO·LLMO·NEO(Naver) with per-engine lanes for ChatGPT, Gemini, Claude, and Perplexity.",
+  "description": "Multi-engine GEO — SEO·AEO·GEO·LLMO·NEO(Naver)·KEO(Daum) with per-engine lanes for ChatGPT, Gemini, Claude, and Perplexity.",
   "owner": { "name": "kindsusu" },
   "plugins": [
     {
       "name": "su-presence",
       "source": "./",
-      "description": "Audits and implements SEO·AEO·GEO·LLMO·NEO(Naver). Per-engine GEO lanes, corrected AI-crawler policy, engine-specific measurement protocol, and a Phase 0 audit script.",
-      "version": "2.1.0"
+      "description": "Audits and implements SEO·AEO·GEO·LLMO·NEO(Naver)·KEO(Daum). Per-engine GEO lanes, corrected AI-crawler policy, engine-specific measurement protocol, and a Phase 0 audit script.",
+      "version": "2.2.0"
     }
   ]
 }

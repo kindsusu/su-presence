@@ -38,6 +38,13 @@ domain**. The answer is both tracks:
   structured data page
 - Link naturally from blog posts to your data pages, but **no link spamming**
 
+When the site page and blog post address the same question, use the
+[content operations guide](../ops/content.md) to record the canonical URL, sources, and
+channel-specific summary in the brief. Before posting, check how headings, tables, links,
+and images render in Naver Blog's editor and inspect the mobile preview. Record changed
+facts and the actual modification date rather than duplicating the source verbatim or
+changing only its date.
+
 ### Why two tracks — each channel reaches different engines
 
 Naver Blog is a historically closed platform that has long shut out external crawlers, so

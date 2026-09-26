@@ -1,6 +1,6 @@
 ---
 name: su-presence
-description: Diagnose and improve website SEO and AI-search accessibility, generate deployment drafts, verify live changes, and measure citations across search engines. Use for website SEO/GEO audits, crawler policy, structured data, and citation measurement. 한국어 요청 예: "우리 사이트 SEO 진단해줘", "AI가 우리 회사를 인용하게 해줘", "챗GPT·제미나이에 우리 사이트 뜨게 해줘", "llms.txt 만들어줘", "네이버·다음 노출 늘려줘", "인용 측정 기준선 잡아줘".
+description: "Diagnose and improve website SEO and AI-search accessibility, generate deployment drafts, verify live changes, and measure citations across search engines. Use for website SEO/GEO audits, crawler policy, structured data, and citation measurement. 한국어 요청 예: \"우리 사이트 SEO 진단해줘\", \"AI가 우리 회사를 인용하게 해줘\", \"챗GPT·제미나이에 우리 사이트 뜨게 해줘\", \"llms.txt 만들어줘\", \"네이버·다음 노출 늘려줘\", \"인용 측정 기준선 잡아줘\"."
 ---
 
 # su-presence — 진단·구현·검증·측정
@@ -49,6 +49,7 @@ JS 렌더링·WAF·검색엔진 색인은 별도 증거가 필요하다. 초안/
 | 검색 접근성·canonical·SSR·사이트맵 | [lanes/seo.md](lanes/seo.md) |
 | 학습/검색/열람 봇 정책 | [ops/crawlers.md](ops/crawlers.md) |
 | 질문 발굴·페이지 매핑 | [ops/intent.md](ops/intent.md) |
+| 글 작성·발행·갱신 운영 | [ops/content.md](ops/content.md) |
 | 답변에 적합한 콘텐츠 | [lanes/aeo.md](lanes/aeo.md) |
 | 엔진별 인용 접근성 | [lanes/geo.md](lanes/geo.md) |
 | 검색을 끈 모델 지식 관측 | [lanes/llmo.md](lanes/llmo.md) |
@@ -97,7 +98,7 @@ python <skill-root>/tools/seo_geo.py collect <audit.json> --coverage
 |---|---|---|
 | 무인 | 네이버 · 다음 · 구글 AI개요 | `collect <audit.json> --runs 10` |
 | 브라우저 경유 | ChatGPT · Gemini · Claude · Perplexity | `collect <audit.json> --browser` 로 자리 예약 → 브라우저로 측정 → `--record` 로 되받기 |
-| 수동 | GSC · 서치어드바이저 색인 수 | 계정 화면을 사람이 본다 |
+| 계정 확인 | GSC · 서치어드바이저 색인 수 | 승인된 로그인 화면에서 조회하거나 사람이 확인한다 |
 
 ```bash
 python <skill-root>/tools/seo_geo.py collect <audit.json> --runs 10 --pause 5
@@ -131,6 +132,9 @@ python <skill-root>/tools/seo_geo.py drift snapshot <audit.json> --measure <summ
 API 실패를 미인용으로 세지 않는다. 질문/표면/회차 구성이 달라지면 직접 비교를 보류한다.
 14일 후 첫 관측과 이후 후속 비교를 제안하되 검색 반영 지연을 고려한다.
 `next_due`는 날짜 기록이며 예약 실행이 아니다. 사용자가 예약/알림을 요청하면 가용 스케줄러로 별도 설정한다.
+
+로그인된 AI 웹 UI는 [Aside 선택 기준](ops/aside.md)에 따라 적합한 세션이 있으면 Aside를 우선한다.
+코드·공개 조회·HTTP 진단·집계에는 Aside를 호출하지 않는다.
 
 ## 완료 보고
 

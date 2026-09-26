@@ -17,6 +17,8 @@
 
 Aside 연계의 확인 범위와 권장 방식은 [검토 기록](reviews/2026-09-26-aside.ko.md)을 참고한다.
 
+브라우저 선택과 Codex CLI 연결: [한국어](../ops/aside.md) · [English](../en/ops/aside.md).
+
 ## 주제별 지침 · Topic guides
 
 | 주제 / Topic | 한국어 | English |

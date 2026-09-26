@@ -1,5 +1,7 @@
 # Measurement Loop — the fix is half, the check is the other half
 
+Browser observations may be made by a person or an authorized agent. Follow the [Aside selection guide](aside.md) for authenticated AI web UI work. Manual-form examples below describe recording, not a requirement that humans perform every browser action.
+
 This is where a playbook differs from an agency report. **Optimization without measurement
 is just a claim.**
 

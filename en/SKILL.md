@@ -105,7 +105,7 @@ signs in and nothing else; the agent runs the query, the verdict and the source 
 |---|---|---|
 | Unattended | Naver · Daum · Google AI Overviews | `collect <audit.json> --runs 10` |
 | Via browser | ChatGPT · Gemini · Claude · Perplexity | `collect <audit.json> --browser` to reserve, measure in the browser, then `--record` to write it back |
-| Manual | GSC · Search Advisor index counts | a human reads the account screen |
+| Account check | GSC · Search Advisor index counts | inspect an authorized signed-in screen or ask for human verification |
 
 ```bash
 python <skill-root>/tools/seo_geo.py collect <audit.json> --runs 10 --pause 5
@@ -141,3 +141,6 @@ date record, not a scheduled run or evidence that follow-up measurement happened
 Report changed files, deployment state, verification evidence, checked scope, observed outcomes,
 and remaining unknowns. Distinguish technical changes, live deployment verification, citation
 observations, and traffic or conversion improvement.
+
+For authenticated AI web UI work, prefer Aside when it has a suitable session; follow the
+[selection guide](ops/aside.md). Do not invoke Aside for code, public retrieval, HTTP audits, or aggregation.

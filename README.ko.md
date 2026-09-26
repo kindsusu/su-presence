@@ -11,15 +11,22 @@
 
 <p align="center">
   <a href="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="version 2.1.0" src="https://img.shields.io/badge/version-2.1.0-0E6B5C">
-  <img alt="tests 358" src="https://img.shields.io/badge/tests-358-2C7A4B">
+  <img alt="version 2.2.0" src="https://img.shields.io/badge/version-2.2.0-0E6B5C">
+  <img alt="tests 369" src="https://img.shields.io/badge/tests-369-2C7A4B">
   <img alt="stdlib only, zero dependencies" src="https://img.shields.io/badge/stdlib%20only-zero%20dependencies-1A2B28">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-0E6B5C">
   <a href="LICENSE"><img alt="License PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-A96A00"></a>
   <img alt="Korean-first" src="https://img.shields.io/badge/Korean-first-B3372B">
 </p>
 
-**기술 검색 접근성을 진단하고, 사이트 변경 초안을 만들고, 라이브 배포를 검증하고, AI 검색 인용을 측정하는 한국어 우선 스킬입니다.** SEO·AEO·GEO·LLMO·네이버·평판을 별도 레인으로 다루며, 크롤러 접근·색인 상태·인용·사업 성과를 같은 결과로 섞지 않습니다.
+**기술 검색 접근성을 진단하고, 사이트 변경 초안을 만들고, 라이브 배포를 검증하고, AI 검색 인용을 측정하는 한국어 우선 스킬입니다.** SEO·AEO·GEO·LLMO·네이버(NEO)·다음/카카오(KEO)·평판을 별도 레인으로 다루며, 크롤러 접근·색인 상태·인용·사업 성과를 같은 결과로 섞지 않습니다.
+
+## v2.2.0 주요 내용
+
+- 근거에 기반해 기존 페이지를 보강하려면 [콘텐츠 운영 안내](ops/content.md) ([English](en/ops/content.md)), [콘텐츠 브리프 양식](templates/content-brief.example.md), [페이지 인벤토리 CSV](templates/content-inventory.example.csv)를 사용합니다. 계획 기록이며 성과 예측 자료는 아닙니다.
+- [Aside는 선택 사항](ops/aside.md) ([English](en/ops/aside.md))이며, 적절한 기존 로그인 세션이 있을 때 인증이 필요한 AI 웹 UI 작업에만 사용합니다. 진단과 집계에는 기존 Python 도구를 사용하며, 설치·로그인을 전제하지 않고 속도나 측정 범위 향상을 약속하지 않습니다.
+- `python tools/validate.py`로 저장소 문서 링크와 일관성을 검사합니다.
+- 네이버(NEO)와 다음/카카오(KEO)는 서로 구분되는 한국 검색·AI 인용 레인입니다.
 
 ## 빠른 시작
 
@@ -117,8 +124,6 @@ python tools/seo_geo.py drift compare out/example.com/audit.json
 | `collect.py` | `measure/log.jsonl` 행 | **표면 누락 없는 수집.** 네이버·다음·구글 AI개요는 무인, `--browser`는 로그인 필요한 엔진을 `unmeasured`로 예약하고, `--record`로 브라우저 측정 결과를 같은 로그에 되받으며, `--coverage`는 빈칸을 찍는다. 축소 응답·AI 출처 경계 미식별·출처 조회/파싱 실패는 0이 아니라 `unmeasured`다. 일반 검색 결과 링크는 AI 인용이 아니다. |
 | `drift` | 불변 `history/`, `drift.json`, `DRIFT.md` | 스냅샷 비교와 다음 점검일. `next_due`는 예약을 만들지 않음 |
 
-플러그인 메타데이터 버전은 **2.0.0**입니다. `main`의 신뢰성·실행 흐름 변경은 [CHANGELOG의 Unreleased](CHANGELOG.md)에 기록합니다. 이는 공개 GitHub 릴리스나 버전 변경을 뜻하지 않습니다.
-
 ## 더 읽기
 
 - [도구 전체 안내](tools/README.md) — 명령, 스키마, 종료 코드, 산출물
@@ -141,6 +146,12 @@ python tools/seo_geo.py drift compare out/example.com/audit.json
 - 네이버(NEO)와 다음·카카오(KEO)는 **각각 독립 레인**입니다 — 크롤러 토큰도, 소유확인 방식도, AI 요약을 만드는 모델도 다릅니다. 두 엔진의 인용 측정은 `tools/collect.py`로 자동화되어 있습니다. 등록, 외부 평판, 운영 배포에는 사람의 판단과 접근 권한이 필요합니다.
 - 기본 크롤 한도는 300페이지입니다. 선언된 sitemap 또는 sitemap index 자식 조회 실패는 수집을 불완전으로 만들고 교체용 sitemap 생성을 막습니다. 선언되지 않은 기본 sitemap의 404·410은 선택적 부재입니다.
 - 미러 검사는 root `noindex`, robots 차단, 미차단, 미확인을 구분하며 모든 미러 호스트의 색인 가능 여부를 단정하지 않습니다. 정상 `www → apex` 리다이렉트는 접속 실패가 아닙니다.
+
+문서 링크와 저장소 일관성은 다음 명령으로 확인합니다.
+
+```bash
+python tools/validate.py
+```
 
 로컬 테스트는 다음 명령으로 실행합니다.
 

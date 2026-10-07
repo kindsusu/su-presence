@@ -66,7 +66,7 @@ python <skill-root>/tools/seo_geo.py measure report <audit.json>
 ```
 
 For that table to fill, record **every source URL, including ones that are not ours**, while measuring
-(`--sources` for browser measurement, the source URL column in the manual form). Runs without recorded sources leave the denominator and show as `미기록` (not recorded).
+(`--sources` for browser measurement, the source URL column in the manual form). Runs with no third-party source recorded (including runs listing only our own URLs) leave the denominator; an engine with none shows `미기록` (not recorded).
 
 | Frequent channel | How to add material | See |
 |---|---|---|

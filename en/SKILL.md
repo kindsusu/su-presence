@@ -62,6 +62,7 @@ Read only the relevant playbooks:
 | Naver search and AI Briefing (NEO) | [Naver](lanes/naver.md) |
 | Daum and Kakao search and AI Summary (KEO) | [Daum](lanes/daum.md) |
 | Third-party information and reputation | [reputation](lanes/reputation.md) |
+| Step-by-step causes and where to add material when answers do not name us | [gap](ops/gap.md) |
 
 ```bash
 python <skill-root>/tools/seo_geo.py generate all <audit.json> --site <site.json>
@@ -110,8 +111,11 @@ signs in and nothing else; the agent runs the query, the verdict and the source 
 ```bash
 python <skill-root>/tools/seo_geo.py collect <audit.json> --runs 10 --pause 5
 python <skill-root>/tools/seo_geo.py collect <audit.json> --browser
-python <skill-root>/tools/seo_geo.py collect <audit.json> --record chatgpt --query B1 --cited https://example.com/page --brand yes --search on
+python <skill-root>/tools/seo_geo.py collect <audit.json> --record chatgpt --query B1 --cited https://example.com/page --sources https://www.youtube.com/watch?v=x,namu.wiki --brand yes --search on
 ```
+
+Put **every source the answer relied on, including ones that are not ours**, in `--sources`. The source-channel
+table in `MEASURE.md` then shows which channel needs material ([gap](ops/gap.md) step 4).
 
 `--browser` reserves blocked engines as `unmeasured` and **prints what to sign into.** Credentials
 never go into the tool. Results come back through `--record` as `observed` in the same

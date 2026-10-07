@@ -72,7 +72,7 @@
    **무엇에 로그인해야 하는지** 출력한다. 여기서 멈추지 않는다.
 2. 사람은 로그인만 한다. 자격증명은 도구에 넣지 않는다.
 3. 에이전트가 그 브라우저로 질의·판정·출처 추출을 한다 (중립 모드는 `measure-playbook.md`).
-4. `collect.py <audit.json> --record <engine> --query <id> --cited <url> ...` 로
+4. `collect.py <audit.json> --record <engine> --query <id> --cited <url> --sources <제3자 출처들> ...` 로
    같은 `log.jsonl`에 `observed`로 되받는다. 예약 행은 같은 회차 키로 덮인다.
 5. `measure.py report <audit.json>` 이 무인 수집분과 **한 표에** 집계한다.
 

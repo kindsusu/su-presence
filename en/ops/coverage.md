@@ -76,7 +76,7 @@ denominator.** The moment you count something unmeasured as zero, that zero beco
 2. The human signs in. Nothing else. Credentials never go into the tool.
 3. The agent drives that browser: query, verdict, source extraction
    (neutral modes are in `measure-playbook.md`).
-4. `collect.py <audit.json> --record <engine> --query <id> --cited <url> ...` writes the result
+4. `collect.py <audit.json> --record <engine> --query <id> --cited <url> --sources <third-party sources> ...` writes the result
    back into the same `log.jsonl` as `observed`. The reservation row is overwritten by run key.
 5. `measure.py report <audit.json>` aggregates it **in one table** with the unattended results.
 

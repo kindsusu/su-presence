@@ -320,7 +320,7 @@ python tools/measure.py auto   out/example.com/audit.json --engines chatgpt,clau
 | `init` | `measure/` 폴더 + 질의 세트 **빈칸** 생성 (이미 있으면 안 건드림) | `measure/queries.json` |
 | `form` | 질의 × 엔진 × 회차 행이 미리 채워진 수동 입력 양식 | `form-<날짜>.csv` · `form-<날짜>.html` |
 | `import` | 채운 CSV를 검증해 로그에 append (문제 행은 건너뛰고 사유 출력) | `measure/log.jsonl` |
-| `report` | 로그 집계 — 엔진별 인용률·인용 URL 빈도·추이·재측정일 | `summary.json` + `MEASURE.md` |
+| `report` | 로그 집계 — 엔진별 인용률·인용 URL 빈도·출처 채널·추이·재측정일 | `summary.json` + `MEASURE.md` |
 | `auto` | **선택.** 환경변수에 키가 있을 때만 ChatGPT·Claude 자동 질의 | `log.jsonl`에 append |
 
 옵션: `--engines`(쉼표 구분, 기본은 **브라우저 조작이 필요한 대화형 엔진만** — `chatgpt,gemini,claude,perplexity`. 네이버·다음·구글 AI개요는 `collect.py` 가 무인으로 잰다) · `--runs`(기본 5) ·
@@ -358,6 +358,14 @@ out/<host>/measure/log.jsonl      su-presence/measure-row/2  · append-only · �
 
 out/<host>/measure/summary.json   su-presence/measure/2   · report가 생성
 ```
+
+`cited_urls`에는 우리 URL만이 아니라 **답변의 출처 URL을 전부** 넣는다. 제3자 도메인은
+`competitor_domains`에 모이고, `report`가 `measure.SOURCE_CHANNELS`(영상·위키·오픈 블로그·
+네이버 블로그·커뮤니티·오픈마켓·지도/리뷰·채용·언론·공공)로 분류해 `summary.json`의 `sources`와
+`MEASURE.md`의 **출처 채널** 표에 엔진별 회차 수로 싣는다. 분모는 출처를 기록한 관측 회차이며,
+기록이 없는 엔진은 `미기록`이다. 분류된 플랫폼은 `urls.competitors`에서 빠지고 미분류 도메인만
+경쟁 후보로 남는다(선택 필드라 schema 버전은 그대로다). 브라우저 측정은
+`collect.py --record ... --sources URL,도메인`으로 같은 칸을 채운다.
 
 `engine`은 고정 목록이다: `chatgpt` `google_aio` `gemini` `claude` `perplexity`
 `naver_ai` `daum` `copilot` `other`. 값이 늘면 스키마 버전을 올린다.

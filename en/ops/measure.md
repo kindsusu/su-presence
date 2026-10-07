@@ -95,9 +95,11 @@ adding more engines.
       is not a sample.** Record **N out of 10**, not "yes/no".
       ⚠️ The repeats must be **run on one day** to read a distribution. Spread across days, what
       you see is not the distribution but index and source changes mixed into it
-- [ ] **Keep the cited URLs.** O/X alone does not tell you what to do next. Frequency (how
-      often) plus URL (which page) is what separates "strengthen that page" from
-      "no page exists for that question"
+- [ ] **Keep every source URL in the answer, including ones that are not ours.** O/X alone does
+      not tell you what to do next. Frequency (how often) plus our URL (which page) separates
+      "strengthen that page" from "no page exists for that question", and third-party sources
+      (video, blogs, wikis) roll up into the **source channel** table in `MEASURE.md` to show
+      which channel needs material ([gap](gap.md) step 4)
 
 ### Brand and non-brand queries are different metrics
 

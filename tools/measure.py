@@ -1098,7 +1098,9 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
         for dom, channel in third.items():
             if channel == "other":
                 comp_domains[dom] += 1
-        _count_sources(sources[row["engine"]], third, bool(third or row.get("cited_urls")))
+        # 우리 URL만 적힌 회차는 "제3자 출처 없음"이 아니라 "안 적었을 수 있음"이다 — 옛 지침은
+        # 우리 URL만 적게 했다. 제3자 도메인이 하나라도 있는 회차만 분모에 넣는다.
+        _count_sources(sources[row["engine"]], third, bool(third))
 
     # 질의 단위 수치를 엔진 슬롯에 채운다 (전 기간 기준: 한 번이라도 인용됐나)
     for engine in engines_seen:
@@ -1283,11 +1285,11 @@ def headline(summary: dict) -> list:
 
 
 def render_sources_md(sources: list) -> list:
-    """엔진 × 출처 채널 표. 분모는 출처를 기록한 관측 회차다 — 미기록을 '근거 없음'으로 세지 않는다."""
+    """엔진 × 출처 채널 표. 분모는 제3자 출처를 기록한 관측 회차다 — 미기록을 '근거 없음'으로 세지 않는다."""
     if not sources:
         return []
     out = ["## 출처 채널 — 답변이 무엇을 근거로 썼나", "",
-           "출처를 기록한 회차: " + " · ".join(
+           "제3자 출처를 기록한 회차: " + " · ".join(
                "%s %d/%d" % (s["label"], s["runs_with_sources"], s["runs"]) for s in sources), ""]
     used = [key for key in SOURCE_LABEL
             if any(c["channel"] == key for s in sources for c in s["channels"])]
@@ -1307,7 +1309,7 @@ def render_sources_md(sources: list) -> list:
                 doms[d["domain"]] += d["count"]
         out.append("| %s | %s | %s |" % (SOURCE_LABEL[key], " | ".join(cells),
                                           ", ".join(d for d, _ in doms.most_common(3))))
-    out += ["", "칸은 **출처를 기록한 회차 중 그 채널이 한 번이라도 근거로 나온 회차 수**다. "
+    out += ["", "칸은 **제3자 출처를 하나라도 기록한 회차 중 그 채널이 근거로 나온 회차 수**다. 우리 URL만 적힌 회차는 기록 누락일 수 있어 분모에서 뺀다. "
                 "자주 나오는 채널이 이 질의 세트에서 자료를 더할 후보다 — 다른 업종·질의로 일반화하지 않는다. "
                 "채널별 대응은 `ops/gap.md` 4단계.", ""]
     return out

@@ -87,6 +87,15 @@ class SourceAggregationTests(unittest.TestCase):
         self.assertIn("| 영상 | 2/2 | 미기록 |", md)
         self.assertIn("ChatGPT 2/3", md)
 
+    def test_runs_listing_only_our_urls_do_not_enter_the_denominator(self):
+        """옛 지침은 우리 URL만 적게 했다 — 그런 회차를 분모에 넣으면 모든 채널이 0/N으로 굳는다."""
+        rows = [row("chatgpt", 1, ["https://example.com/pricing"], ours=True),
+                row("chatgpt", 2, ["https://example.com/pricing", "https://youtu.be/x"],
+                    ["youtu.be"], ours=True)]
+        chatgpt = summarize(rows)["sources"][0]
+        self.assertEqual((chatgpt["runs"], chatgpt["runs_with_sources"]), (2, 1))
+        self.assertEqual({c["channel"]: c["runs"] for c in chatgpt["channels"]}, {"video": 1})
+
     def test_no_recorded_sources_says_so_instead_of_zero(self):
         md = measure.render_measure_md(summarize([row("chatgpt", 1), row("chatgpt", 2)]))
         self.assertIn("근거 채널을 판단할 수 없다", md)
@@ -166,6 +175,21 @@ class LinkDiscoveryTests(unittest.TestCase):
         self.assertEqual(home["internal_links"], 2)
         got = codes_for([p for p in pages if p["url"] != BASE + "/pricing/"], coverage)
         self.assertEqual(got, {})
+
+    def test_start_page_redirect_target_is_not_an_orphan(self):
+        """/ → /ko/ 리다이렉트: /ko/가 사이트맵 시드로 따로 잡혀도 고아가 아니다."""
+        def fake(url, **kw):
+            if url == BASE + "/":
+                return dict(response(url, '<a href="/guide">안내</a>'), final_url=BASE + "/ko/")
+            return response(url, '<a href="/guide">안내</a>')
+        coverage = {}
+        with patch.object(crawl, "fetch", side_effect=fake):
+            pages = crawl.crawl_site(BASE, 20, 0, [], seeds=[BASE + "/ko/", BASE + "/guide"],
+                                     coverage=coverage)
+        self.assertTrue(coverage["complete"])
+        flags = {p["url"]: p["linked_from_html"] for p in pages}
+        self.assertEqual(flags, {BASE + "/": True, BASE + "/ko/": True, BASE + "/guide": True})
+        self.assertEqual(codes_for(pages, coverage), {})
 
     def test_incomplete_crawl_does_not_judge_orphans(self):
         pages, coverage = crawl_with({BASE + "/": "<p>링크 없음</p>"}, seeds=[BASE + "/a"])

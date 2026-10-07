@@ -602,6 +602,11 @@ def crawl_site(base: str, max_pages: int, delay: float, rules, seeds=None, cover
         if delay:
             time.sleep(delay)
     linked_keys = {_link_key(u) for u in linked}
+    # 시작 페이지가 /ko/ 같은 곳으로 리다이렉트되면 그 도착지도 사이트맵 시드로 따로 잡힌다 —
+    # 시작점의 도착지는 링크로 닿은 것으로 본다.
+    for page in pages:
+        if page["url"] == start and page.get("final_url"):
+            linked_keys.add(_link_key(page["final_url"]))
     for page in pages:
         page["linked_from_html"] = (page["url"] == start or _link_key(page["url"]) in linked_keys
                                     or _link_key(page.get("final_url") or "") in linked_keys)

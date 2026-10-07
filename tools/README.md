@@ -362,7 +362,7 @@ out/<host>/measure/summary.json   su-presence/measure/2   · report가 생성
 `cited_urls`에는 우리 URL만이 아니라 **답변의 출처 URL을 전부** 넣는다. 제3자 도메인은
 `competitor_domains`에 모이고, `report`가 `measure.SOURCE_CHANNELS`(영상·위키·오픈 블로그·
 네이버 블로그·커뮤니티·오픈마켓·지도/리뷰·채용·언론·공공)로 분류해 `summary.json`의 `sources`와
-`MEASURE.md`의 **출처 채널** 표에 엔진별 회차 수로 싣는다. 분모는 출처를 기록한 관측 회차이며,
+`MEASURE.md`의 **출처 채널** 표에 엔진별 회차 수로 싣는다. 분모는 제3자 출처를 하나라도 기록한 관측 회차이며(우리 URL만 적힌 회차는 기록 누락일 수 있어 제외),
 기록이 없는 엔진은 `미기록`이다. 분류된 플랫폼은 `urls.competitors`에서 빠지고 미분류 도메인만
 경쟁 후보로 남는다(선택 필드라 schema 버전은 그대로다). 브라우저 측정은
 `collect.py --record ... --sources URL,도메인`으로 같은 칸을 채운다.

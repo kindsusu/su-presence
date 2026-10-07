@@ -122,3 +122,6 @@ If not, check in order:
 2. Are the raw HTML and any required rendered result accessible?
 3. Is it observed in relevant search indexes and the answer's actual sources?
 4. Does a competing primary source already own it? If so, differentiate what you originate
+
+These are technical checks. For the full order through our own facts, question conditions and
+third-party channels, and where to add material, follow [visibility gaps](../ops/gap.md).

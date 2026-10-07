@@ -557,6 +557,8 @@ def crawl_site(base: str, max_pages: int, delay: float, rules, seeds=None, cover
             seen.add(seed)
             queue.append(seed)
     pages = []
+    linked = set()   # 크롤한 페이지의 원시 HTML 링크로 닿은 URL — 사이트맵 시드와 구별한다
+    start = normalize(base)
     while queue and len(pages) < max_pages:
         url = queue.popleft()
         res = fetch(url, rules=rules)
@@ -564,7 +566,14 @@ def crawl_site(base: str, max_pages: int, delay: float, rules, seeds=None, cover
         pages.append(page)
         sys.stderr.write("  · %-4s %s\n" % (page["status"] or "ERR", url))
         sys.stderr.flush()
-        links = page.pop("_links", []) if page["status"] == 200 and host_of(res["final_url"] or url) == host else []
+        same_host = page["status"] == 200 and host_of(res["final_url"] or url) == host
+        links = page.pop("_links", []) if same_host else []
+        page.pop("_links", None)
+        is_html = (not res["error"] and bool(res["body"])
+                   and "html" in (res["content_type"] or "text/html").lower())
+        # 원시 HTML의 <a href>로 닿는 내부 페이지 수. 스크립트로만 그리는 메뉴는 0이 된다.
+        # 판정할 수 없는 응답(오류·외부 호스트)은 None으로 둔다 — 0과 구별한다.
+        page_links = set()
         for href in links:
             try:
                 nxt = normalize(urllib.parse.urljoin(res["final_url"] or url, href))
@@ -572,7 +581,12 @@ def crawl_site(base: str, max_pages: int, delay: float, rules, seeds=None, cover
                 continue
             if not nxt.startswith(("http://", "https://")):
                 continue
-            if host_of(nxt) != host or nxt in seen or not is_page(nxt):
+            if host_of(nxt) != host or not is_page(nxt):
+                continue
+            if nxt not in (url, normalize(res["final_url"] or url)):
+                page_links.add(nxt)
+                linked.add(nxt)
+            if nxt in seen:
                 continue
             parts = urllib.parse.urlsplit(nxt)
             target = (parts.path or "/") + (("?" + parts.query) if parts.query else "")
@@ -584,8 +598,13 @@ def crawl_site(base: str, max_pages: int, delay: float, rules, seeds=None, cover
                 queue.append(nxt)
             else:
                 dropped_discoveries += 1
+        page["internal_links"] = len(page_links) if same_host and is_html else None
         if delay:
             time.sleep(delay)
+    linked_keys = {_link_key(u) for u in linked}
+    for page in pages:
+        page["linked_from_html"] = (page["url"] == start or _link_key(page["url"]) in linked_keys
+                                    or _link_key(page.get("final_url") or "") in linked_keys)
     if coverage is not None:
         network_errors = sum(1 for p in pages if p.get("error") or p.get("status") is None)
         http_errors = sum(1 for p in pages if p.get("status") is not None and p.get("status", 0) >= 400)
@@ -608,6 +627,13 @@ def crawl_site(base: str, max_pages: int, delay: float, rules, seeds=None, cover
                          "pages_fetched": len(pages), "queued_remaining": len(queue),
                          "blocked_count": blocked_count, "reasons": reasons})
     return pages
+
+
+def _link_key(url: str) -> str:
+    """링크 도달 판정용 비교 키 — 스킴과 끝 슬래시 차이로 고아 페이지를 만들지 않는다."""
+    parts = urllib.parse.urlsplit(url or "")
+    path = (parts.path or "/").rstrip("/") or "/"
+    return "%s%s%s" % (parts.netloc.lower(), path, ("?" + parts.query) if parts.query else "")
 
 
 def page_record(url: str, res: dict) -> dict:
@@ -840,6 +866,7 @@ def analyze(base: str, site: dict, pages: list) -> tuple:
     _check_meta(findings, ok, total)
     _check_structure(findings, ok, total)
     _check_site(findings, base, site, ok)
+    _check_link_discovery(findings, base, site, ok)
     _check_crawler_policy(findings, site)
 
     stats = {
@@ -1049,6 +1076,32 @@ def _check_structure(findings, ok, total):
         add(findings, "SEO", "critical" if len(thin) / total > 0.5 else "warn", "THIN_TEXT",
             "원시 HTML의 본문 텍스트가 300자 미만인 페이지가 %d개다 — 페이지 목적과 렌더링 결과를 별도 확인한다."
             % len(thin), thin, {"count": len(thin)})
+
+
+def _check_link_discovery(findings, base, site, ok):
+    """원시 HTML 링크만 따라가는 방문자(스크립트를 실행하지 않는 AI 크롤러·에이전트)의 시점.
+
+    사이트맵을 시드로 넣으면 크롤 자체는 전 페이지에 닿으므로 메뉴가 스크립트 뒤에 숨어 있어도
+    드러나지 않는다. 링크 필드가 없는 옛 audit은 판정하지 않는다.
+    """
+    start = normalize(base)
+    home = next((p for p in ok if p["url"] == start), None)
+    if home is not None and home.get("internal_links") == 0:
+        add(findings, "GEO", "warn", "LINKS_NOT_IN_HTML",
+            "시작 페이지의 원시 HTML에 내부 링크(<a href>)가 없다 — 메뉴·목록이 스크립트로만 그려지면 "
+            "스크립트를 실행하지 않는 크롤러·에이전트는 첫 화면에서 더 나아가지 못한다. 렌더링 결과는 별도 확인한다.",
+            [start], {})
+
+    coverage = site.get("_coverage")
+    if not coverage or not coverage.get("complete"):
+        return   # 크롤하지 못한 페이지가 링크를 걸고 있을 수 있다 — 불완전 크롤에서는 판정하지 않는다
+    orphans = [p["url"] for p in ok if p.get("linked_from_html") is False]
+    if orphans:
+        share = len(orphans) / max(1, len(ok))
+        add(findings, "GEO", "warn" if share >= 0.5 else "info", "SITEMAP_ONLY_PAGES",
+            "사이트맵으로만 닿고 원시 HTML 링크로는 닿지 않는 페이지가 %d개다 (%d%%) — "
+            "링크를 따라가는 방문자에게는 없는 페이지다." % (len(orphans), round(share * 100)),
+            orphans, {"count": len(orphans)})
 
 
 def _check_site(findings, base, site, ok):

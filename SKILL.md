@@ -56,6 +56,7 @@ JS 렌더링·WAF·검색엔진 색인은 별도 증거가 필요하다. 초안/
 | 네이버 검색·AI 브리핑 (NEO) | [lanes/naver.md](lanes/naver.md) |
 | 다음·카카오 검색·AI 요약 (KEO) | [lanes/daum.md](lanes/daum.md) |
 | 제3자 정보·평판 | [lanes/reputation.md](lanes/reputation.md) |
+| 질문에 우리 이름이 안 나올 때 단계별 원인과 자료 보강 위치 | [ops/gap.md](ops/gap.md) |
 
 공식 설명·조건·가격·사례의 사실과 출처·기준일을 확정한다. 고객 판단에 유용한 고유 근거를 보강한다.
 모든 질문을 별도 페이지로 쪼개지 말고 답과 의도가 같은 질문은 함께 다룬다.
@@ -103,8 +104,11 @@ python <skill-root>/tools/seo_geo.py collect <audit.json> --coverage
 ```bash
 python <skill-root>/tools/seo_geo.py collect <audit.json> --runs 10 --pause 5
 python <skill-root>/tools/seo_geo.py collect <audit.json> --browser
-python <skill-root>/tools/seo_geo.py collect <audit.json> --record chatgpt --query B1 --cited https://example.com/page --brand yes --search on
+python <skill-root>/tools/seo_geo.py collect <audit.json> --record chatgpt --query B1 --cited https://example.com/page --sources https://www.youtube.com/watch?v=x,namu.wiki --brand yes --search on
 ```
+
+`--sources`에는 답변이 근거로 쓴 **우리 것이 아닌 출처도 전부** 적는다. `MEASURE.md`의 출처 채널 표가
+어느 채널에 자료를 더할지 가리키는 근거가 된다 ([ops/gap.md](ops/gap.md) 4단계).
 
 `--browser`는 막힌 엔진을 `unmeasured`로 예약하고 **무엇에 로그인해야 하는지 출력한다.**
 자격증명은 도구에 넣지 않는다. 측정 결과는 `--record`로 같은 log.jsonl에 `observed`로 돌아오고,

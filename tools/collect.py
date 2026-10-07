@@ -514,6 +514,17 @@ def record_one(a, mdir, host, today, queries) -> int:
     if supplied and not ours:
         sys.stderr.write("--cited에 %s 소유 URL이 없다\n" % host)
         return 2
+    # 답변이 근거로 쓴 제3자 출처 — URL은 그대로 남기고, 도메인은 출처 채널 집계로 간다.
+    source_urls = []
+    for token in (x.strip() for x in getattr(a, "sources", "").split(",")):
+        if not token or measure.is_ours(token, host):
+            continue
+        foreign.append(measure.domain_of(token))
+        if "/" in token.split("://", 1)[-1]:
+            url = measure.norm_url(token)
+            if url:
+                source_urls.append(url)
+    foreign = [d for d in dict.fromkeys(foreign) if d]
 
     campaign = measure.query_set_fingerprint(queries)[:16]
     query = qindex[a.query]
@@ -521,7 +532,7 @@ def record_one(a, mdir, host, today, queries) -> int:
     row = measure.make_row(
         today, a.query, a.record, a.run, "browser",
         {"in": False, "out": True, "unknown": None}[a.login],
-        bool(ours), ours, a.brand == "yes", foreign,
+        bool(ours), list(dict.fromkeys(ours + source_urls)), a.brand == "yes", foreign,
         note=a.note or "브라우저 측정",
         outcome="observed", surface=a.record,
         login_state={"in": "signed_in", "out": "signed_out", "unknown": "unknown"}[a.login],
@@ -530,10 +541,10 @@ def record_one(a, mdir, host, today, queries) -> int:
 
     log = os.path.join(mdir, "log.jsonl")
     measure.append_rows(log, [row])
-    print("기록 %s / %s #%d — 인용 %s · 언급 %s · 검색 %s"
+    print("기록 %s / %s #%d — 인용 %s · 언급 %s · 검색 %s · 제3자 출처 %d"
           % (measure.ENGINES[a.record], a.query, a.run,
              ("%d건" % len(ours)) if ours else "없음",
-             "있음" if a.brand == "yes" else "없음", a.search))
+             "있음" if a.brand == "yes" else "없음", a.search, len(foreign)))
     print("-> %s" % log)
     return 0
 
@@ -573,6 +584,8 @@ def main(argv=None) -> int:
     g.add_argument("--cited", default="", metavar="URL,URL",
                    help="인용된 우리 URL. 비우면 '인용 안 됨'으로 기록된다")
     g.add_argument("--competitors", default="", metavar="DOM,DOM")
+    g.add_argument("--sources", default="", metavar="URL,URL",
+                   help="답변이 근거로 쓴 제3자 출처 URL·도메인 전부 — 출처 채널 집계에 쓴다")
     g.add_argument("--brand", choices=("yes", "no"), default="no",
                    help="우리 상호가 답변에 언급됐는가")
     g.add_argument("--search", choices=("on", "off", "unknown"), default="unknown",

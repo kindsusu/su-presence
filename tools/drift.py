@@ -39,6 +39,7 @@ from datetime import date as _date, datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import verify  # noqa: E402  (verify_diff — findings/scorecard/stats/pages 비교를 복제하지 않는다)
+import measure  # noqa: E402  (source_channel — 플랫폼 도메인을 경쟁사로 세지 않는다)
 
 SCHEMA_HISTORY = "su-presence/history/1"
 # 옛 이름을 안 받으면 기존 history.json 이 버려지고 **기준선이 조용히 초기화된다.**
@@ -519,8 +520,14 @@ def compare_measure(before: dict, after: dict) -> dict:
     ours = [{"url": u, "before": b_ours.get(u, 0), "after": a_ours.get(u, 0)}
             for u in sorted(set(b_ours) | set(a_ours))]
 
-    b_comp = {c["domain"]: c["count"] for c in ((before.get("urls") or {}).get("competitors") or [])}
-    a_comp = {c["domain"]: c["count"] for c in ((after.get("urls") or {}).get("competitors") or [])}
+    # 옛 summary는 유튜브·위키 같은 플랫폼도 경쟁 도메인에 넣었다. 양쪽을 같은 기준으로 걸러야
+    # 분류 변경이 "경쟁사 감소"로 보이지 않는다.
+    def _comp(summary):
+        return {c["domain"]: c["count"]
+                for c in ((summary.get("urls") or {}).get("competitors") or [])
+                if measure.source_channel(c["domain"]) == "other"}
+
+    b_comp, a_comp = _comp(before), _comp(after)
 
     return {
         "comparison": {"status": "comparable" if comparable else "inconclusive",

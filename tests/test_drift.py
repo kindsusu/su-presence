@@ -364,6 +364,16 @@ class TestMeasureDiff(DriftCase):
         self.assertEqual(comps["rival.example"], (5, 2))
         self.assertEqual(comps["other.example"], (0, 7))
 
+    def test_platform_domains_in_old_summary_are_not_competitors(self):
+        """옛 summary는 유튜브·위키를 경쟁 도메인에 넣었다 — 분류 변경이 '경쟁사 감소'로 보이면 안 된다."""
+        self.two(audit(), audit(),
+                 b_measure=summary(competitors=[("rival.example", 5), ("youtube.com", 9),
+                                                ("namu.wiki", 4)]),
+                 a_measure=summary(competitors=[("rival.example", 5)]))
+        self.compare()
+        comps = [c["domain"] for c in self.result()["measure_diff"]["competitors"]]
+        self.assertEqual(comps, ["rival.example"])
+
 
 # ─────────────────────────────────────────────────────────── status
 

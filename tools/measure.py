@@ -70,6 +70,61 @@ ENGINES = OrderedDict([
     ("other", "기타"),
 ])
 
+# 출처 채널 — 답변이 근거로 쓴 제3자 도메인을 "어디에 자료를 더할 것인가"로 묶는다.
+# 위에서부터 첫 일치가 이긴다(하위 도메인 포함). 목록에 없는 도메인은 `other`로 남고,
+# 경쟁사 공식 사이트 후보로 따로 보인다. 목록은 완전하지 않다 — 미분류를 숨기지 않는다.
+SOURCE_CHANNELS = [
+    ("naver_blog", "네이버 블로그·포스트", ("blog.naver.com", "post.naver.com")),
+    ("community", "커뮤니티·Q&A", (
+        "cafe.naver.com", "kin.naver.com", "reddit.com", "quora.com", "clien.net",
+        "dcinside.com", "theqoo.net", "fmkorea.com", "ppomppu.co.kr", "ruliweb.com",
+        "bobaedream.co.kr", "82cook.com", "instiz.net", "mlbpark.donga.com", "okky.kr",
+        "teamblind.com", "stackoverflow.com", "cafe.daum.net")),
+    ("open_blog", "오픈 블로그", (
+        "tistory.com", "brunch.co.kr", "velog.io", "medium.com", "blogspot.com",
+        "wordpress.com", "substack.com", "blog.daum.net")),
+    ("wiki", "위키", ("namu.wiki", "wikipedia.org", "wikiwand.com")),
+    ("video", "영상", ("youtube.com", "youtu.be", "tv.naver.com", "tv.kakao.com", "vimeo.com")),
+    ("social", "소셜", (
+        "instagram.com", "facebook.com", "x.com", "twitter.com", "threads.net",
+        "tiktok.com", "linkedin.com")),
+    ("marketplace", "오픈마켓·쇼핑", (
+        "coupang.com", "gmarket.co.kr", "11st.co.kr", "auction.co.kr", "ssg.com",
+        "lotteon.com", "smartstore.naver.com", "shopping.naver.com", "brand.naver.com",
+        "danawa.com", "enuri.com", "musinsa.com", "oliveyoung.co.kr", "kurly.com",
+        "amazon.com", "aliexpress.com")),
+    ("review_map", "지도·리뷰·예약", (
+        "map.naver.com", "place.naver.com", "map.kakao.com", "place.map.kakao.com",
+        "maps.google.com", "maps.app.goo.gl", "tripadvisor.com", "tripadvisor.co.kr",
+        "yelp.com", "booking.com", "agoda.com", "yanolja.com", "goodchoice.kr",
+        "catchtable.co.kr", "modoodoc.com", "gangnamunni.com", "g2.com", "capterra.com")),
+    ("jobs", "채용·기업정보", (
+        "jobplanet.co.kr", "saramin.co.kr", "jobkorea.co.kr", "wanted.co.kr",
+        "glassdoor.com", "thevc.kr", "innoforest.co.kr")),
+    ("news", "언론", (
+        "news.naver.com", "n.news.naver.com", "v.daum.net", "news.daum.net", "yna.co.kr",
+        "chosun.com", "joongang.co.kr", "donga.com", "hani.co.kr", "khan.co.kr",
+        "mk.co.kr", "hankyung.com", "mt.co.kr", "sedaily.com", "edaily.co.kr",
+        "asiae.co.kr", "newsis.com", "news1.kr", "etnews.com", "zdnet.co.kr",
+        "bloter.net", "ddaily.co.kr", "reuters.com", "bloomberg.com", "nytimes.com")),
+    ("public", "공공·학술", ("go.kr", "gov", "ac.kr", "re.kr", "edu")),
+]
+SOURCE_LABEL = OrderedDict([(key, label) for key, label, _ in SOURCE_CHANNELS] +
+                           [("other", "미분류 (경쟁사 공식 사이트 후보 포함)")])
+
+
+def source_channel(value) -> str:
+    """URL·도메인 → 출처 채널 키. 모르면 'other'."""
+    dom = domain_of(value)
+    if not dom:
+        return "other"
+    for key, _label, suffixes in SOURCE_CHANNELS:
+        for suffix in suffixes:
+            if dom == suffix or dom.endswith("." + suffix):
+                return key
+    return "other"
+
+
 # collect.py 가 무인으로 재는 엔진. 폼에 넣으면 사람에게 이미 자동화된 일을 시키는 것이다.
 COLLECTED_ENGINES = ("naver_ai", "daum", "google_aio")
 
@@ -578,8 +633,8 @@ function build() {
       '</span> <span class="qtext">' + esc(q.text) + '</span></h2>');
     if (q.note) { html.push('<p class="muted">' + esc(q.note) + '</p>'); }
     html.push('<div class="tablewrap"><table><thead><tr>' +
-      '<th>엔진</th><th class="mono">회차</th><th>인용</th><th>인용된 URL</th>' +
-      '<th>브랜드 언급</th><th>경쟁 도메인</th><th>메모</th></tr></thead><tbody>');
+      '<th>엔진</th><th class="mono">회차</th><th>인용</th><th>답변의 출처 URL 전부</th>' +
+      '<th>브랜드 언급</th><th>경쟁·제3자 도메인</th><th>메모</th></tr></thead><tbody>');
     DATA.engines.forEach(function (eng) {
       for (var n = 1; n <= DATA.runs; n++) {
         var k = q.id + "|" + eng[0] + "|" + n;
@@ -588,7 +643,7 @@ function build() {
           (n === 1 ? '<td rowspan="' + DATA.runs + '">' + esc(eng[1]) + '</td>' : '') +
           '<td class="mono">' + n + '</td>' +
           '<td><span class="yn">' + radio(k, "cited") + '</span></td>' +
-          '<td>' + text(k, "urls", "https://…  (여러 개면 띄어쓰기)") + '</td>' +
+          '<td>' + text(k, "urls", "우리 것 + 유튜브·블로그 등 전부 (띄어쓰기)") + '</td>' +
           '<td><span class="yn">' + radio(k, "brand") + '</span></td>' +
           '<td>' + text(k, "comp", "competitor.com") + '</td>' +
           '<td>' + text(k, "note", "") + '</td></tr>');
@@ -941,6 +996,30 @@ def cell(part: dict) -> str:
     return "—"
 
 
+def _blank_sources() -> dict:
+    return {"runs": 0, "runs_with_sources": 0, "_channels": Counter(), "_domains": {}}
+
+
+def _count_sources(slot: dict, third: dict, recorded: bool) -> None:
+    """관측 회차 하나의 제3자 출처를 채널별로 센다. 채널은 회차당 한 번만 센다."""
+    slot["runs"] += 1
+    if not recorded:
+        return
+    slot["runs_with_sources"] += 1
+    for channel in set(third.values()):
+        slot["_channels"][channel] += 1
+    for dom, channel in third.items():
+        slot["_domains"].setdefault(channel, Counter())[dom] += 1
+
+
+def _sources_out(slot: dict) -> dict:
+    return {"runs": slot["runs"], "runs_with_sources": slot["runs_with_sources"],
+            "channels": [{"channel": key, "label": SOURCE_LABEL[key], "runs": slot["_channels"][key],
+                          "domains": [{"domain": d, "count": n} for d, n in
+                                      slot["_domains"].get(key, Counter()).most_common(5)]}
+                         for key in SOURCE_LABEL if slot["_channels"][key]]}
+
+
 def aggregate(rows: list, queries: list, host: str, base: str, since=None, until=None,
               cumulative=True) -> dict:
     qindex = {q["id"]: q for q in queries}
@@ -972,6 +1051,7 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
     q_cited: dict = {}          # (date, qid) -> bool
     q_engine_cited: dict = {}   # (date, qid, engine) -> bool
     ours, comp_domains = Counter(), Counter()
+    sources = {e: _blank_sources() for e in engines_seen}
     by_query: dict = OrderedDict((q["id"], {"id": q["id"], "text": q["text"],
                                             "type": q["type"], "runs": 0, "cited": 0,
                                             "engines": {}, "_urls": Counter()})
@@ -1007,10 +1087,18 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
             if is_ours(url, host):
                 ours[url] += 1
             bucket["_urls"][url] += 1
-        # 경쟁 도메인은 이 칸만 센다 — import·auto 둘 다 여기에 URL 도메인까지 모아 둔다
-        for dom in row.get("competitor_domains") or []:
-            if dom and dom != bare(host):
+        # 제3자 도메인은 competitor_domains에 모인다 — import·auto·--record 모두 여기에 쌓는다.
+        # 플랫폼(유튜브·위키·블로그…)은 경쟁사가 아니라 출처 채널로 따로 센다.
+        third = OrderedDict()
+        for dom in list(row.get("competitor_domains") or []) + [
+                domain_of(u) for u in row.get("cited_urls") or [] if not is_ours(u, host)]:
+            dom = domain_of(dom)
+            if dom and dom != bare(host) and not is_ours(dom, host):
+                third[dom] = source_channel(dom)
+        for dom, channel in third.items():
+            if channel == "other":
                 comp_domains[dom] += 1
+        _count_sources(sources[row["engine"]], third, bool(third or row.get("cited_urls")))
 
     # 질의 단위 수치를 엔진 슬롯에 채운다 (전 기간 기준: 한 번이라도 인용됐나)
     for engine in engines_seen:
@@ -1150,6 +1238,8 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
         "urls": {"ours": [{"url": u, "count": n} for u, n in ours.most_common(20)],
                  "competitors": [{"domain": d, "count": n}
                                  for d, n in comp_domains.most_common(20)]},
+        "sources": [dict(_sources_out(sources[e]), engine=e, label=ENGINES[e])
+                    for e in engines_seen],
         "by_query": list(by_query.values()),
         "trend": trend,
         "next_measure": next_measure,
@@ -1189,6 +1279,37 @@ def headline(summary: dict) -> list:
     if summary.get("next_measure"):
         out.append("[재측정] %s 예정 (마지막 측정 +%d일)"
                    % (summary["next_measure"], REMEASURE_DAYS))
+    return out
+
+
+def render_sources_md(sources: list) -> list:
+    """엔진 × 출처 채널 표. 분모는 출처를 기록한 관측 회차다 — 미기록을 '근거 없음'으로 세지 않는다."""
+    if not sources:
+        return []
+    out = ["## 출처 채널 — 답변이 무엇을 근거로 썼나", "",
+           "출처를 기록한 회차: " + " · ".join(
+               "%s %d/%d" % (s["label"], s["runs_with_sources"], s["runs"]) for s in sources), ""]
+    used = [key for key in SOURCE_LABEL
+            if any(c["channel"] == key for s in sources for c in s["channels"])]
+    if not used:
+        out += ["제3자 출처가 기록되지 않았다. 출처 칸이 비어 있으면 **근거 채널을 판단할 수 없다** — "
+                "다음 측정부터 답변의 출처 URL을 우리 것이 아니어도 전부 적는다.", ""]
+        return out
+    out += ["| 출처 채널 | " + " | ".join(s["label"] for s in sources) + " | 주요 도메인 |",
+            "|---" * (len(sources) + 2) + "|"]
+    for key in used:
+        cells, doms = [], Counter()
+        for s in sources:
+            hit = next((c for c in s["channels"] if c["channel"] == key), None)
+            cells.append("%d/%d" % (hit["runs"] if hit else 0, s["runs_with_sources"])
+                         if s["runs_with_sources"] else "미기록")
+            for d in (hit or {}).get("domains", []):
+                doms[d["domain"]] += d["count"]
+        out.append("| %s | %s | %s |" % (SOURCE_LABEL[key], " | ".join(cells),
+                                          ", ".join(d for d, _ in doms.most_common(3))))
+    out += ["", "칸은 **출처를 기록한 회차 중 그 채널이 한 번이라도 근거로 나온 회차 수**다. "
+                "자주 나오는 채널이 이 질의 세트에서 자료를 더할 후보다 — 다른 업종·질의로 일반화하지 않는다. "
+                "채널별 대응은 `ops/gap.md` 4단계.", ""]
     return out
 
 
@@ -1248,9 +1369,10 @@ def render_measure_md(summary: dict) -> str:
         out.append("우리 URL은 한 번도 인용되지 않았다.")
     comps = summary["urls"]["competitors"]
     if comps:
-        out += ["", "| 경쟁 도메인 | 등장 회차 |", "|---|---|"]
+        out += ["", "| 경쟁 도메인 (플랫폼 제외) | 등장 회차 |", "|---|---|"]
         out += ["| %s | %d |" % (c["domain"], c["count"]) for c in comps]
     out.append("")
+    out += render_sources_md(summary.get("sources") or [])
 
     out += ["## 질의별", "", "| 질의 | 유형 | 인용 | 뽑힌 URL |", "|---|---|---|---|"]
     for q in summary["by_query"]:

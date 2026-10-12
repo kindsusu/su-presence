@@ -1,0 +1,12 @@
+{
+  "_synthetic": "Fixture only. Fetched-page fields are invented to exercise offline planning.",
+  "schema": "su-presence/rebuild-research/1",
+  "generated_at": "2026-01-01T01:00:00+00:00",
+  "site_url": "https://example.com",
+  "pages": [
+    {"url": "https://example.com/service/", "final_url": "https://example.com/service/", "status": 200, "outcome": "observed", "title": "Example Studio advisory service", "h1": "Advisory service", "headings": ["Who it serves"], "text_excerpt": "Synthetic content placeholder", "features": {"table": false, "faq": false, "sources": false}, "fetched_at": "2026-01-01T01:00:00+00:00", "error": null},
+    {"url": "https://example.org/service/", "final_url": "https://example.org/service/", "status": 200, "outcome": "observed", "title": "Example advisory comparison", "h1": "Example advisory", "headings": ["Overview"], "text_excerpt": "Synthetic competitor placeholder", "features": {"table": true, "faq": false, "sources": true}, "fetched_at": "2026-01-01T01:00:00+00:00", "error": null}
+  ],
+  "warnings": [],
+  "coverage": {"requested": 2, "attempted": 2, "remaining": [], "complete": true}
+}

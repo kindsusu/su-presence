@@ -95,7 +95,7 @@ def main(argv=None):
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     argv = list(sys.argv[1:] if argv is None else argv)
     dispatch = {name: name for name in ("generate", "verify", "measure", "collect",
-                                        "drift", "report")}
+                                        "drift", "report", "rebuild")}
     if argv and argv[0] in dispatch:
         try:
             return importlib.import_module(dispatch[argv[0]]).main(argv[1:])
@@ -104,7 +104,7 @@ def main(argv=None):
             return 2
     parser = argparse.ArgumentParser(
         description="SEO/GEO — audit → generate → verify → measure → drift",
-        epilog="세부 도움말: python tools/seo_geo.py <generate|verify|measure|collect|drift|report> --help")
+        epilog="세부 도움말: python tools/seo_geo.py <generate|verify|measure|collect|drift|report|rebuild> --help")
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("audit", help="사이트 크롤과 HTML 보고서를 함께 생성")
     p.add_argument("target")
@@ -138,7 +138,7 @@ def main(argv=None):
 def doctor(args):
     supported = sys.version_info >= (3, 10)
     modules = {}
-    for name in ("crawl", "report", "generate", "verify", "measure", "collect", "drift"):
+    for name in ("crawl", "report", "generate", "verify", "measure", "collect", "drift", "rebuild"):
         try:
             importlib.import_module(name)
             modules[name] = "ok"

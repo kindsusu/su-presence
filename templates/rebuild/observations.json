@@ -1,0 +1,8 @@
+{
+  "_synthetic": "Fixture only. This row was invented and must never be reported as a real SERP or AI observation.",
+  "schema": "su-presence/rebuild-observations/1",
+  "observations": [
+    {"id": "O1", "query_id": "Q1", "query_text": "What does Example Studio advisory include?", "channel": "google", "outcome": "observed", "observed_at": "2026-01-01T10:00:00+09:00", "url": "https://example.org/service/", "evidence_url": "https://example.org/service/", "note": "Synthetic fixture: not a real search observation"},
+    {"id": "O2", "query_id": "Q1", "query_text": "What does Example Studio advisory include?", "channel": "chatgpt", "outcome": "unmeasured", "observed_at": "2026-01-01T10:00:00+09:00", "note": "No authenticated AI-web measurement performed"}
+  ]
+}

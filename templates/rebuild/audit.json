@@ -1,0 +1,11 @@
+{
+  "_synthetic": "Fixture only. Example names, pages, and observations are invented; not live evidence.",
+  "schema": "su-presence/audit/1",
+  "target": {"base": "https://example.com", "host": "example.com"},
+  "coverage": {"complete": true},
+  "pages": [
+    {"url": "https://example.com/", "status": 200, "title": "Example Studio", "h1": "Example Studio"},
+    {"url": "https://example.com/service/", "status": 200, "title": "Example Studio advisory service", "h1": "Advisory service"}
+  ],
+  "findings": []
+}

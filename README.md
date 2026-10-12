@@ -24,6 +24,7 @@
 ## New in v2.2.0
 
 - Plan evidence-led page updates with the [content operations guide](ops/content.md) ([English](en/ops/content.md)), [content brief template](templates/content-brief.example.md), and [content inventory CSV](templates/content-inventory.example.csv). These are planning records, not performance forecasts.
+- Build an evidence-linked page and channel plan with `python tools/rebuild.py init <audit.json>`, then explicit `research` and offline `plan`. The [rebuild guide](ops/rebuild.md) ([English](en/ops/rebuild.md)) explains inputs, immutable run outputs, and the [synthetic fixtures](templates/rebuild/brief.json). It drafts page changes; it does not publish or guarantee visibility.
 - [Aside is optional](ops/aside.md) ([English](en/ops/aside.md)), for authenticated AI web UI work when a suitable existing session is available. Existing Python tools remain the path for audits and aggregation; no installation or sign-in is assumed, and no speed or coverage improvement is promised.
 - Run `python tools/validate.py` to check repository documentation links and consistency.
 

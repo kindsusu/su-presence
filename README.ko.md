@@ -24,6 +24,7 @@
 ## v2.2.0 주요 내용
 
 - 근거에 기반해 기존 페이지를 보강하려면 [콘텐츠 운영 안내](ops/content.md) ([English](en/ops/content.md)), [콘텐츠 브리프 양식](templates/content-brief.example.md), [페이지 인벤토리 CSV](templates/content-inventory.example.csv)를 사용합니다. 계획 기록이며 성과 예측 자료는 아닙니다.
+- `python tools/rebuild.py init <audit.json>`으로 질문·사실 브리프를 만들고, 명시적 `research`와 오프라인 `plan`으로 페이지·채널 청사진을 생성합니다. [재구축 안내](ops/rebuild.md) ([English](en/ops/rebuild.md))에 입력 계약과 실행 결과가 있으며 [합성 예제](templates/rebuild/brief.json)는 실제 관측이 아닙니다. 자동 게시나 노출 보장은 없습니다.
 - [Aside는 선택 사항](ops/aside.md) ([English](en/ops/aside.md))이며, 적절한 기존 로그인 세션이 있을 때 인증이 필요한 AI 웹 UI 작업에만 사용합니다. 진단과 집계에는 기존 Python 도구를 사용하며, 설치·로그인을 전제하지 않고 속도나 측정 범위 향상을 약속하지 않습니다.
 - `python tools/validate.py`로 저장소 문서 링크와 일관성을 검사합니다.
 - 네이버(NEO)와 다음/카카오(KEO)는 서로 구분되는 한국 검색·AI 인용 레인입니다.

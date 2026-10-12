@@ -50,6 +50,7 @@ JS 렌더링·WAF·검색엔진 색인은 별도 증거가 필요하다. 초안/
 | 학습/검색/열람 봇 정책 | [ops/crawlers.md](ops/crawlers.md) |
 | 질문 발굴·페이지 매핑 | [ops/intent.md](ops/intent.md) |
 | 글 작성·발행·갱신 운영 | [ops/content.md](ops/content.md) |
+| 경쟁 페이지 근거·의도별 페이지 청사진·채널 재구축 | [ops/rebuild.md](ops/rebuild.md) |
 | 답변에 적합한 콘텐츠 | [lanes/aeo.md](lanes/aeo.md) |
 | 엔진별 인용 접근성 | [lanes/geo.md](lanes/geo.md) |
 | 검색을 끈 모델 지식 관측 | [lanes/llmo.md](lanes/llmo.md) |

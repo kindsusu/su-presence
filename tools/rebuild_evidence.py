@@ -380,7 +380,10 @@ def fetch_page(url: str, max_bytes: int = 1_000_000, timeout: float = 15) -> dic
             charset_match = re.search(r"charset\s*=\s*([^;\s]+)", headers.get("content-type", ""), re.I)
             charset = charset_match.group(1).strip('"\'') if charset_match else "utf-8"
             html = body.decode(charset, errors="replace")
-            result.update(extract_page(html, current))
+            extracted = extract_page(html, current)
+            if not extracted["text_excerpt"].strip():
+                raise ValueError("no readable HTML body; rendering or manual review required")
+            result.update(extracted)
             result.update(url=url, final_url=current, status=status, outcome="observed")
             return result
     except (OSError, ValueError, TimeoutError, UnicodeError, LookupError, ssl.SSLError, http.client.HTTPException) as exc:

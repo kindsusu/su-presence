@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1250" viewBox="0 0 1080 1250" role="img" aria-label="Execution architecture · v2.3.0">
-<title>Execution architecture · v2.3.0</title><desc>Each command is invoked separately. Arrows show workflow order, not automatic chaining.</desc>
+<title>Execution architecture</title><desc>Rebuild run chains its own stages and stores run state. Technical drafts and deployment remain separate.</desc>
 <style>text{font-family:Segoe UI,Malgun Gothic,Arial,sans-serif;fill:#e9f2ef}.title{font-size:26px;font-weight:700}.label{font-size:12px;fill:#58bba6}.name{font-size:19px;font-weight:700}.code{font-size:16px;fill:#c9dcd6}.note{font-size:14px;fill:#abc0b9}</style>
 <rect width="1080" height="1250" fill="#10201c"/>
-<text x="32" y="40" class="title">Execution architecture · v2.3.0</text><text x="32" y="70" class="note">Each command is invoked separately. Arrows show workflow order, not automatic chaining.</text>
+<text x="32" y="40" class="title">Execution architecture</text><text x="32" y="70" class="note">A rebuild run chains research and planning; deployment and measurement remain separate.</text>
 <rect x="28" y="94" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
 <text x="48" y="115" class="label">AUTO · ON INVOCATION</text>
 <text x="48" y="140" class="name">1  Audit</text>
@@ -22,16 +22,16 @@
 <text x="48" y="438" class="note">Robots, sitemap, JSON-LD and metadata. Does not consume rebuild plans.</text>
 <text x="532" y="467" class="note">A / B</text>
 <rect x="28" y="469" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#b98b38"/>
-<text x="48" y="490" class="label">MANUAL + AUTO · OPTIONAL B</text>
-<text x="48" y="515" class="name">3B  Page planning / rebuild</text>
-<text x="48" y="539" class="code">init → edit brief → research → plan</text>
-<text x="48" y="563" class="note">research: fetch specified URLs (optional); plan: offline evidence comparison.</text>
+<text x="48" y="490" class="label">AUTO + REVIEW · OPTIONAL B</text>
+<text x="48" y="515" class="name">3B  Resumable page planning / rebuild run</text>
+<text x="48" y="539" class="code">brief → audit → discovery → research → analysis → plan</text>
+<text x="48" y="563" class="note">run.json saves status; provider missing = needs_input. Legacy commands remain.</text>
 <text x="532" y="592" class="note">↓</text>
 <rect x="28" y="594" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
 <text x="48" y="615" class="label">AUTO · BRANCH B OUTPUT</text>
 <text x="48" y="640" class="name">Page and channel plan</text>
-<text x="48" y="664" class="code">plan.json · guide.md · report.html · pages/*</text>
-<text x="48" y="688" class="note">JSON, Markdown and HTML drafts; no automatic discovery, finished copy or deploy.</text>
+<text x="48" y="664" class="code">discovery.json · analysis.json · plan.json · pages/*</text>
+<text x="48" y="688" class="note">Candidates and page drafts; search hits are not AI citations. No automatic deploy.</text>
 <text x="532" y="717" class="note">↓</text>
 <rect x="28" y="719" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#b98b38"/>
 <text x="48" y="740" class="label">MANUAL / EXTERNAL</text>

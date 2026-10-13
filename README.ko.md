@@ -74,11 +74,13 @@ python tools/seo_geo.py rebuild plan out/example.com/audit.json --brief out/exam
 
 검색 발견 결과나 직접 관측은 `--observations <observations.json>`으로, 호환되는 측정 기록은 `--log <log.jsonl>`로 추가합니다. `research`는 지정 URL을 수집하며 검색 엔진이나 로그인 AI 제품을 자동 조사하지 않습니다. `plan`은 오프라인입니다. 수집 실패·빈 HTML·미측정 채널은 노출 부재의 증거가 아닙니다. HTML 초안에는 실제 본문 편집과 사실 확인이 필요합니다.
 
+연결된 실행이 필요하면 `rebuild run`이 브리프 초안, 자사 진단, 설정된 Brave Search API 또는 검증된 외부 파일을 통한 후보 발견, 공개 페이지 조사, 근거 비교, 페이지 설계를 순서대로 진행합니다. `run.json`에 단계 상태를 저장하므로 `rebuild resume`으로 유효한 산출물을 재사용할 수 있습니다. 검색 결과는 후보 출처이며 AI 인용의 증거가 아닙니다. 제공자가 없으면 `needs_input`으로 표시합니다. 사실 확인, 로그인 필요한 관측, 구현과 발행은 사람 또는 외부 도구의 작업입니다. [자동화 사용 안내](docs/plans/rebuild-automation-guide.md)를 참고하세요.
+
 [실행 안내](ops/rebuild.md) · [합성 예제](templates/rebuild/brief.json) · [검증 기록](docs/reviews/2026-10-13-rebuild-validation.ko.md) · [참고 프로젝트 조사](docs/reviews/2026-10-13-reference-projects.ko.md)
 
 ## 실제 작업 순서
 
-현재 구조는 **명령별 CLI**입니다. 아래 그림의 자동 단계도 사람이거나 외부 실행기가 명령을 호출해야 시작됩니다. 기술 초안(`generate`)과 페이지 설계(`rebuild`)는 선택 가능한 별도 경로이며 자동으로 서로 연결되지 않습니다. [실행 아키텍처와 자동·수동 경계](docs/architecture.ko.md)를 참고하세요.
+현재 구조는 **명령별 CLI**입니다. `rebuild run`을 호출하면 내부 조사·설계 단계가 연쇄 실행되고 재개 가능한 상태로 저장됩니다. 기술 초안(`generate`)은 별도 경로이며 자동 연결·배포하지 않습니다. [실행 아키텍처와 자동·수동 경계](docs/architecture.ko.md)를 참고하세요.
 
 ![파이프라인 — 진단, 기준선, 생성, 배포, 검증, 재측정, 비교](assets/pipeline.ko.svg)
 
@@ -140,6 +142,7 @@ python tools/seo_geo.py drift compare out/example.com/audit.json
 |---|---|---|
 | `audit` | `audit.json`, `report.html` | 원시 HTTP 관측과 실제 수집 범위 |
 | `rebuild init/research/plan` | `brief.json`, `research.json`, `plan.json`, `guide.md`, `pages/*` | 브리프 편집·URL 선정은 수동/외부. 지정 URL 수집과 오프라인 계획은 명령 실행 시 자동. 구현·배포는 별도 |
+| `rebuild run/resume/status` | `run.json`, `brief.json`, `audit.json`, `discovery.json`, `research.json`, `analysis.json`, `plan.json` | 단계 상태와 근거 연결 설계. 제공자 공백은 별도 표시하고 발행은 수행하지 않음 |
 | `generate` | `deploy/`, `DEPLOY.md` | 검토 가능한 배포 초안. 배포 완료 증거는 아님 |
 | `verify deploy` | `verify.json`, `VERIFY.md` | 배포 뒤 라이브 응답 검사. `1`은 검증된 실패, `2`는 불완전 또는 잘못된 범위 |
 | `measure` | 수동 폼, `log.jsonl`, `summary.json`, `MEASURE.md` | 고정 cohort의 반복 인용 관측. API와 웹 UI는 별도 표면 |

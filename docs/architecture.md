@@ -1,17 +1,18 @@
 # Runtime architecture
 
-su-presence runs when a person or external orchestrator invokes a CLI command. It has no resident daemon or built-in scheduler. Each stage leaves reviewable local files; publishing and deployment are separate actions. [한국어](architecture.ko.md) · [CLI reference](../tools/README.md)
+su-presence runs when a person or external orchestrator invokes a CLI command. It has no resident daemon or built-in scheduler. `rebuild run` chains its own stages and saves state for resume; publishing and deployment remain separate. [한국어](architecture.ko.md) · [CLI reference](../tools/README.md) · [Automation guide](plans/rebuild-automation-guide.md)
 
 ```text
-audit (crawl + report) ──┬──> generate technical deployment drafts
-                         └──> rebuild init → human brief + observations
-                                               → optional explicit-URL research
-                                               → offline rebuild plan
+rebuild run → brief draft → audit → provider search/host import → public-page research
+            → evidence analysis → page plan; all stages recorded in run.json
+rebuild status / resume → inspect or continue the saved run
+legacy: audit (crawl + report) ──┬──> generate technical deployment drafts
+                                 └──> rebuild init → human brief → research → plan
 measure init → collect / manual form / optional API auto → report
 human deployment → verify → repeat audit/measurement → drift snapshot/compare
 ```
 
-The technical `generate` branch and editorial `rebuild` branch can follow an audit independently or in parallel. A rebuild plan does not invoke `generate`; neither branch publishes or deploys. `seo_geo.py` dispatches the CLIs. `crawl.py` writes a scoped `audit.json` and `report.py` renders its HTML report. `generate.py` drafts technical files and tracks its own generated files in a deploy manifest. `verify.py` checks deployed output or compares audits. `measure.py` manages questions, a measurement log, and reports; `collect.py` adds search-surface observations. `rebuild.py` coordinates `rebuild_evidence.py` URL research and `rebuild_plan.py` offline evidence comparison. `drift.py` compares saved snapshots and computes `next_due` without scheduling anything. The legacy `audit.sh` checks only the home page.
+The technical `generate` branch and editorial `rebuild` branch remain separate. A rebuild plan does not invoke `generate`; neither branch publishes or deploys. `seo_geo.py` dispatches the CLIs. `rebuild_run.py` records stage status, fingerprints and artifact hashes; `rebuild_discovery.py` validates search candidates; `rebuild_evidence.py` fetches bounded public pages; `rebuild_analysis.py` compares evidence; `rebuild_plan.py` drafts page decisions. `crawl.py` writes a scoped `audit.json` and `report.py` renders it. `generate.py` drafts technical files, `verify.py` checks deployed output, `measure.py` and `collect.py` handle actual observations, and `drift.py` compares snapshots without scheduling. The legacy `audit.sh` checks only the home page.
 
 | Contract | Producer → consumer | Interpretation |
 |---|---|---|
@@ -24,18 +25,22 @@ The technical `generate` branch and editorial `rebuild` branch can follow an aud
 | `out/<host>/rebuild/observations.json` (`su-presence/rebuild-observations/1`) | init, then human/external research → research and plan | Query, channel, timestamp, observed URL, evidence URL; declaration is not observed visibility |
 | `out/<host>/rebuild/run-*/research.json` (`su-presence/rebuild-research/1`) | research → optional plan input | Bounded snapshots of explicitly supplied public URLs |
 | `out/<host>/rebuild/run-*/plan.json` (`su-presence/rebuild-plan/1`) | plan → human | Linked evidence, page blueprints, channel actions, backlog; sibling `guide.md`, `report.html`, `pages/*.json|md|html` |
+| `out/<host>/rebuild/run-*/run.json` (`su-presence/rebuild-run/1`) | run → status/resume | Saved stage state, input fingerprints and output hashes; not a daemon |
+| `discovery.json` (`su-presence/rebuild-discovery/1`) | configured Brave Search or host import → research | Candidate URLs with query, provider, locale, timestamp and tentative role; not AI citations |
+| `analysis.json` (`su-presence/rebuild-analysis/1`) | evidence comparison → plan | Source-linked analysis with explicit structural-only fallback |
 | `out/<host>/history/index.json` (`su-presence/history/1`), `drift.json` (`su-presence/drift/1`) | drift → human | Baseline, comparisons, and computed remeasurement date |
 
 `rebuild research` and `rebuild plan` create separate new `run-*` directories. `plan` works without research but marks its coverage unconfirmed. Missing observations remain `unmeasured`, never zero visibility. An incomplete audit or blocked research page cannot establish an absent page. Page copy and technical files are drafts requiring factual and editorial review.
 
 `collect.py AUDIT` runs unattended collection for Naver AI Briefing, Daum, and Google AI Overview when invoked. `--browser` records `unmeasured` reservations and prints guidance for ChatGPT, Gemini, Claude, and Perplexity; it does not operate a browser. `--record ENGINE --query ID ...` stores an actual browser observation, while `--coverage` checks gaps. Optional `measure.py auto` uses OpenAI or Anthropic APIs with available keys and counts citations in API responses. Web UI and API results, login conditions, and search modes must remain distinct.
 
-Within the rebuild branch, only `research` fetches external pages: it uses URLs supplied by the brief and observations, not search discovery. It applies public HTTP(S), DNS, redirect, robots, response-size, time, and page-count bounds. `rebuild plan` and `drift compare` are offline. `seo_geo.py status` reads local audit, deploy, verify, measure, and drift artifacts only; it does **not** track rebuild runs or verify current deployment or search performance.
+In the legacy rebuild branch, only `research` fetches supplied external pages; it does not discover search results. In the connected `rebuild run`, discovery uses a configured Brave Search API or validated host import, then research fetches selected public candidates. No provider produces `needs_input`, never invented competitors. Public-page research applies DNS, redirect, robots, response-size, time, and page-count bounds. Search hits are candidates, not actual AI citations or rankings on other engines. `rebuild plan` and `drift compare` are offline. `rebuild status` reads saved run state; top-level `seo_geo.py status` reads the existing site artifacts and does not verify current deployment or search performance.
 
 | Command-driven automation | Human or external input |
 |---|---|
 | Invoked commands run audits, reports, technical drafts, specified collection, and evidence comparisons | Start the commands, choose targets, and decide whether to deploy drafts |
 | `rebuild init` creates editable files; `research` fetches explicit URLs | Supply question intents, confirmed business facts, observed source URLs, timestamps, and evidence |
+| `rebuild run` chains brief, audit, configured discovery, research, analysis and plan; `resume` reuses valid outputs | Configure a search provider or import, review facts and page decisions; perform implementation and publishing separately |
 | `--browser` reserves UI slots; `--record` saves a supplied result | Log in, observe the browser result, and record it or connect an external orchestrator |
 | `drift` compares saved observations and computes `next_due` | Schedule and run the next measurement |
 

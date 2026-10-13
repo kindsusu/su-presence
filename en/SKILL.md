@@ -152,3 +152,7 @@ observations, and traffic or conversion improvement.
 
 For authenticated AI web UI work, prefer Aside when it has a suitable session; follow the
 [selection guide](ops/aside.md). Do not invoke Aside for code, public retrieval, HTTP audits, or aggregation.
+
+## Connected rebuild execution · 연결 실행
+
+`rebuild run URL --topic TOPIC --config CONFIG --out OUT` connects brief, audit, discovery, research, analysis and page planning. Use `rebuild status RUN_DIR` and `rebuild resume RUN_DIR` to inspect and resume. Existing `init/research/plan` remain available. Provider setup, verified business facts and publication review remain explicit. See [automation guide · 자동 실행 안내](../docs/plans/rebuild-automation-guide.md).

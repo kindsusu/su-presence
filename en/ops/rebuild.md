@@ -24,7 +24,7 @@ Optional measurement-log import retains only v2 observed cited URLs whose query 
 
 Review each blueprint's `create`/`update`/`review` action, source comparisons, missing facts, and acceptance checks. Incomplete audits cannot prove a page is absent; overlapping intents need editorial merge decisions. Adapt sections, draft copy, CTA, schema candidates, and internal links to actual services and sourced facts. Channel actions distinguish owned pages from Naver Blog, communities, video, social, maps, press, and wiki proposals; no external posting happens automatically. After publication, verify the live site separately and remeasure the same questions and channels with `collect`/`measure`.
 
-All files in `templates/rebuild/` are **synthetic**, never live observations. An offline smoke run is:
+Observation fixtures in `templates/rebuild/` are **synthetic**, never live observations. `run-config.json` is a runnable provider configuration example. An offline smoke run is:
 
 ```bash
 python tools/rebuild.py plan templates/rebuild/audit.json --brief templates/rebuild/brief.json --observations templates/rebuild/observations.json --research templates/rebuild/research.json --out out/rebuild-demo
@@ -37,3 +37,7 @@ JavaScript shells without readable body text are recorded as `error` and need re
 ## Execution boundaries
 
 See the [full architecture](../../docs/architecture.md). Invoke commands separately. Brief editing after init, competitor discovery, final copy, implementation and deployment require a person or separate agent. Research and plan do not invoke subsequent commands; plan output is not an input contract for generate. Verify deploy checks generate artifacts against live responses, not semantic completeness of a page blueprint.
+
+## Connected rebuild execution · 연결 실행
+
+`rebuild run URL --topic TOPIC --config CONFIG --out OUT` connects brief, audit, discovery, research, analysis and page planning. Use `rebuild status RUN_DIR` and `rebuild resume RUN_DIR` to inspect and resume. Existing `init/research/plan` remain available. Provider setup, verified business facts and publication review remain explicit. See [automation guide · 자동 실행 안내](../../docs/plans/rebuild-automation-guide.md).

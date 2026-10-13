@@ -149,3 +149,7 @@ API 실패를 미인용으로 세지 않는다. 질문/표면/회차 구성이 �
 변경 파일·적용 여부·검증 근거·검사 범위·실제 관측과 미확인을 적는다.
 ‘기술 수정 완료’, ‘배포 확인’, ‘인용 관측’, ‘유입·전환 개선’을 구분한다.
 실제 검색 성과가 확인되지 않았으면 명시하고 다음 측정 조건을 남긴다.
+
+## Connected rebuild execution · 연결 실행
+
+`rebuild run URL --topic TOPIC --config CONFIG --out OUT` connects brief, audit, discovery, research, analysis and page planning. Use `rebuild status RUN_DIR` and `rebuild resume RUN_DIR` to inspect and resume. Existing `init/research/plan` remain available. Provider setup, verified business facts and publication review remain explicit. See [automation guide · 자동 실행 안내](docs/plans/rebuild-automation-guide.md).

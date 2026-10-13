@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="version 2.2.0" src="https://img.shields.io/badge/version-2.2.0-0E6B5C">
-  <img alt="tests 369" src="https://img.shields.io/badge/tests-369-2C7A4B">
+  <img alt="tests 426" src="https://img.shields.io/badge/tests-426-2C7A4B">
   <img alt="stdlib only, zero dependencies" src="https://img.shields.io/badge/stdlib%20only-zero%20dependencies-1A2B28">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-0E6B5C">
   <a href="LICENSE"><img alt="License PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-A96A00"></a>
@@ -21,7 +21,9 @@
 
 **A Korean-first skill for auditing technical search access, drafting site changes, verifying the live result, and measuring AI-search citations.** It keeps SEO, AEO, GEO, LLMO, Naver (NEO), Daum/Kakao (KEO), and reputation as separate evidence lanes; crawler access, index state, citations, and business outcomes are not treated as the same result.
 
-## New in v2.2.0
+## Current development (unreleased)
+
+The released version remains **2.2.0**. The `rebuild` module below is an unreleased change on the development branch; check your installed revision before using it.
 
 - Plan evidence-led page updates with the [content operations guide](ops/content.md) ([English](en/ops/content.md)), [content brief template](templates/content-brief.example.md), and [content inventory CSV](templates/content-inventory.example.csv). These are planning records, not performance forecasts.
 - Build an evidence-linked page and channel plan with `python tools/rebuild.py init <audit.json>`, then explicit `research` and offline `plan`. The [rebuild guide](ops/rebuild.md) ([English](en/ops/rebuild.md)) explains inputs, immutable run outputs, and the [synthetic fixtures](templates/rebuild/brief.json). It drafts page changes; it does not publish or guarantee visibility.
@@ -56,6 +58,22 @@ python tools/seo_geo.py audit https://example.com --out out
 ```
 
 The audit writes `out/<host>/audit.json` and `report.html`. It honours applicable `robots.txt`, records crawl coverage, and returns exit code `2` when collection is incomplete. Read an incomplete audit as partial evidence, not a complete site inventory.
+
+## From competitor evidence to page design
+
+`rebuild` connects an existing audit with query observations and business facts. It distinguishes declared competitors from observed publishers, groups queries by intent, and proposes updates, new pages, or further review. Outputs include JSON/Markdown/HTML page drafts, evidence comparisons, channel actions, and technical prerequisites.
+
+```bash
+python tools/seo_geo.py rebuild init out/example.com/audit.json
+# Edit the generated brief: queries, competitor URLs, verified facts, and page mappings.
+python tools/seo_geo.py rebuild research out/example.com/rebuild/brief.json --out out/example.com/research
+# Supply research.json from the run-* directory printed above.
+python tools/seo_geo.py rebuild plan out/example.com/audit.json --brief out/example.com/rebuild/brief.json --research <research.json> --out out/example.com/rebuild
+```
+
+Add recorded discovery/observations with `--observations <observations.json>` or compatible measurement logs with `--log <log.jsonl>`. Research fetches specified URLs; it does not automatically query search engines or authenticated AI products. Planning is offline. Failed fetches, empty HTML, and unmeasured channels do not establish absence of visibility. Page drafts require factual and editorial review.
+
+[Workflow guide](en/ops/rebuild.md) · [Synthetic example](templates/rebuild/brief.json) · [Validation record (Korean)](docs/reviews/2026-10-13-rebuild-validation.ko.md) · [Reference review (Korean)](docs/reviews/2026-10-13-reference-projects.ko.md)
 
 ## The practical loop
 

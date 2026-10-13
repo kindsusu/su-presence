@@ -34,3 +34,7 @@ python tools/rebuild.py plan <audit.json> --brief <brief.json> --observations <o
 4. 게시 후 기술 검증은 `verify`로, 같은 질문·채널의 출현과 인용은 `collect`/`measure`로 따로 재측정한다. 기준선 없는 개선율, 미측정 채널의 미노출, 내부 점수의 인용 성과 변환은 보고하지 않는다.
 
 로컬에서 합성 예제를 시험할 때는 `python tools/rebuild.py plan templates/rebuild/audit.json --brief templates/rebuild/brief.json --observations templates/rebuild/observations.json --research templates/rebuild/research.json --out out/rebuild-demo`를 쓴다. 합성 `research.json`을 쓰므로 네트워크 요청이 없다.
+
+## 수집 및 해석 제한
+
+읽을 수 있는 본문이 없는 JS 셸은 `error`로 남기며 렌더링 또는 수동 검토가 필요하다. 제목의 문자 일치 기반 비교는 의미상 같은 내용을 놓칠 수 있다. `web_discovery` 같은 사용자 정의 채널은 검색 도구의 발견 기록으로 사용할 수 있지만 구글·네이버 순위나 특정 AI 제품의 인용으로 바꾸어 기록하지 않는다.

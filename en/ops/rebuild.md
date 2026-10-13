@@ -29,3 +29,7 @@ All files in `templates/rebuild/` are **synthetic**, never live observations. An
 ```bash
 python tools/rebuild.py plan templates/rebuild/audit.json --brief templates/rebuild/brief.json --observations templates/rebuild/observations.json --research templates/rebuild/research.json --out out/rebuild-demo
 ```
+
+## Collection and interpretation limits
+
+JavaScript shells without readable body text are recorded as `error` and need rendering or manual review. Literal heading comparisons can miss semantically equivalent content. A custom channel such as `web_discovery` can record tool-based discovery, but must not be relabelled as a Google/Naver ranking or an AI product citation.

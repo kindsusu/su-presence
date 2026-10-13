@@ -1,19 +1,19 @@
 # 변경 이력
 
-## Unreleased
+버전은 [유의적 버전](https://semver.org/lang/ko/)을 따른다.
 
-- Add `rebuild run/status/resume`: bounded search discovery, saved stage state, artifact checks and resumable page planning.
-- Add Brave/import discovery and optional evidence-validated OpenAI/import analysis; search hits remain separate from observed citations.
-- Include editorial page decisions and source-backed section proposals in review outputs. Publication and deployment remain separate.
-- Preserve legacy rebuild commands and document provider setup, limits and human review boundaries.
+## [3.0.0] — 2026-10-13
 
+사이트의 노출 진단에서 경쟁 출처 조사와 재구축 설계까지 확장한다. 기존 CLI와 `/1` 데이터 스키마는 유지하며, 새 major는 제품 범위의 확장을 나타낸다.
 
-형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/), 버전은 [유의적 버전](https://semver.org/lang/ko/)을 따른다.
-날짜는 해당 작업이 커밋된 날이다.
+- `rebuild run/status/resume`으로 브리프·진단·검색·본문 조사·분석·페이지 설계를 연결하고 실행을 저장·재개한다.
+- Brave Search 또는 외부 검색 파일을 지원한다. 검색 후보와 실제 AI 인용·검색 순위 관측은 구분한다.
+- 선택적인 OpenAI 또는 파일 분석에서 질문 의도와 실제 인용문을 검증하고, 근거를 연결한 페이지 판단·섹션 제안을 만든다.
+- 입력·코드·산출물 해시, 동시 실행 잠금, 손상 결과 복구와 이전 결과 보존을 추가한다.
+- README, 한·영 실행 문서와 영어 아키텍처를 현재 코드 기준으로 갱신한다.
+- 자동 발행·배포·로그인 브라우저 조작은 하지 않는다. 실제 노출 개선은 별도 측정한다.
 
-## [Unreleased]
-
-- 국·영문 아키텍처 그림과 실행 문서를 실제 명령 흐름으로 갱신한다. 기술 초안·페이지 설계 경로와 자동 처리·수동/외부 작업 경계를 구분한다.
+Validation: 457 Python tests, Bash regression checks and platform CI passed for the automation implementation. Live paid provider calls remain unverified.
 
 ## [2.3.0] — 2026-10-13
 

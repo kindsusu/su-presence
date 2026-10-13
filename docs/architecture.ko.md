@@ -2,11 +2,16 @@
 
 su-presence는 명령 호출 시 동작하는 Python CLI와 Bash 보조 스크립트다. 상주 프로세스나 자체 스케줄러는 없다. `rebuild run`은 내부 단계를 연결하고 재개할 상태를 저장한다. 발행·배포는 별도 작업이다. [영문판](architecture.md) · [CLI 상세](../tools/README.md) · [자동화 안내](plans/rebuild-automation-guide.md)
 
+![현재 실행 아키텍처: 연결된 재구축, 기술 초안, 측정과 사람의 작업 경계](../assets/runtime-architecture.svg)
+
+[대화형 아키텍처 그림 열기](diagrams/runtime-architecture.html). 그림의 라벨은 영어이며 단계별 실행 경계는 아래에 설명한다.
+
 ## 두 작업 흐름
 
 ```text
-rebuild run → 브리프 초안 → audit → 제공자 검색/외부 파일 → 공개 페이지 조사
-            → 근거 분석 → 페이지 설계; 전체 단계는 run.json에 기록
+rebuild run → 브리프 초안 → audit → 설정된 Brave 검색/외부 파일 → 공개 페이지 조사
+            → 구조 분석(선택적 OpenAI/외부 분석) → 페이지 설계
+            전체 단계는 run.json에 기록
 rebuild status / resume → 저장된 실행 확인·재개
 기존 경로: audit(crawl + report) ──┬──> generate(기술 수정 초안)
                                   └──> rebuild init → 수동 brief → research → plan
@@ -27,7 +32,7 @@ rebuild status / resume → 저장된 실행 확인·재개
 | `tools/measure.py`, `collect.py` | 질의 세트, 수동·API·검색 표면 관측, 로그 집계 | 수집·API 호출 시 |
 | `tools/rebuild.py` | 초기 brief 생성, 명시 URL 조사, 오프라인 계획 및 보고서 출력 | `research`만 |
 | `tools/rebuild_run.py` | 연결 실행의 단계 상태·입력 지문·산출물 해시 저장과 재개 | audit·discovery·research 단계 |
-| `tools/rebuild_discovery.py`, `rebuild_analysis.py` | 검색 후보 검증 및 근거 비교. 구조 중심 대안의 한계 표시 | 설정된 검색·선택적 분석 제공자 |
+| `tools/rebuild_discovery.py`, `rebuild_analysis.py` | 검색 후보 검증 및 설정 범위의 근거 비교. 기본 분석은 구조 중심이며 의미 분석은 선택적 | 설정된 검색·선택적 분석 제공자 |
 | `tools/rebuild_evidence.py`, `rebuild_plan.py` | brief 검증·제한된 URL fetch; 증거 연결과 의도별 계획 계산 | evidence fetch만 |
 | `tools/drift.py` | 저장한 audit·측정·verify 스냅샷 비교와 다음 재측정일 계산 | 없음 |
 
@@ -48,7 +53,7 @@ rebuild status / resume → 저장된 실행 확인·재개
 | `out/<host>/rebuild/run-*/plan.json` (`su-presence/rebuild-plan/1`) | plan → 사람 | 증거 ID를 연결한 설계·백로그. 같은 run에 `guide.md`, `report.html`, `pages/*.json|md|html` |
 | `out/<host>/rebuild/run-*/run.json` (`su-presence/rebuild-run/1`) | run → status/resume | 저장된 단계 상태·입력 지문·산출물 해시. 상주 프로세스가 아님 |
 | `discovery.json` (`su-presence/rebuild-discovery/1`) | 설정된 Brave Search·외부 파일 → research | 질문·제공자·시장·시각·잠정 역할이 연결된 URL 후보. AI 인용이 아님 |
-| `analysis.json` (`su-presence/rebuild-analysis/1`) | 근거 비교 → plan | 출처가 연결된 비교와 구조 중심 대안 표시 |
+| `analysis.json` (`su-presence/rebuild-analysis/1`) | 구조 분석, 선택적 OpenAI/외부 분석 → plan | 의도별 비교. 조사 본문이 뒷받침하는 분석만 출처를 연결하고 구조 분석의 한계는 명시 |
 | `out/<host>/history/index.json` (`su-presence/history/1`), `drift.json` (`su-presence/drift/1`) | drift snapshot/compare → 사람 | 기준선·차이·계산된 `next_due`; 실제 예약은 없음 |
 
 rebuild의 `research`와 `plan`은 각각 새 `run-*` 디렉터리를 만들고 이전 실행을 보존한다. `plan`은 research 파일 없이도 실행되지만 조사 범위가 미확인으로 남는다. 관측·측정 로그가 없어도 비관측 채널은 `unmeasured`로 표기한다. 확정되지 않은 사업 사실이나 보이지 않은 페이지를 추측해 채우지 않는다. 기술 출력과 페이지 설계 초안은 발행 전 사실·편집 검토가 필요하다.
@@ -57,13 +62,13 @@ rebuild의 `research`와 `plan`은 각각 새 `run-*` 디렉터리를 만들고 
 
 `collect.py AUDIT`는 호출 시 네이버 AI 브리핑·다음·Google AI Overview의 출처 영역을 무인 수집한다. `--browser`는 ChatGPT·Gemini·Claude·Perplexity의 로그인 브라우저 관측 슬롯을 `unmeasured`로 **예약하고 안내**할 뿐 UI를 직접 조작하지 않는다. 브라우저에서 실제 관측한 결과는 `--record ENGINE --query ID ...`로 같은 로그에 `observed`로 남긴다. `--coverage`는 누락만 점검한다. `measure.py auto`는 키가 있을 때 OpenAI·Anthropic API 응답의 실제 인용만 선택적으로 관측한다. API 결과와 웹 UI 결과, 검색 켜짐/꺼짐, 로그인 상태는 같은 측정으로 합치지 않는다.
 
-기존 개별 `rebuild research`는 지정된 URL만 가져오고 검색 결과를 새로 발견하지 않는다. 연결된 `rebuild run`에서는 설정된 Brave Search API 또는 검증된 외부 파일로 후보를 찾고, 그중 공개 페이지를 조사한다. 제공자가 없으면 `needs_input`으로 기록한다. 검색 결과는 조사 후보이지 AI 인용이나 다른 검색엔진의 순위 관측이 아니다. 공개 HTTP(S) URL, DNS·리다이렉트·robots·응답 크기·시간·페이지 수 제한을 적용한다. 실패·차단된 문서는 미확인으로 남는다. `rebuild plan`과 `drift compare`는 저장 파일만 읽는다. 저장된 실행의 `rebuild status`는 `run.json`을 읽으며 최상위 `seo_geo.py status`는 기존 사이트 산출물을 요약한다. `next_due`는 예약 작업이 아니다.
+기존 개별 `rebuild research`는 지정된 URL만 가져오고 검색 결과를 새로 발견하지 않는다. 연결된 `rebuild run`에서는 설정된 Brave Search API 또는 검증된 외부 파일로 후보를 찾고, 그중 공개 페이지를 조사한다. 제공자가 없으면 `needs_input`으로 기록하고, 확보한 자사 근거로 제한된 계획을 만들 수 있다. 불완전한 진단·조사는 `partial`, 실패 단계와 그 후속 단계는 `run.json`에 표시된다. 초안이 생성되었더라도 전체 상태와 종료 코드는 미완료를 드러낸다. 검색 결과는 조사 후보이지 AI 인용이나 다른 검색엔진의 순위 관측이 아니다. 공개 HTTP(S) URL, DNS·리다이렉트·robots·응답 크기·시간·페이지 수 제한을 적용한다. 실패·차단된 문서는 미확인으로 남는다. 기본 분석은 구조 중심이다. OpenAI 또는 검증된 외부 분석을 선택하면 의도별 출처 문구를 연결할 수 있지만 사실성 검증까지 대신하지 않는다. `rebuild plan`과 `drift compare`는 저장 파일만 읽는다. 실행기는 Aside를 자동 호출하지 않는다. 저장된 실행의 `rebuild status`는 `run.json`을 읽으며 최상위 `seo_geo.py status`는 기존 사이트 산출물을 요약한다. `next_due`는 예약 작업이 아니다.
 
 | 자동화 범위 | 필요한 사람/외부 입력 |
 |---|---|
 | 명령을 실행하면 audit·보고서·기술 초안·지정 표면 수집·근거 비교를 수행 | 명령 호출과 대상 지정, 기술 초안 배포 여부 판단 |
 | `rebuild init`이 편집용 파일을 만들고 `research`가 명시 URL을 조사 | 질문 의도, 확인된 사업 사실, 실제 노출 URL·근거·시점 작성 |
-| `rebuild run`이 브리프·진단·설정된 검색·조사·분석·설계를 연결하고 `resume`이 유효한 결과를 재사용 | 검색 제공자나 외부 파일 제공, 사업 사실·페이지 판단 검토, 별도 구현·발행 |
+| `rebuild run`이 브리프·진단·설정된 검색·조사·구조 또는 선택적 제공자 분석·설계를 연결하고 `resume`이 유효한 결과를 재사용 | 검색 제공자나 외부 파일 제공, 사업 사실·페이지 판단 검토, 별도 구현·발행 |
 | `--browser`가 UI 측정 슬롯을 예약하고 `--record`가 입력된 결과를 저장 | 브라우저 로그인·관측 및 결과 기록, 또는 외부 오케스트레이터 연결 |
 | `drift`가 저장된 관측의 차이와 `next_due`를 계산 | 다음 측정의 실제 예약·재실행 |
 

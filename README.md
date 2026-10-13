@@ -11,24 +11,26 @@
 
 <p align="center">
   <a href="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="version 2.3.0" src="https://img.shields.io/badge/version-2.3.0-0E6B5C">
-  <img alt="tests 428" src="https://img.shields.io/badge/tests-428-2C7A4B">
+  <img alt="version 3.0.0" src="https://img.shields.io/badge/version-3.0.0-0E6B5C">
   <img alt="stdlib only, zero dependencies" src="https://img.shields.io/badge/stdlib%20only-zero%20dependencies-1A2B28">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-0E6B5C">
   <a href="LICENSE"><img alt="License PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-A96A00"></a>
   <img alt="Korean-first" src="https://img.shields.io/badge/Korean-first-B3372B">
 </p>
 
-**A Korean-first skill for auditing technical search access, drafting site changes, verifying the live result, and measuring AI-search citations.** It keeps SEO, AEO, GEO, LLMO, Naver (NEO), Daum/Kakao (KEO), and reputation as separate evidence lanes; crawler access, index state, citations, and business outcomes are not treated as the same result.
+**A Korean-first toolkit that audits search and AI visibility, compares competitor sources with owned pages, and produces evidence-based rebuilding plans.** It keeps SEO, AEO, GEO, LLMO, Naver (NEO), Daum/Kakao (KEO), and reputation as separate evidence lanes; crawler access, index state, citations, and business outcomes are not treated as the same result.
 
-## New in v2.3.0
+## Version 3.0.0
 
-**2.3.0** adds the `rebuild` module, connecting competitor evidence to page design and implementation guidance.
+**3.0.0** connects site audit, candidate source discovery, public-page research, evidence comparison and page design through a resumable `rebuild run`. The separate audit, measurement and deployment verification commands remain available.
 
+- `rebuild run/status/resume` connects research and page design with durable progress. See the [automation guide](docs/plans/rebuild-automation-guide.md) for providers and configuration.
 - Plan evidence-led page updates with the [content operations guide](ops/content.md) ([English](en/ops/content.md)), [content brief template](templates/content-brief.example.md), and [content inventory CSV](templates/content-inventory.example.csv). These are planning records, not performance forecasts.
 - Build an evidence-linked page and channel plan with `python tools/rebuild.py init <audit.json>`, then explicit `research` and offline `plan`. The [rebuild guide](ops/rebuild.md) ([English](en/ops/rebuild.md)) explains inputs, immutable run outputs, and the [synthetic fixtures](templates/rebuild/brief.json). It drafts page changes; it does not publish or guarantee visibility.
 - [Aside is optional](ops/aside.md) ([English](en/ops/aside.md)), for authenticated AI web UI work when a suitable existing session is available. Existing Python tools remain the path for audits and aggregation; no installation or sign-in is assumed, and no speed or coverage improvement is promised.
 - Run `python tools/validate.py` to check repository documentation links and consistency.
+
+The version badge describes this source tree. Check [Releases](https://github.com/kindsusu/su-presence/releases) for published packages and tags.
 
 ## Quick start
 
@@ -63,6 +65,19 @@ The audit writes `out/<host>/audit.json` and `report.html`. It honours applicabl
 
 `rebuild` connects an existing audit with query observations and business facts. It distinguishes declared competitors from observed publishers, groups queries by intent, and proposes updates, new pages, or further review. Outputs include JSON/Markdown/HTML page drafts, evidence comparisons, channel actions, and technical prerequisites.
 
+The connected workflow is the shortest route from a site and topic to a reviewable plan. The example configuration uses Brave Search; set `BRAVE_SEARCH_API_KEY` in the environment before running it. The runner only calls Brave when that provider is configured, and optional OpenAI analysis needs its own explicit configuration and API key.
+
+```bash
+python tools/seo_geo.py rebuild run https://example.com --topic "core service" --config templates/rebuild/run-config.json --out out/example.com/rebuild
+# Use the run-* directory printed by the previous command.
+python tools/seo_geo.py rebuild status out/example.com/rebuild/<run-id>
+python tools/seo_geo.py rebuild resume out/example.com/rebuild/<run-id>
+```
+
+`status` reports saved stage results. `resume` reuses validated outputs; add `--refresh` to retry incomplete discovery, research or analysis after fixing their input. Missing search configuration becomes `needs_input`, and incomplete collection becomes `partial` (exit code `2`). An initial topic creates draft queries sharing one intent. Supply a reviewed `brief_file` in the configuration for confirmed business facts, page mappings and multiple intents. See the [automation guide](docs/plans/rebuild-automation-guide.md).
+
+For explicit control of inputs and observations, use the original three commands:
+
 ```bash
 python tools/seo_geo.py rebuild init out/example.com/audit.json
 # Edit the generated brief: queries, competitor URLs, verified facts, and page mappings.
@@ -73,13 +88,17 @@ python tools/seo_geo.py rebuild plan out/example.com/audit.json --brief out/exam
 
 Add recorded discovery/observations with `--observations <observations.json>` or compatible measurement logs with `--log <log.jsonl>`. Research fetches specified URLs; it does not automatically query search engines or authenticated AI products. Planning is offline. Failed fetches, empty HTML, and unmeasured channels do not establish absence of visibility. Page drafts require factual and editorial review.
 
-For a connected, resumable workflow, `rebuild run` drafts a brief, audits the site, discovers candidate sources through a configured Brave Search API or validated host import, researches public pages, compares evidence, and produces page designs. Its `run.json` records stage status and lets `rebuild resume` reuse valid outputs. Search hits are candidate sources, not proof of AI citations. A missing provider is recorded as `needs_input`; fact checking, login-only observations, implementation, and publishing remain human or external tasks. See the [automation guide](docs/plans/rebuild-automation-guide.md).
+Search hits are candidate sources, not proof of AI citations. Fact checking, login-only observations, implementation, and publishing remain human or external tasks. Aside is not invoked by the runner.
 
 [Workflow guide](en/ops/rebuild.md) · [Synthetic example](templates/rebuild/brief.json) · [Validation record (Korean)](docs/reviews/2026-10-13-rebuild-validation.ko.md) · [Reference review (Korean)](docs/reviews/2026-10-13-reference-projects.ko.md)
 
 ## The practical loop
 
-This is a **command-driven CLI**. `rebuild run` chains its own research and planning stages after invocation and records progress for resume. Technical drafts (`generate`) remain a separate branch, with no automatic handoff or deployment. See the [execution architecture and automation boundaries](docs/architecture.md).
+This is a **command-driven CLI**. `rebuild run` chains its own research and planning stages after invocation and records progress for resume. Technical drafts (`generate`) remain a separate branch, with no automatic handoff or deployment. See the [execution architecture and automation boundaries](docs/architecture.md) and [interactive diagram](docs/diagrams/runtime-architecture.html).
+
+![Current runtime architecture: connected rebuild, separate technical drafts and measurement](assets/runtime-architecture.svg)
+
+The diagram above shows the current execution paths. The original lifecycle diagram below remains useful for the audit, deployment and remeasurement loop.
 
 ![Pipeline: audit, baseline, build, deploy, verify, re-measure, and compare](assets/pipeline.svg)
 

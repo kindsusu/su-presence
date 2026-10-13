@@ -11,25 +11,27 @@
 
 <p align="center">
   <a href="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="version 2.3.0" src="https://img.shields.io/badge/version-2.3.0-0E6B5C">
-  <img alt="tests 428" src="https://img.shields.io/badge/tests-428-2C7A4B">
+  <img alt="version 3.0.0" src="https://img.shields.io/badge/version-3.0.0-0E6B5C">
   <img alt="stdlib only, zero dependencies" src="https://img.shields.io/badge/stdlib%20only-zero%20dependencies-1A2B28">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-0E6B5C">
   <a href="LICENSE"><img alt="License PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-A96A00"></a>
   <img alt="Korean-first" src="https://img.shields.io/badge/Korean-first-B3372B">
 </p>
 
-**기술 검색 접근성을 진단하고, 사이트 변경 초안을 만들고, 라이브 배포를 검증하고, AI 검색 인용을 측정하는 한국어 우선 스킬입니다.** SEO·AEO·GEO·LLMO·네이버(NEO)·다음/카카오(KEO)·평판을 별도 레인으로 다루며, 크롤러 접근·색인 상태·인용·사업 성과를 같은 결과로 섞지 않습니다.
+**검색·AI 노출을 진단하고, 경쟁 출처와 자사 페이지를 비교해 재구축 설계와 실행 가이드를 만드는 한국어 우선 도구입니다.** SEO·AEO·GEO·LLMO·네이버(NEO)·다음/카카오(KEO)·평판을 별도 레인으로 다루며, 크롤러 접근·색인 상태·인용·사업 성과를 같은 결과로 섞지 않습니다.
 
-## v2.3.0 주요 내용
+## v3.0.0 주요 내용
 
-**2.3.0**은 경쟁 페이지 근거 수집에서 페이지 설계·재구축 가이드까지 연결하는 `rebuild` 모듈을 추가합니다.
+**3.0.0**은 자사 진단, 검색 후보 발견, 공개 페이지 조사, 근거 비교, 페이지 설계를 재개 가능한 `rebuild run`으로 연결합니다. 개별 진단·측정·배포 검증 명령도 유지합니다.
 
+- `rebuild run/status/resume`으로 조사·설계를 연결하고 상태를 저장·재개합니다. 검색·분석 제공자와 예제 설정은 [자동화 안내](docs/plans/rebuild-automation-guide.md)를 참고하세요.
 - 근거에 기반해 기존 페이지를 보강하려면 [콘텐츠 운영 안내](ops/content.md) ([English](en/ops/content.md)), [콘텐츠 브리프 양식](templates/content-brief.example.md), [페이지 인벤토리 CSV](templates/content-inventory.example.csv)를 사용합니다. 계획 기록이며 성과 예측 자료는 아닙니다.
 - `python tools/rebuild.py init <audit.json>`으로 질문·사실 브리프를 만들고, 명시적 `research`와 오프라인 `plan`으로 페이지·채널 청사진을 생성합니다. [재구축 안내](ops/rebuild.md) ([English](en/ops/rebuild.md))에 입력 계약과 실행 결과가 있으며 [합성 예제](templates/rebuild/brief.json)는 실제 관측이 아닙니다. 자동 게시나 노출 보장은 없습니다.
 - [Aside는 선택 사항](ops/aside.md) ([English](en/ops/aside.md))이며, 적절한 기존 로그인 세션이 있을 때 인증이 필요한 AI 웹 UI 작업에만 사용합니다. 진단과 집계에는 기존 Python 도구를 사용하며, 설치·로그인을 전제하지 않고 속도나 측정 범위 향상을 약속하지 않습니다.
 - `python tools/validate.py`로 저장소 문서 링크와 일관성을 검사합니다.
 - 네이버(NEO)와 다음/카카오(KEO)는 서로 구분되는 한국 검색·AI 인용 레인입니다.
+
+버전 배지는 현재 소스의 버전을 가리킵니다. 게시된 패키지와 태그는 [Releases](https://github.com/kindsusu/su-presence/releases)에서 확인하세요.
 
 ## 빠른 시작
 
@@ -64,6 +66,19 @@ python tools/seo_geo.py audit https://example.com --out out
 
 `rebuild`는 기존 진단에 질문별 관측과 사업 사실을 연결합니다. 경쟁사로 지정한 사이트와 실제 검색에서 발견한 출처를 구분하고, 의도별 기존 페이지 보강·신규 작성·추가 검토를 제안합니다. 페이지별 JSON/Markdown/HTML 설계 초안, 근거 비교, 채널별 실행안과 선행 기술 과제를 생성합니다.
 
+사이트와 주제로 시작하는 연결 실행이 가장 짧은 경로입니다. 예제 설정은 Brave Search를 사용하므로 실행 전에 환경 변수 `BRAVE_SEARCH_API_KEY`를 설정합니다. 제공자를 설정한 경우에만 검색 API를 호출합니다. 선택적 OpenAI 분석에는 별도 설정과 API 키가 필요합니다.
+
+```bash
+python tools/seo_geo.py rebuild run https://example.com --topic "핵심 서비스" --config templates/rebuild/run-config.json --out out/example.com/rebuild
+# 첫 명령에 출력된 run-* 디렉터리를 사용합니다.
+python tools/seo_geo.py rebuild status out/example.com/rebuild/<run-id>
+python tools/seo_geo.py rebuild resume out/example.com/rebuild/<run-id>
+```
+
+`status`는 저장된 단계 결과를 보여 줍니다. `resume`은 유효한 산출물을 재사용하고, 입력을 수정한 후 `--refresh`를 붙이면 미완료 검색·조사·분석을 다시 시도합니다. 검색 설정이 없으면 `needs_input`, 수집이 불완전하면 `partial`이며 종료 코드는 `2`입니다. 기본 주제는 하나의 의도로 묶인 질문 초안만 만듭니다. 확인된 사업 사실·기존 페이지 연결·다른 의도를 반영하려면 설정 파일의 `brief_file`로 검토한 브리프를 전달합니다. 자세한 사용법은 [자동화 안내](docs/plans/rebuild-automation-guide.md)에 있습니다.
+
+입력과 관측을 명시적으로 관리하려면 기존 세 명령을 사용합니다.
+
 ```bash
 python tools/seo_geo.py rebuild init out/example.com/audit.json
 # 생성된 brief.json의 질문·경쟁 URL·확인된 사실·기존 페이지 매핑을 편집합니다.
@@ -74,13 +89,17 @@ python tools/seo_geo.py rebuild plan out/example.com/audit.json --brief out/exam
 
 검색 발견 결과나 직접 관측은 `--observations <observations.json>`으로, 호환되는 측정 기록은 `--log <log.jsonl>`로 추가합니다. `research`는 지정 URL을 수집하며 검색 엔진이나 로그인 AI 제품을 자동 조사하지 않습니다. `plan`은 오프라인입니다. 수집 실패·빈 HTML·미측정 채널은 노출 부재의 증거가 아닙니다. HTML 초안에는 실제 본문 편집과 사실 확인이 필요합니다.
 
-연결된 실행이 필요하면 `rebuild run`이 브리프 초안, 자사 진단, 설정된 Brave Search API 또는 검증된 외부 파일을 통한 후보 발견, 공개 페이지 조사, 근거 비교, 페이지 설계를 순서대로 진행합니다. `run.json`에 단계 상태를 저장하므로 `rebuild resume`으로 유효한 산출물을 재사용할 수 있습니다. 검색 결과는 후보 출처이며 AI 인용의 증거가 아닙니다. 제공자가 없으면 `needs_input`으로 표시합니다. 사실 확인, 로그인 필요한 관측, 구현과 발행은 사람 또는 외부 도구의 작업입니다. [자동화 사용 안내](docs/plans/rebuild-automation-guide.md)를 참고하세요.
+검색 결과는 조사 후보이며 AI 인용의 증거가 아닙니다. 사실 확인, 로그인 필요한 관측, 구현과 발행은 사람 또는 외부 도구의 작업입니다. 실행기는 Aside를 자동 호출하지 않습니다.
 
 [실행 안내](ops/rebuild.md) · [합성 예제](templates/rebuild/brief.json) · [검증 기록](docs/reviews/2026-10-13-rebuild-validation.ko.md) · [참고 프로젝트 조사](docs/reviews/2026-10-13-reference-projects.ko.md)
 
 ## 실제 작업 순서
 
-현재 구조는 **명령별 CLI**입니다. `rebuild run`을 호출하면 내부 조사·설계 단계가 연쇄 실행되고 재개 가능한 상태로 저장됩니다. 기술 초안(`generate`)은 별도 경로이며 자동 연결·배포하지 않습니다. [실행 아키텍처와 자동·수동 경계](docs/architecture.ko.md)를 참고하세요.
+현재 구조는 **명령별 CLI**입니다. `rebuild run`을 호출하면 내부 조사·설계 단계가 연쇄 실행되고 재개 가능한 상태로 저장됩니다. 기술 초안(`generate`)은 별도 경로이며 자동 연결·배포하지 않습니다. [실행 아키텍처와 자동·수동 경계](docs/architecture.ko.md)와 [대화형 아키텍처 그림](docs/diagrams/runtime-architecture.html)을 참고하세요.
+
+![현재 실행 아키텍처: 연결된 재구축, 별도 기술 초안과 측정](assets/runtime-architecture.svg)
+
+위 그림은 현재 명령별 실행 경로를 보여 줍니다. 아래의 기존 그림은 진단부터 배포·재측정까지의 운영 주기를 보여 줍니다.
 
 ![파이프라인 — 진단, 기준선, 생성, 배포, 검증, 재측정, 비교](assets/pipeline.ko.svg)
 

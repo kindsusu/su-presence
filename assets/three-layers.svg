@@ -49,5 +49,5 @@
   <text class="ln" x="310" y="337"><tspan class="id">seo</tspan> — SSR, sitemap, structured data</text>
   <text class="ln" x="310" y="356"><tspan class="id">ops/crawlers</tspan> — does bot policy open the door?</text>
 
-  <text class="note" x="24" y="402">Concepts, not execution stages. Access ≠ indexing ≠ citations ≠ model training.</text>
+  <text class="note" x="24" y="402">Concepts, not execution stages. Search candidates ≠ citations; access ≠ indexing ≠ training.</text>
 </svg>

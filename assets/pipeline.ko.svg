@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1250" viewBox="0 0 1080 1250" role="img" aria-label="실행 아키텍처 · v2.3.0">
-<title>실행 아키텍처 · v2.3.0</title><desc>각 명령은 별도로 호출합니다. 화살표는 작업 순서이며 자동 연쇄 실행이 아닙니다.</desc>
+<title>실행 아키텍처</title><desc>rebuild run은 내부 조사를 연결하고 실행 상태를 저장한다. 기술 초안과 배포는 별도다.</desc>
 <style>text{font-family:Segoe UI,Malgun Gothic,Arial,sans-serif;fill:#e9f2ef}.title{font-size:26px;font-weight:700}.label{font-size:12px;fill:#58bba6}.name{font-size:19px;font-weight:700}.code{font-size:16px;fill:#c9dcd6}.note{font-size:14px;fill:#abc0b9}</style>
 <rect width="1080" height="1250" fill="#10201c"/>
-<text x="32" y="40" class="title">실행 아키텍처 · v2.3.0</text><text x="32" y="70" class="note">각 명령은 별도로 호출합니다. 화살표는 작업 순서이며 자동 연쇄 실행이 아닙니다.</text>
+<text x="32" y="40" class="title">실행 아키텍처</text><text x="32" y="70" class="note">rebuild run은 조사·설계를 연결합니다. 배포와 측정은 별도입니다.</text>
 <rect x="28" y="94" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
 <text x="48" y="115" class="label">자동 · 명령 실행</text>
 <text x="48" y="140" class="name">1  진단 / audit</text>
@@ -22,16 +22,16 @@
 <text x="48" y="438" class="note">robots·사이트맵·JSON-LD·메타 등. rebuild plan을 자동으로 읽지 않음.</text>
 <text x="532" y="467" class="note">A / B</text>
 <rect x="28" y="469" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#b98b38"/>
-<text x="48" y="490" class="label">수동 + 자동 · 선택 B</text>
-<text x="48" y="515" class="name">3B  페이지 설계 / rebuild</text>
-<text x="48" y="539" class="code">init → 브리프 편집 → research → plan</text>
-<text x="48" y="563" class="note">research: 지정 공개 URL 수집(선택) / plan: 오프라인 근거 비교.</text>
+<text x="48" y="490" class="label">자동 + 검토 · 선택 B</text>
+<text x="48" y="515" class="name">3B  재개 가능한 페이지 설계 / rebuild run</text>
+<text x="48" y="539" class="code">brief → audit → discovery → research → analysis → plan</text>
+<text x="48" y="563" class="note">run.json에 상태 저장. 제공자 없으면 입력 대기. 기존 개별 명령도 유지.</text>
 <text x="532" y="592" class="note">↓</text>
 <rect x="28" y="594" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
 <text x="48" y="615" class="label">자동 · 선택 B 산출물</text>
 <text x="48" y="640" class="name">페이지·채널 실행 계획</text>
-<text x="48" y="664" class="code">plan.json · guide.md · report.html · pages/*</text>
-<text x="48" y="688" class="note">JSON·Markdown·HTML 초안. 경쟁사 검색·완성 본문 작성·배포는 자동 아님.</text>
+<text x="48" y="664" class="code">discovery.json · analysis.json · plan.json · pages/*</text>
+<text x="48" y="688" class="note">후보와 페이지 초안. 검색 결과는 AI 인용이 아님. 배포는 별도.</text>
 <text x="532" y="717" class="note">↓</text>
 <rect x="28" y="719" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#b98b38"/>
 <text x="48" y="740" class="label">수동 / 외부</text>

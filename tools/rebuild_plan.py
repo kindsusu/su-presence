@@ -117,7 +117,7 @@ def _fallback_sections(page_type):
                               ("Scope and next step", "Clarify limitations and a relevant action.")])
 
 
-def build_plan(audit, brief, observations, research, measurement_rows=None):
+def build_plan(audit, brief, observations, research, measurement_rows=None, discovery=None):
     """Return a reviewable plan; measurement rows are normalized by the caller.
 
     Every competitive conclusion carries observation or fetched-page evidence.
@@ -168,6 +168,20 @@ def build_plan(audit, brief, observations, research, measurement_rows=None):
         add_evidence("research-page-%d" % i, "fetched_page", page.get("final_url") or page.get("url"),
                      observed_at=page.get("fetched_at"),
                      note="%s; HTTP %s" % (page.get("outcome"), page.get("status")))
+    discovered = []
+    if discovery is not None:
+        if not isinstance(discovery, dict) or discovery.get('schema') != 'su-presence/rebuild-discovery/1':
+            raise ValueError('invalid discovery schema')
+        for candidate in discovery.get('candidates', []):
+            if not isinstance(candidate, dict) or candidate.get('query_id') not in by_query:
+                raise ValueError('invalid discovery query')
+            if candidate.get('query_text') != by_query[candidate['query_id']]['text']:
+                raise ValueError('discovery query text changed')
+            eid = add_evidence(candidate['id'], 'search_candidate', candidate['url'], candidate['query_id'],
+                               observed_at=candidate['observed_at'],
+                               note='Discovery only; not a measured channel citation or competitor declaration.',
+                               provider=candidate['provider'], locale=candidate['locale'], position=candidate['position'])
+            discovered.append((candidate, eid))
     observed = []
     for i, item in enumerate(observations):
         if not isinstance(item, dict) or item.get("query_id") not in by_query:
@@ -258,10 +272,12 @@ def build_plan(audit, brief, observations, research, measurement_rows=None):
             related_obs = [eid for row, eid in observed if row["query_id"] in qids and
                            row.get("outcome") == "observed" and row.get("url") in (url, p.get("url"))]
             declared = any(_host(url) == _host(c) or _host(url).endswith("." + _host(c)) for c in brief["competitors"])
-            if not (related_obs or (declared and _terms_hit(p, terms))):
+            related_discovery = [eid for row, eid in discovered if row['query_id'] in qids
+                                 and row['url'] in (url, p.get('url'))]
+            if not (related_obs or related_discovery or (declared and _terms_hit(p, terms))):
                 continue
-            comp_rows.append({"url": url, "role": "observed_publisher" if related_obs else "declared_competitor",
-                              "evidence_ids": ["research-page-%d" % i] + related_obs,
+            comp_rows.append({"url": url, "role": "observed_publisher" if related_obs else "discovered_source" if related_discovery else "declared_competitor",
+                              "evidence_ids": ["research-page-%d" % i] + related_obs + related_discovery,
                               "title": p.get("title") or "", "h1": p.get("h1") or "",
                               "headings": p.get("headings") or [], "features": p.get("features") or {},
                               "note": "Observed page structure only; topical or ranking advantage is unverified."})

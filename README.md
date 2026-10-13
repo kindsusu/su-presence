@@ -73,11 +73,13 @@ python tools/seo_geo.py rebuild plan out/example.com/audit.json --brief out/exam
 
 Add recorded discovery/observations with `--observations <observations.json>` or compatible measurement logs with `--log <log.jsonl>`. Research fetches specified URLs; it does not automatically query search engines or authenticated AI products. Planning is offline. Failed fetches, empty HTML, and unmeasured channels do not establish absence of visibility. Page drafts require factual and editorial review.
 
+For a connected, resumable workflow, `rebuild run` drafts a brief, audits the site, discovers candidate sources through a configured Brave Search API or validated host import, researches public pages, compares evidence, and produces page designs. Its `run.json` records stage status and lets `rebuild resume` reuse valid outputs. Search hits are candidate sources, not proof of AI citations. A missing provider is recorded as `needs_input`; fact checking, login-only observations, implementation, and publishing remain human or external tasks. See the [automation guide](docs/plans/rebuild-automation-guide.md).
+
 [Workflow guide](en/ops/rebuild.md) · [Synthetic example](templates/rebuild/brief.json) · [Validation record (Korean)](docs/reviews/2026-10-13-rebuild-validation.ko.md) · [Reference review (Korean)](docs/reviews/2026-10-13-reference-projects.ko.md)
 
 ## The practical loop
 
-This is a **command-driven CLI**. Automated stages start only when a person or external runner invokes a command. Technical drafts (`generate`) and page planning (`rebuild`) are optional separate branches, with no automatic handoff. See the [execution architecture and automation boundaries](docs/architecture.md).
+This is a **command-driven CLI**. `rebuild run` chains its own research and planning stages after invocation and records progress for resume. Technical drafts (`generate`) remain a separate branch, with no automatic handoff or deployment. See the [execution architecture and automation boundaries](docs/architecture.md).
 
 ![Pipeline: audit, baseline, build, deploy, verify, re-measure, and compare](assets/pipeline.svg)
 
@@ -139,6 +141,7 @@ save it as `-filled.csv`, or pass the actual saved filename to `import`.
 |---|---|---|
 | `audit` | `audit.json`, `report.html` | Raw HTTP observations and the actual collection scope |
 | `rebuild init/research/plan` | `brief.json`, `research.json`, `plan.json`, `guide.md`, `pages/*` | Manual/external brief editing and URL selection; command-triggered fetching and offline planning; separate implementation/deployment |
+| `rebuild run/resume/status` | `run.json`, `brief.json`, `audit.json`, `discovery.json`, `research.json`, `analysis.json`, `plan.json` | Saved stage status and evidence-linked drafts; provider gaps remain explicit; no publishing |
 | `generate` | `deploy/`, `DEPLOY.md` | Reviewable deployment drafts, never a completed deployment |
 | `verify deploy` | `verify.json`, `VERIFY.md` | Live-response checks after deployment; exit `1` is a verified failure and `2` is incomplete or invalid scope |
 | `measure` | manual form, `log.jsonl`, `summary.json`, `MEASURE.md` | Repeated citation observations for a fixed cohort; API and web UI are separate surfaces |

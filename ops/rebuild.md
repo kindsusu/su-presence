@@ -41,4 +41,8 @@ python tools/rebuild.py plan <audit.json> --brief <brief.json> --observations <o
 
 ## 실행 경계
 
-[전체 아키텍처](../docs/architecture.ko.md): 각 명령은 따로 호출한다. `init` 이후 편집, 경쟁 URL 발견, 본문 확정, 사이트 구현·배포는 사람 또는 별도 에이전트 작업이다. `research`와 `plan`이 자동으로 다음 명령을 실행하지 않으며 `plan` 산출물은 `generate`의 입력 계약이 아니다. `verify deploy`는 generate 초안과 라이브 응답을 검사하며 페이지 설계의 의미적 완성도를 검증하지 않는다.
+[전체 아키텍처](../docs/architecture.ko.md): 기존 `init/research/plan` 경로는 각 명령을 따로 호출한다. 연결 실행은 `run`을 사용한다. 이때 검색 제공자 설정 후 경쟁 URL 발견을 자동화할 수 있으며 사업 사실·본문 확정·사이트 구현·배포는 별도 작업이다. `research`와 `plan`이 자동으로 다음 명령을 실행하지 않으며 `plan` 산출물은 `generate`의 입력 계약이 아니다. `verify deploy`는 generate 초안과 라이브 응답을 검사하며 페이지 설계의 의미적 완성도를 검증하지 않는다.
+
+## Connected rebuild execution · 연결 실행
+
+`rebuild run URL --topic TOPIC --config CONFIG --out OUT` connects brief, audit, discovery, research, analysis and page planning. Use `rebuild status RUN_DIR` and `rebuild resume RUN_DIR` to inspect and resume. Existing `init/research/plan` remain available. Provider setup, verified business facts and publication review remain explicit. See [automation guide · 자동 실행 안내](../docs/plans/rebuild-automation-guide.md).

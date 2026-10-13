@@ -589,3 +589,7 @@ python -m unittest tests.test_e2e  # E2E만
 crawl → report → generate → 배포 흉내 → verify → 재크롤 → measure → drift.
 `.github/workflows/ci.yml`이 ubuntu·windows·macos × Python 3.10·3.12·3.13에서 같은 것을 돌린다.
 **의존성 설치 단계가 없다는 것이 "표준 라이브러리만"의 증명이다.**
+
+## Connected rebuild execution · 연결 실행
+
+`rebuild run URL --topic TOPIC --config CONFIG --out OUT` connects brief, audit, discovery, research, analysis and page planning. Use `rebuild status RUN_DIR` and `rebuild resume RUN_DIR` to inspect and resume. Existing `init/research/plan` remain available. Provider setup, verified business facts and publication review remain explicit. See [automation guide · 자동 실행 안내](../docs/plans/rebuild-automation-guide.md).

@@ -1,5 +1,13 @@
 # 변경 이력
 
+## Unreleased
+
+- Add `rebuild run/status/resume`: bounded search discovery, saved stage state, artifact checks and resumable page planning.
+- Add Brave/import discovery and optional evidence-validated OpenAI/import analysis; search hits remain separate from observed citations.
+- Include editorial page decisions and source-backed section proposals in review outputs. Publication and deployment remain separate.
+- Preserve legacy rebuild commands and document provider setup, limits and human review boundaries.
+
+
 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/), 버전은 [유의적 버전](https://semver.org/lang/ko/)을 따른다.
 날짜는 해당 작업이 커밋된 날이다.
 

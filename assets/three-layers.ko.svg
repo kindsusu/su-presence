@@ -49,5 +49,5 @@
   <text class="ln" x="310" y="337"><tspan class="id">seo</tspan> — SSR · 사이트맵 · 구조화 데이터</text>
   <text class="ln" x="310" y="356"><tspan class="id">ops/crawlers</tspan> — 봇 정책이 문을 여는가</text>
 
-  <text class="note" x="24" y="402">개념 구분이며 실행 순서가 아니다. 접근 가능 ≠ 색인 ≠ 인용 ≠ 모델 학습.</text>
+  <text class="note" x="24" y="402">개념 구분이며 실행 순서가 아니다. 검색 후보 ≠ 실제 인용, 접근 가능 ≠ 색인 ≠ 모델 학습.</text>
 </svg>

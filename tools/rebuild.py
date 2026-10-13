@@ -163,14 +163,25 @@ def markdown(plan):
              'Recommendations are hypotheses, not ranking guarantees. Validate facts before publishing.', '',
              '## Limits', '']
     lines += ['- ' + str(x).replace('\n', ' ') for x in plan.get('limits', [])]
+    if plan.get('execution'):
+        lines += ['', '## Execution', '', json.dumps(plan['execution'], ensure_ascii=False)]
     for b in plan['page_blueprints']:
         lines += ['', '## ' + b['title'], '', 'Action: ' + b['action'],
                   '', 'Proposed URL: ' + b['suggested_url'], '', 'Reason: ' + b['rationale'],
                   '', 'Evidence IDs: ' + ', '.join(b['evidence_ids']), '', '### Sections', '']
         for section in b['sections']:
             lines += ['- ' + section['heading'] + ': ' + section['purpose']]
+        if b.get('page_decision'):
+            lines += ['', '### Page decision', '', json.dumps(b['page_decision'], ensure_ascii=False)]
+        for finding in b.get('semantic_comparison', {}).get('findings', []):
+            lines += ['', '- Interpretation (review): ' + finding['summary'],
+                      '  Source: ' + finding['source_id'] + ' — ' + finding['quote']]
+        for proposal in b.get('section_proposals', []):
+            lines += ['', '- Proposed section (review): ' + proposal['heading'] + ': ' + proposal['reason']]
+        for conflict in b.get('semantic_comparison', {}).get('conflicts', []):
+            lines += ['', '- Conflicting sources (review): ' + conflict['summary']]
         lines += ['', '### Required evidence / acceptance', '']
-        lines += ['- ' + str(x) for x in b['missing_facts'] + b['acceptance_checks']]
+        lines += ['- ' + str(x) for x in b['missing_facts'] + b['acceptance_checks'] + b.get('unresolved_checks', [])]
     lines += ['', '## Channel actions', '']
     for c in plan['channel_actions']:
         lines += ['### ' + c['channel'] + ' — ' + c['status'], ''] + ['- ' + a for a in c['actions']] + ['']
@@ -190,13 +201,18 @@ def render_html(plan):
                        esc(', '.join(g['evidence_ids'])) + '</td></tr>' for g in b.get('comparison_gaps', []))
         sources = ''.join('<li><strong>' + esc(r['role']) + '</strong> · ' + esc(r['title']) + '<br>' + esc(r['url']) + '</li>'
                           for r in b.get('source_comparison', []))
+        semantic = b.get('semantic_comparison', {})
+        comparison = listing('Interpretation (review): ' + f['summary'] + ' | ' + f['source_id'] + ': ' + f['quote']
+                             for f in semantic.get('findings', []))
+        comparison += listing('Conflict (review): ' + f['summary'] for f in semantic.get('conflicts', []))
+        proposals = listing(p['heading'] + ': ' + p['reason'] for p in b.get('section_proposals', []))
         draft_path = 'pages/' + safe_name(b['id']) + '.html'
         cards.append('<section><p class="tag">P' + esc(b['priority']) + ' · ' + esc(b['action']) + ' · ' + esc(b['page_type']) +
                      '</p><h2>' + esc(b['title']) + '</h2><p>' + esc(b['suggested_url']) + '</p><p>' + esc(b['rationale']) +
                      '</p><a href="' + esc(draft_path) + '">페이지 설계 초안 열기</a><h3>비교한 페이지</h3><ul>' + sources +
-                     '</ul><h3>구조 비교</h3><table><thead><tr><th>항목</th><th>자사 상태</th><th>근거</th></tr></thead><tbody>' + rows +
+                     '</ul><h3>내용 비교 · 해석 검토 필요</h3>' + comparison + '<h3>추가 섹션 제안 · 검토</h3>' + proposals + '<h3>구조 비교</h3><table><thead><tr><th>항목</th><th>자사 상태</th><th>근거</th></tr></thead><tbody>' + rows +
                      '</tbody></table><h3>페이지 구성</h3>' + listing(s['heading'] + ': ' + s['purpose'] for s in b['sections']) +
-                     '<h3>발행 전 확인</h3>' + listing(b['missing_facts'] + b['acceptance_checks']) +
+                     '<h3>발행 전 확인</h3>' + listing(b['missing_facts'] + b['acceptance_checks'] + b.get('unresolved_checks', [])) +
                      '<details><summary>전체 청사진 JSON</summary><pre>' + esc(json.dumps(b, ensure_ascii=False, indent=2)) + '</pre></details></section>')
     channels = ''.join('<article><h3>' + esc(c['channel']) + ' · ' + esc(c['status']) + '</h3>' + listing(c['actions']) + '</article>' for c in plan['channel_actions'])
     backlog = listing(task['id'] + ' · ' + task['action'] + ' · 선행: ' + ', '.join(task['depends_on']) for task in plan['backlog'])
@@ -208,7 +224,7 @@ def render_html(plan):
             '.tag{font-weight:bold}article{border-top:1px solid #d4ded9}li{margin:8px 0}p{overflow-wrap:anywhere}</style></head><body>'
             '<header><p>SU-PRESENCE / REBUILD</p><h1>근거에서 페이지 설계까지</h1><p>' + esc(plan['target']) + ' · ' + esc(plan['generated_at']) +
             '</p><p>의도 ' + esc(plan['summary']['intents']) + '개 · 관측 ' + esc(plan['summary']['observations']) + '개 · 중요 기술 과제 ' +
-            esc(plan['summary']['critical_blockers']) + '개</p></header><section><h2>분석 범위와 한계</h2>' + listing(plan['limits']) + '</section>' + ''.join(cards) +
+            esc(plan['summary']['critical_blockers']) + '개</p></header><section><h2>분석 범위와 한계</h2>' + listing(plan['limits']) + '<pre>' + esc(json.dumps(plan.get('execution', {}), ensure_ascii=False, indent=2)) + '</pre></section>' + ''.join(cards) +
             '<section><h2>채널별 실행</h2>' + channels + '</section><section><h2>구현 순서</h2>' + backlog +
             '</section><section><h2>근거와 입력 이력</h2><pre>' + esc(json.dumps({'evidence':plan['evidence'], 'inputs':plan.get('input_provenance',{})},ensure_ascii=False,indent=2)) +
             '</pre></section></body></html>')
@@ -221,6 +237,9 @@ def page_draft(page, plan):
              '[Write a direct answer supported by the verified facts below; do not invent claims.]']
     for section in page['sections']:
         lines += ['', '## ' + section['heading'], '', section['purpose'], '', '[Editorial copy required]']
+    for proposal in page.get('section_proposals', []):
+        lines += ['', '## Proposed section — review: ' + proposal['heading'], '', proposal['reason'],
+                  '', 'Supporting excerpt: ' + proposal.get('supporting_quote', 'Source heading; review source evidence IDs')]
     lines += ['', '## Verified, intent-scoped source material', '']
     for fid in page['verified_facts']:
         fact = facts.get('fact-' + fid, {})
@@ -237,6 +256,7 @@ def page_html(page, plan):
     facts = {row['id']: row for row in plan['evidence'] if row['kind'] == 'supplied_fact'}
     sections = ''.join('<section><h2>' + e(s['heading']) + '</h2><p>' + e(s['purpose']) +
                        '</p><p class="placeholder">검증된 자료를 바탕으로 본문을 작성하세요.</p></section>' for s in page['sections'])
+    sections += ''.join('<section><h2>' + e(p['heading']) + '</h2><aside>추가 제안 · 사실과 관련성 검토 필요</aside><p>' + e(p['reason']) + '</p><blockquote>' + e(p.get('supporting_quote', 'Source heading; review source evidence IDs')) + '</blockquote></section>' for p in page.get('section_proposals', []))
     sources = ''.join('<li>' + e(facts.get('fact-'+fid, {}).get('note', fid)) + '<br>' +
                       e(facts.get('fact-'+fid, {}).get('url', '')) + '</li>' for fid in page['verified_facts'])
     return ('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
@@ -348,6 +368,8 @@ def main(argv=None):
     a = sub.add_parser('plan', help='Offline evidence comparison and rebuilding guide')
     a.add_argument('audit'); a.add_argument('--brief', required=True); a.add_argument('--observations')
     a.add_argument('--research'); a.add_argument('--log'); a.add_argument('--out'); a.set_defaults(func=plan)
+    import rebuild_run
+    rebuild_run.add_parsers(sub)
     args = p.parse_args(argv)
     if args.command == 'research' and not 1 <= args.max_pages <= 100:
         p.error('--max-pages must be 1..100')

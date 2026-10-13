@@ -10,6 +10,7 @@
 | CLI 명령·옵션·파일 스키마 / CLI reference | [tools/README.md](../tools/README.md) |
 | 실제 실행 구조·단계 경계 / Runtime architecture | [한국어](architecture.ko.md) · [English](architecture.md) |
 | 근거 기반 사이트 재구축 / Evidence-based rebuilding | [재구축 실행 안내](plans/rebuild-guide.md) |
+| 재구축 자동화 개발 계획 / Automation proposal | [수정 계획안](plans/rebuild-automation.ko.md) · [구현 사용법](plans/rebuild-automation-guide.md) |
 | 에이전트 실행 절차 / Agent workflow | [SKILL.md](../SKILL.md) · [English](../en/SKILL.md) |
 | 실제 인용 측정·기준선 비교 / Citation measurement | [측정 운영](../ops/measure.md) · [English](../en/ops/measure.md) |
 | 진단 근거와 한계 / Evidence and limits | [판단 근거](../ops/evidence.md) · [조사·검증 범위](research-status.ko.md) |

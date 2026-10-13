@@ -1,0 +1,9 @@
+{
+  "max_queries": 4,
+  "max_audit_pages": 20,
+  "max_research_pages": 30,
+  "crawl_delay": 0.3,
+  "channels": ["google", "bing", "naver", "daum", "chatgpt"],
+  "discovery": {"provider": "brave", "max_requests": 4, "max_results": 5, "max_age_hours": 24},
+  "analysis": {"provider": "none"}
+}

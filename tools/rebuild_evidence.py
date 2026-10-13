@@ -255,6 +255,9 @@ class _VisibleHTML(HTMLParser):
         self.sources = False
 
     def handle_starttag(self, tag, attrs):
+        # Void elements have no descendants and must never hold hidden state.
+        if tag in {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}:
+            return
         attrs = dict(attrs)
         hidden_tag = tag in ("script", "style", "noscript", "template", "nav", "footer", "aside", "svg", "iframe")
         hidden_attr = ("hidden" in attrs or str(attrs.get("aria-hidden", "")).lower() == "true"

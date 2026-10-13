@@ -12,10 +12,10 @@
 
 ## 검증 기록
 
-Windows / Python 3.12.3에서 빈 HTML 처리 수정까지 포함한 전체 unittest **426개 통과**를 확인했다. 로컬 HTTP 서버를 사용하는 기존 E2E도 포함한다.
+Windows / Python 3.12.3에서 빈 HTML 처리 수정까지 포함한 전체 unittest **428개 통과**를 확인했다. 로컬 HTTP 서버를 사용하는 기존 E2E도 포함한다.
 
-- 전체 실행: `python -m unittest discover -s tests -q` — 426 tests, OK.
-- rebuild 관련 실행: `python -m unittest discover -s tests -p 'test_rebuild*py' -q` — 42 tests, OK. 위 전체 실행에 포함되는 부분집합이다.
+- 전체 실행: `python -m unittest discover -s tests -q` — 428 tests, OK.
+- rebuild 관련 실행: `python -m unittest discover -s tests -p 'test_rebuild*py' -q` — 44 tests, OK. 위 전체 실행에 포함되는 부분집합이다.
 - `bash tools/test_audit.sh`: 전체 PASS.
 - `python tools/validate.py --root .`: 통과.
 - `python tools/seo_geo.py doctor`: rebuild 포함 도구 로딩 통과.

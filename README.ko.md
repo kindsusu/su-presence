@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="version 2.3.0" src="https://img.shields.io/badge/version-2.3.0-0E6B5C">
-  <img alt="tests 426" src="https://img.shields.io/badge/tests-426-2C7A4B">
+  <img alt="tests 428" src="https://img.shields.io/badge/tests-428-2C7A4B">
   <img alt="stdlib only, zero dependencies" src="https://img.shields.io/badge/stdlib%20only-zero%20dependencies-1A2B28">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-0E6B5C">
   <a href="LICENSE"><img alt="License PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-A96A00"></a>

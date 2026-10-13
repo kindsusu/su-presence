@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="version 2.2.0" src="https://img.shields.io/badge/version-2.2.0-0E6B5C">
+  <img alt="version 2.3.0" src="https://img.shields.io/badge/version-2.3.0-0E6B5C">
   <img alt="tests 426" src="https://img.shields.io/badge/tests-426-2C7A4B">
   <img alt="stdlib only, zero dependencies" src="https://img.shields.io/badge/stdlib%20only-zero%20dependencies-1A2B28">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-0E6B5C">
@@ -21,9 +21,9 @@
 
 **A Korean-first skill for auditing technical search access, drafting site changes, verifying the live result, and measuring AI-search citations.** It keeps SEO, AEO, GEO, LLMO, Naver (NEO), Daum/Kakao (KEO), and reputation as separate evidence lanes; crawler access, index state, citations, and business outcomes are not treated as the same result.
 
-## Current development (unreleased)
+## New in v2.3.0
 
-The released version remains **2.2.0**. The `rebuild` module below is an unreleased change on the development branch; check your installed revision before using it.
+**2.3.0** adds the `rebuild` module, connecting competitor evidence to page design and implementation guidance.
 
 - Plan evidence-led page updates with the [content operations guide](ops/content.md) ([English](en/ops/content.md)), [content brief template](templates/content-brief.example.md), and [content inventory CSV](templates/content-inventory.example.csv). These are planning records, not performance forecasts.
 - Build an evidence-linked page and channel plan with `python tools/rebuild.py init <audit.json>`, then explicit `research` and offline `plan`. The [rebuild guide](ops/rebuild.md) ([English](en/ops/rebuild.md)) explains inputs, immutable run outputs, and the [synthetic fixtures](templates/rebuild/brief.json). It drafts page changes; it does not publish or guarantee visibility.

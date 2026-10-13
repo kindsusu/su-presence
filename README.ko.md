@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="version 2.2.0" src="https://img.shields.io/badge/version-2.2.0-0E6B5C">
+  <img alt="version 2.3.0" src="https://img.shields.io/badge/version-2.3.0-0E6B5C">
   <img alt="tests 426" src="https://img.shields.io/badge/tests-426-2C7A4B">
   <img alt="stdlib only, zero dependencies" src="https://img.shields.io/badge/stdlib%20only-zero%20dependencies-1A2B28">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-0E6B5C">
@@ -21,9 +21,9 @@
 
 **기술 검색 접근성을 진단하고, 사이트 변경 초안을 만들고, 라이브 배포를 검증하고, AI 검색 인용을 측정하는 한국어 우선 스킬입니다.** SEO·AEO·GEO·LLMO·네이버(NEO)·다음/카카오(KEO)·평판을 별도 레인으로 다루며, 크롤러 접근·색인 상태·인용·사업 성과를 같은 결과로 섞지 않습니다.
 
-## 현재 개발 내용 (미출시)
+## v2.3.0 주요 내용
 
-출시 버전은 **2.2.0**이며, 아래 `rebuild` 기능은 현재 개발 브랜치의 미출시 변경입니다. 설치한 버전과 이 문서의 코드 기준을 확인하세요.
+**2.3.0**은 경쟁 페이지 근거 수집에서 페이지 설계·재구축 가이드까지 연결하는 `rebuild` 모듈을 추가합니다.
 
 - 근거에 기반해 기존 페이지를 보강하려면 [콘텐츠 운영 안내](ops/content.md) ([English](en/ops/content.md)), [콘텐츠 브리프 양식](templates/content-brief.example.md), [페이지 인벤토리 CSV](templates/content-inventory.example.csv)를 사용합니다. 계획 기록이며 성과 예측 자료는 아닙니다.
 - `python tools/rebuild.py init <audit.json>`으로 질문·사실 브리프를 만들고, 명시적 `research`와 오프라인 `plan`으로 페이지·채널 청사진을 생성합니다. [재구축 안내](ops/rebuild.md) ([English](en/ops/rebuild.md))에 입력 계약과 실행 결과가 있으며 [합성 예제](templates/rebuild/brief.json)는 실제 관측이 아닙니다. 자동 게시나 노출 보장은 없습니다.

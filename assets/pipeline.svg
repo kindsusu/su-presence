@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1250" viewBox="0 0 1080 1250" role="img" aria-label="Execution architecture · v2.3.0">
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1250" viewBox="0 0 1080 1250" role="img" aria-label="Execution architecture · v3.0.0">
 <title>Execution architecture</title><desc>Rebuild run chains its own stages and stores run state. Technical drafts and deployment remain separate.</desc>
 <style>text{font-family:Segoe UI,Malgun Gothic,Arial,sans-serif;fill:#e9f2ef}.title{font-size:26px;font-weight:700}.label{font-size:12px;fill:#58bba6}.name{font-size:19px;font-weight:700}.code{font-size:16px;fill:#c9dcd6}.note{font-size:14px;fill:#abc0b9}</style>
 <rect width="1080" height="1250" fill="#10201c"/>

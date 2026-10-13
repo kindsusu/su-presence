@@ -1,0 +1,222 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "su-presence 3.0.0 \u2014 Runtime Architecture",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "animation": "none",
+    "viewBox": [
+      1340,
+      610
+    ]
+  },
+  "components": [
+    {
+      "id": "entry",
+      "type": "external",
+      "label": "Run request",
+      "sublabel": "URL, topic, locale, config",
+      "pos": [
+        40,
+        40
+      ],
+      "size": [
+        245,
+        70
+      ]
+    },
+    {
+      "id": "runner",
+      "type": "backend",
+      "label": "Run coordinator",
+      "sublabel": "run / status / resume",
+      "pos": [
+        510,
+        40
+      ],
+      "size": [
+        245,
+        70
+      ]
+    },
+    {
+      "id": "state",
+      "type": "database",
+      "label": "Local run state",
+      "sublabel": "run.json + hashes + history",
+      "pos": [
+        980,
+        40
+      ],
+      "size": [
+        245,
+        70
+      ]
+    },
+    {
+      "id": "brief",
+      "type": "backend",
+      "label": "Brief and audit",
+      "sublabel": "Intent draft + crawl coverage",
+      "pos": [
+        510,
+        190
+      ],
+      "size": [
+        245,
+        70
+      ]
+    },
+    {
+      "id": "search",
+      "type": "backend",
+      "label": "Discover sources",
+      "sublabel": "Brave API or imported results",
+      "pos": [
+        980,
+        190
+      ],
+      "size": [
+        245,
+        70
+      ]
+    },
+    {
+      "id": "research",
+      "type": "backend",
+      "label": "Research pages",
+      "sublabel": "Public HTML + robots + limits",
+      "pos": [
+        980,
+        340
+      ],
+      "size": [
+        245,
+        70
+      ]
+    },
+    {
+      "id": "analysis",
+      "type": "backend",
+      "label": "Compare evidence",
+      "sublabel": "Rules / OpenAI / import",
+      "pos": [
+        510,
+        340
+      ],
+      "size": [
+        245,
+        70
+      ]
+    },
+    {
+      "id": "plan",
+      "type": "backend",
+      "label": "Page design",
+      "sublabel": "Decisions + sections + backlog",
+      "pos": [
+        40,
+        340
+      ],
+      "size": [
+        245,
+        70
+      ]
+    },
+    {
+      "id": "review",
+      "type": "external",
+      "label": "Review and publish",
+      "sublabel": "Facts, copy, code, deployment",
+      "pos": [
+        40,
+        490
+      ],
+      "size": [
+        245,
+        70
+      ]
+    },
+    {
+      "id": "measure",
+      "type": "backend",
+      "label": "Verify and measure",
+      "sublabel": "verify / collect / measure / drift",
+      "pos": [
+        510,
+        490
+      ],
+      "size": [
+        245,
+        70
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "entry",
+      "to": "runner",
+      "label": "invoke"
+    },
+    {
+      "from": "runner",
+      "to": "state",
+      "label": "persist / resume"
+    },
+    {
+      "from": "runner",
+      "to": "brief",
+      "label": "start",
+      "labelDy": 40
+    },
+    {
+      "from": "brief",
+      "to": "search",
+      "label": "queries"
+    },
+    {
+      "from": "search",
+      "to": "research",
+      "label": "candidate URLs",
+      "labelDy": 40
+    },
+    {
+      "from": "research",
+      "to": "analysis",
+      "label": "scoped excerpts"
+    },
+    {
+      "from": "analysis",
+      "to": "plan",
+      "label": "validated evidence"
+    },
+    {
+      "from": "plan",
+      "to": "review",
+      "label": "review drafts",
+      "labelDy": 40
+    },
+    {
+      "from": "review",
+      "to": "measure",
+      "label": "after publication"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "Explicit human work",
+      "items": [
+        "Business facts, publication and logged-in observations."
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Separate technical branch",
+      "items": [
+        "audit \u2192 generate drafts; no automatic deployment."
+      ]
+    }
+  ]
+}

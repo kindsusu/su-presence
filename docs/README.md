@@ -52,3 +52,5 @@ write output to the target project's output directory.
 
 실측 결과 `out/`, API 키, 고객 데이터는 저장소에 올리지 않는다.
 예시 입력은 [templates/](../templates/)에, 자동 검사용 합성 사이트는 [tests/fixtures/](../tests/fixtures/)에 있다.
+
+3.0.0 architecture: [English diagram](../assets/runtime-architecture.svg) · [Interactive HTML](diagrams/runtime-architecture.html) · [Diagram source](diagrams/runtime-architecture.json). Download the HTML to use its viewer; GitHub displays its source.

@@ -1,0 +1,18 @@
+{
+  "specification": {
+    "sha256": "f95d9dc87226d8edc265c229b802c4926b45c86f6e2b83d80ec4a576e22dfb20",
+    "bytes": 4152
+  },
+  "artifact": {
+    "sha256": "9c692b81dc542bf20409e23411a32858425a1c8e244c085467ac82effc404982",
+    "bytes": 807905
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}

@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1340" height="820" viewBox="0 0 1340 820" role="img" aria-label="su-presence 3.0.0 runtime architecture">
+<title>su-presence 3.0.0 Runtime Architecture</title>
+<desc>Automatic run stages, saved state, explicit human publication and separately invoked measurement. No automatic deployment.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#698398"/></marker></defs>
+<rect width="1340" height="820" fill="#f4f7fb"/>
+<style>text{font-family:Segoe UI,Arial,sans-serif;fill:#1b3449}.title{font-size:28px;font-weight:700}.label{font-size:19px;font-weight:600}.sub{font-size:14px;fill:#48647c}.edge{font-size:14px;fill:#4a657d}</style>
+<text x="40" y="42" class="title">su-presence 3.0.0 — Runtime Architecture</text>
+<text x="40" y="69" class="sub">Command-driven automation • durable local state • human review before publication</text>
+<path d="M285 155 L510 155" stroke="#698398" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="369.0" y="129.0" width="57.0" height="19" fill="#f4f7fb"/><text x="397.5" y="143" text-anchor="middle" class="edge">invoke</text>
+<path d="M755 155 L980 155" stroke="#698398" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="801.5" y="129.0" width="132.0" height="19" fill="#f4f7fb"/><text x="867.5" y="143" text-anchor="middle" class="edge">persist / resume</text>
+<path d="M632.5 190 L632.5 270" stroke="#698398" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="607.75" y="206.0" width="49.5" height="19" fill="#f4f7fb"/><text x="632.5" y="220.0" text-anchor="middle" class="edge">start</text>
+<path d="M755 305 L980 305" stroke="#698398" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="835.25" y="279.0" width="64.5" height="19" fill="#f4f7fb"/><text x="867.5" y="293" text-anchor="middle" class="edge">queries</text>
+<path d="M1102.5 340 L1102.5 420" stroke="#698398" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1044.0" y="356.0" width="117.0" height="19" fill="#f4f7fb"/><text x="1102.5" y="370.0" text-anchor="middle" class="edge">candidate URLs</text>
+<path d="M980 455 L755 455" stroke="#698398" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="805.25" y="429.0" width="124.5" height="19" fill="#f4f7fb"/><text x="867.5" y="443" text-anchor="middle" class="edge">scoped excerpts</text>
+<path d="M510 455 L285 455" stroke="#698398" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="324.0" y="429.0" width="147.0" height="19" fill="#f4f7fb"/><text x="397.5" y="443" text-anchor="middle" class="edge">validated evidence</text>
+<path d="M162.5 490 L162.5 570" stroke="#698398" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="107.75" y="506.0" width="109.5" height="19" fill="#f4f7fb"/><text x="162.5" y="520.0" text-anchor="middle" class="edge">review drafts</text>
+<path d="M285 605 L510 605" stroke="#698398" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="327.75" y="579.0" width="139.5" height="19" fill="#f4f7fb"/><text x="397.5" y="593" text-anchor="middle" class="edge">after publication</text>
+<rect x="40" y="120" width="245" height="70" rx="10" fill="#fff0d9" stroke="#b17b21" stroke-width="2"/>
+<text x="162.5" y="149" text-anchor="middle" class="label">Run request</text>
+<text x="162.5" y="172" text-anchor="middle" class="sub">URL, topic, locale, config</text>
+<rect x="510" y="120" width="245" height="70" rx="10" fill="#ddf6ee" stroke="#21856d" stroke-width="2"/>
+<text x="632.5" y="149" text-anchor="middle" class="label">Run coordinator</text>
+<text x="632.5" y="172" text-anchor="middle" class="sub">run / status / resume</text>
+<rect x="980" y="120" width="245" height="70" rx="10" fill="#eee7ff" stroke="#8061ad" stroke-width="2"/>
+<text x="1102.5" y="149" text-anchor="middle" class="label">Local run state</text>
+<text x="1102.5" y="172" text-anchor="middle" class="sub">run.json + hashes + history</text>
+<rect x="510" y="270" width="245" height="70" rx="10" fill="#ddf6ee" stroke="#21856d" stroke-width="2"/>
+<text x="632.5" y="299" text-anchor="middle" class="label">Brief and audit</text>
+<text x="632.5" y="322" text-anchor="middle" class="sub">Intent draft + crawl coverage</text>
+<rect x="980" y="270" width="245" height="70" rx="10" fill="#ddf6ee" stroke="#21856d" stroke-width="2"/>
+<text x="1102.5" y="299" text-anchor="middle" class="label">Discover sources</text>
+<text x="1102.5" y="322" text-anchor="middle" class="sub">Brave API or imported results</text>
+<rect x="980" y="420" width="245" height="70" rx="10" fill="#ddf6ee" stroke="#21856d" stroke-width="2"/>
+<text x="1102.5" y="449" text-anchor="middle" class="label">Research pages</text>
+<text x="1102.5" y="472" text-anchor="middle" class="sub">Public HTML + robots + limits</text>
+<rect x="510" y="420" width="245" height="70" rx="10" fill="#ddf6ee" stroke="#21856d" stroke-width="2"/>
+<text x="632.5" y="449" text-anchor="middle" class="label">Compare evidence</text>
+<text x="632.5" y="472" text-anchor="middle" class="sub">Rules / OpenAI / import</text>
+<rect x="40" y="420" width="245" height="70" rx="10" fill="#ddf6ee" stroke="#21856d" stroke-width="2"/>
+<text x="162.5" y="449" text-anchor="middle" class="label">Page design</text>
+<text x="162.5" y="472" text-anchor="middle" class="sub">Decisions + sections + backlog</text>
+<rect x="40" y="570" width="245" height="70" rx="10" fill="#fff0d9" stroke="#b17b21" stroke-width="2"/>
+<text x="162.5" y="599" text-anchor="middle" class="label">Review and publish</text>
+<text x="162.5" y="622" text-anchor="middle" class="sub">Facts, copy, code, deployment</text>
+<rect x="510" y="570" width="245" height="70" rx="10" fill="#ddf6ee" stroke="#21856d" stroke-width="2"/>
+<text x="632.5" y="599" text-anchor="middle" class="label">Verify and measure</text>
+<text x="632.5" y="622" text-anchor="middle" class="sub">verify / collect / measure / drift</text>
+<text x="40" y="712" class="label">Automatic stages</text><text x="40" y="738" class="sub">brief → audit → discovery → research → analysis → plan</text>
+<text x="720" y="712" class="label">Explicit boundaries</text><text x="720" y="738" class="sub">Facts, copy and deployment need review. No built-in scheduler.</text>
+<text x="40" y="781" class="sub">Separate branch: audit → generate technical drafts. Search candidates are not proof of AI citations.</text>
+</svg>

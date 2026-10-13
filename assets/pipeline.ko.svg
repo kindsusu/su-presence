@@ -1,60 +1,60 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1250" viewBox="0 0 1080 1250" role="img" aria-label="실행 아키텍처 · v2.3.0">
-<title>실행 아키텍처</title><desc>rebuild run은 내부 조사를 연결하고 실행 상태를 저장한다. 기술 초안과 배포는 별도다.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1250" viewBox="0 0 1080 1250" role="img" aria-label="Execution architecture · v3.0.0">
+<title>Execution architecture</title><desc>Rebuild run chains its own stages and stores run state. Technical drafts and deployment remain separate.</desc>
 <style>text{font-family:Segoe UI,Malgun Gothic,Arial,sans-serif;fill:#e9f2ef}.title{font-size:26px;font-weight:700}.label{font-size:12px;fill:#58bba6}.name{font-size:19px;font-weight:700}.code{font-size:16px;fill:#c9dcd6}.note{font-size:14px;fill:#abc0b9}</style>
 <rect width="1080" height="1250" fill="#10201c"/>
-<text x="32" y="40" class="title">실행 아키텍처</text><text x="32" y="70" class="note">rebuild run은 조사·설계를 연결합니다. 배포와 측정은 별도입니다.</text>
+<text x="32" y="40" class="title">Execution architecture</text><text x="32" y="70" class="note">A rebuild run chains research and planning; deployment and measurement remain separate.</text>
 <rect x="28" y="94" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
-<text x="48" y="115" class="label">자동 · 명령 실행</text>
-<text x="48" y="140" class="name">1  진단 / audit</text>
+<text x="48" y="115" class="label">AUTO · ON INVOCATION</text>
+<text x="48" y="140" class="name">1  Audit</text>
 <text x="48" y="164" class="code">crawl.py → audit.json + report.html</text>
-<text x="48" y="188" class="note">원시 HTTP HTML·robots·발견 URL을 검사. 렌더링·색인·순위 증명 아님.</text>
+<text x="48" y="188" class="note">Raw HTTP, robots and discovered URLs; not rendering, indexing or rankings.</text>
 <text x="532" y="217" class="note">↓</text>
 <rect x="28" y="219" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#b98b38"/>
-<text x="48" y="240" class="label">수동 / 외부</text>
-<text x="48" y="265" class="name">2  목표·사실·변경 전 기준선</text>
-<text x="48" y="289" class="code">질문·경쟁 URL·회사 사실 확인 / measure init·form</text>
-<text x="48" y="313" class="note">직접 관측 또는 collect 실행 후 (필요 시 import) report·drift snapshot을 별도 호출.</text>
+<text x="48" y="240" class="label">MANUAL / EXTERNAL</text>
+<text x="48" y="265" class="name">2  Goals, facts and baseline</text>
+<text x="48" y="289" class="code">Choose queries, competitor URLs and facts / measure init·form</text>
+<text x="48" y="313" class="note">Observe directly or run collect, then import forms if needed, report and snapshot.</text>
 <text x="532" y="342" class="note">↓</text>
 <rect x="28" y="344" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
-<text x="48" y="365" class="label">자동 · 선택 A</text>
-<text x="48" y="390" class="name">3A  기술 초안 / generate</text>
+<text x="48" y="365" class="label">AUTO · OPTIONAL A</text>
+<text x="48" y="390" class="name">3A  Technical drafts / generate</text>
 <text x="48" y="414" class="code">audit.json + site.json → deploy/ + DEPLOY.md</text>
-<text x="48" y="438" class="note">robots·사이트맵·JSON-LD·메타 등. rebuild plan을 자동으로 읽지 않음.</text>
+<text x="48" y="438" class="note">Robots, sitemap, JSON-LD and metadata. Does not consume rebuild plans.</text>
 <text x="532" y="467" class="note">A / B</text>
 <rect x="28" y="469" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#b98b38"/>
-<text x="48" y="490" class="label">자동 + 검토 · 선택 B</text>
-<text x="48" y="515" class="name">3B  재개 가능한 페이지 설계 / rebuild run</text>
+<text x="48" y="490" class="label">AUTO + REVIEW · OPTIONAL B</text>
+<text x="48" y="515" class="name">3B  Resumable page planning / rebuild run</text>
 <text x="48" y="539" class="code">brief → audit → discovery → research → analysis → plan</text>
-<text x="48" y="563" class="note">run.json에 상태 저장. 제공자 없으면 입력 대기. 기존 개별 명령도 유지.</text>
+<text x="48" y="563" class="note">run.json saves status; provider missing = needs_input. Legacy commands remain.</text>
 <text x="532" y="592" class="note">↓</text>
 <rect x="28" y="594" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
-<text x="48" y="615" class="label">자동 · 선택 B 산출물</text>
-<text x="48" y="640" class="name">페이지·채널 실행 계획</text>
+<text x="48" y="615" class="label">AUTO · BRANCH B OUTPUT</text>
+<text x="48" y="640" class="name">Page and channel plan</text>
 <text x="48" y="664" class="code">discovery.json · analysis.json · plan.json · pages/*</text>
-<text x="48" y="688" class="note">후보와 페이지 초안. 검색 결과는 AI 인용이 아님. 배포는 별도.</text>
+<text x="48" y="688" class="note">Candidates and page drafts; search hits are not AI citations. No automatic deploy.</text>
 <text x="532" y="717" class="note">↓</text>
 <rect x="28" y="719" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#b98b38"/>
-<text x="48" y="740" class="label">수동 / 외부</text>
-<text x="48" y="765" class="name">4  검토·구현·배포</text>
-<text x="48" y="789" class="code">개발자 또는 별도 에이전트·CMS·배포 도구</text>
-<text x="48" y="813" class="note">A/B 초안에서 필요한 변경 선택. 사실 확인·코드 수정·외부 게시 수행.</text>
+<text x="48" y="740" class="label">MANUAL / EXTERNAL</text>
+<text x="48" y="765" class="name">4  Review, implement and deploy</text>
+<text x="48" y="789" class="code">Developer or separate agent, CMS and deployment tools</text>
+<text x="48" y="813" class="note">Choose changes from A/B drafts; verify facts, edit code and publish externally.</text>
 <text x="532" y="842" class="note">↓</text>
 <rect x="28" y="844" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
-<text x="48" y="865" class="label">자동 · 명령 실행</text>
-<text x="48" y="890" class="name">5  배포 검증 / verify deploy</text>
-<text x="48" y="914" class="code">generate 산출물 ↔ 라이브 응답 → verify.json</text>
-<text x="48" y="938" class="note">rebuild 설계의 의미·전환·전 채널 노출을 자동 검증하지 않음.</text>
+<text x="48" y="865" class="label">AUTO · ON INVOCATION</text>
+<text x="48" y="890" class="name">5  Verify deployment / verify deploy</text>
+<text x="48" y="914" class="code">generate artifacts ↔ live responses → verify.json</text>
+<text x="48" y="938" class="note">Does not validate rebuild semantics, conversion or all-channel visibility.</text>
 <text x="532" y="967" class="note">↓</text>
 <rect x="28" y="969" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#b98b38"/>
-<text x="48" y="990" class="label">혼합 · 개별 실행</text>
-<text x="48" y="1015" class="name">6  같은 조건으로 재관측</text>
-<text x="48" y="1039" class="code">collect / 브라우저 관측 → measure report</text>
-<text x="48" y="1063" class="note">--browser는 미측정 자리 예약. 별도 브라우저 관측 후 --record로 입력.</text>
+<text x="48" y="990" class="label">MIXED · SEPARATE COMMANDS</text>
+<text x="48" y="1015" class="name">6  Repeat comparable observations</text>
+<text x="48" y="1039" class="code">collect / browser observation → measure report</text>
+<text x="48" y="1063" class="note">--browser reserves unmeasured slots; observe separately, then use --record.</text>
 <text x="532" y="1092" class="note">↓</text>
 <rect x="28" y="1094" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
-<text x="48" y="1115" class="label">자동 · 명령 실행</text>
-<text x="48" y="1140" class="name">7  기록 비교 / drift snapshot·compare</text>
-<text x="48" y="1164" class="code">같은 조건의 전후 스냅샷 → drift.json + next_due</text>
-<text x="48" y="1188" class="note">예약 실행 없음. 다음 관측은 사람·외부 스케줄러가 명령을 다시 실행.</text>
+<text x="48" y="1115" class="label">AUTO · ON INVOCATION</text>
+<text x="48" y="1140" class="name">7  Compare / drift snapshot·compare</text>
+<text x="48" y="1164" class="code">Comparable before/after snapshots → drift.json + next_due</text>
+<text x="48" y="1188" class="note">No scheduler. A person or external scheduler must invoke the next observation.</text>
 <path d="M1040 430 L1065 430 L1065 760 L1054 760" fill="none" stroke="#58bba6" stroke-width="2" stroke-dasharray="5 4"/><text x="1058" y="748" class="label">A</text>
 </svg>

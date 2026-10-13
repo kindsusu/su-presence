@@ -1,0 +1,16 @@
+{
+  "_synthetic": "Fixture only. Replace every business claim and URL with verified site-specific evidence.",
+  "schema": "su-presence/rebuild-brief/1",
+  "site_url": "https://example.com",
+  "competitors": ["https://example.org/service/"],
+  "channels": ["google", "chatgpt", "naver_blog"],
+  "queries": [
+    {"id": "Q1", "text": "What does Example Studio advisory include?", "intent_id": "advisory", "page_type": "service", "terms": ["advisory"], "required_sections": ["Who it serves", "What is included", "Evidence and next step"], "priority": 1},
+    {"id": "Q2", "text": "How does Example Studio advisory work?", "intent_id": "advisory", "page_type": "service", "terms": ["advisory"], "required_sections": ["Process"], "priority": 2}
+  ],
+  "facts": [
+    {"id": "F1", "text": "Synthetic example service description; verify before reuse.", "source_url": "https://example.com/service/", "verified": false, "intent_ids": ["advisory"]},
+    {"id": "F2", "text": "Synthetic general organization fact needing relevance review.", "source_url": "https://example.com/", "verified": false}
+  ],
+  "pages": [{"intent_id": "advisory", "url": "https://example.com/service/"}]
+}

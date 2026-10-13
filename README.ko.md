@@ -11,8 +11,8 @@
 
 <p align="center">
   <a href="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="version 2.2.0" src="https://img.shields.io/badge/version-2.2.0-0E6B5C">
-  <img alt="tests 369" src="https://img.shields.io/badge/tests-369-2C7A4B">
+  <img alt="version 2.3.0" src="https://img.shields.io/badge/version-2.3.0-0E6B5C">
+  <img alt="tests 428" src="https://img.shields.io/badge/tests-428-2C7A4B">
   <img alt="stdlib only, zero dependencies" src="https://img.shields.io/badge/stdlib%20only-zero%20dependencies-1A2B28">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-0E6B5C">
   <a href="LICENSE"><img alt="License PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-A96A00"></a>
@@ -21,9 +21,12 @@
 
 **기술 검색 접근성을 진단하고, 사이트 변경 초안을 만들고, 라이브 배포를 검증하고, AI 검색 인용을 측정하는 한국어 우선 스킬입니다.** SEO·AEO·GEO·LLMO·네이버(NEO)·다음/카카오(KEO)·평판을 별도 레인으로 다루며, 크롤러 접근·색인 상태·인용·사업 성과를 같은 결과로 섞지 않습니다.
 
-## v2.2.0 주요 내용
+## v2.3.0 주요 내용
+
+**2.3.0**은 경쟁 페이지 근거 수집에서 페이지 설계·재구축 가이드까지 연결하는 `rebuild` 모듈을 추가합니다.
 
 - 근거에 기반해 기존 페이지를 보강하려면 [콘텐츠 운영 안내](ops/content.md) ([English](en/ops/content.md)), [콘텐츠 브리프 양식](templates/content-brief.example.md), [페이지 인벤토리 CSV](templates/content-inventory.example.csv)를 사용합니다. 계획 기록이며 성과 예측 자료는 아닙니다.
+- `python tools/rebuild.py init <audit.json>`으로 질문·사실 브리프를 만들고, 명시적 `research`와 오프라인 `plan`으로 페이지·채널 청사진을 생성합니다. [재구축 안내](ops/rebuild.md) ([English](en/ops/rebuild.md))에 입력 계약과 실행 결과가 있으며 [합성 예제](templates/rebuild/brief.json)는 실제 관측이 아닙니다. 자동 게시나 노출 보장은 없습니다.
 - [Aside는 선택 사항](ops/aside.md) ([English](en/ops/aside.md))이며, 적절한 기존 로그인 세션이 있을 때 인증이 필요한 AI 웹 UI 작업에만 사용합니다. 진단과 집계에는 기존 Python 도구를 사용하며, 설치·로그인을 전제하지 않고 속도나 측정 범위 향상을 약속하지 않습니다.
 - `python tools/validate.py`로 저장소 문서 링크와 일관성을 검사합니다.
 - 네이버(NEO)와 다음/카카오(KEO)는 서로 구분되는 한국 검색·AI 인용 레인입니다.
@@ -56,6 +59,22 @@ python tools/seo_geo.py audit https://example.com --out out
 ```
 
 `audit`는 `out/<host>/audit.json`과 `report.html`을 만듭니다. 적용되는 `robots.txt`를 지키고 수집 범위를 기록하며, 수집이 끝나지 않으면 종료 코드 `2`를 냅니다. 불완전한 진단은 사이트 전체 목록이 아니라 일부 관측입니다.
+
+## 경쟁 분석에서 페이지 설계까지
+
+`rebuild`는 기존 진단에 질문별 관측과 사업 사실을 연결합니다. 경쟁사로 지정한 사이트와 실제 검색에서 발견한 출처를 구분하고, 의도별 기존 페이지 보강·신규 작성·추가 검토를 제안합니다. 페이지별 JSON/Markdown/HTML 설계 초안, 근거 비교, 채널별 실행안과 선행 기술 과제를 생성합니다.
+
+```bash
+python tools/seo_geo.py rebuild init out/example.com/audit.json
+# 생성된 brief.json의 질문·경쟁 URL·확인된 사실·기존 페이지 매핑을 편집합니다.
+python tools/seo_geo.py rebuild research out/example.com/rebuild/brief.json --out out/example.com/research
+# 출력된 run-* 경로의 research.json을 아래에 전달합니다.
+python tools/seo_geo.py rebuild plan out/example.com/audit.json --brief out/example.com/rebuild/brief.json --research <research.json> --out out/example.com/rebuild
+```
+
+검색 발견 결과나 직접 관측은 `--observations <observations.json>`으로, 호환되는 측정 기록은 `--log <log.jsonl>`로 추가합니다. `research`는 지정 URL을 수집하며 검색 엔진이나 로그인 AI 제품을 자동 조사하지 않습니다. `plan`은 오프라인입니다. 수집 실패·빈 HTML·미측정 채널은 노출 부재의 증거가 아닙니다. HTML 초안에는 실제 본문 편집과 사실 확인이 필요합니다.
+
+[실행 안내](ops/rebuild.md) · [합성 예제](templates/rebuild/brief.json) · [검증 기록](docs/reviews/2026-10-13-rebuild-validation.ko.md) · [참고 프로젝트 조사](docs/reviews/2026-10-13-reference-projects.ko.md)
 
 ## 실제 작업 순서
 

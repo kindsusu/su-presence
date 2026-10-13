@@ -56,6 +56,7 @@ Read only the relevant playbooks:
 | Training/search/user-fetch policy | [crawlers](ops/crawlers.md) |
 | Query discovery and page mapping | [intent](ops/intent.md) |
 | Content briefs, publishing, and refresh | [content](ops/content.md) |
+| Evidence-led competitor pages, intent blueprints, and channel rebuild | [rebuild](ops/rebuild.md) |
 | Answer-ready content | [AEO](lanes/aeo.md) |
 | Engine-specific citation access | [GEO](lanes/geo.md) |
 | Model knowledge without search | [LLMO](lanes/llmo.md) |

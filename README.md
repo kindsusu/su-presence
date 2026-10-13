@@ -77,6 +77,8 @@ Add recorded discovery/observations with `--observations <observations.json>` or
 
 ## The practical loop
 
+This is a **command-driven CLI**. Automated stages start only when a person or external runner invokes a command. Technical drafts (`generate`) and page planning (`rebuild`) are optional separate branches, with no automatic handoff. See the [execution architecture and automation boundaries](docs/architecture.md).
+
 ![Pipeline: audit, baseline, build, deploy, verify, re-measure, and compare](assets/pipeline.svg)
 
 ### Before changing the site: record a baseline
@@ -136,10 +138,11 @@ save it as `-filled.csv`, or pass the actual saved filename to `import`.
 | Stage | Main artifacts | What they establish |
 |---|---|---|
 | `audit` | `audit.json`, `report.html` | Raw HTTP observations and the actual collection scope |
+| `rebuild init/research/plan` | `brief.json`, `research.json`, `plan.json`, `guide.md`, `pages/*` | Manual/external brief editing and URL selection; command-triggered fetching and offline planning; separate implementation/deployment |
 | `generate` | `deploy/`, `DEPLOY.md` | Reviewable deployment drafts, never a completed deployment |
 | `verify deploy` | `verify.json`, `VERIFY.md` | Live-response checks after deployment; exit `1` is a verified failure and `2` is incomplete or invalid scope |
 | `measure` | manual form, `log.jsonl`, `summary.json`, `MEASURE.md` | Repeated citation observations for a fixed cohort; API and web UI are separate surfaces |
-| `collect.py` | rows in `measure/log.jsonl` | **Gap-free collection across every surface.** Naver, Daum, and Google AI Overviews are unattended; `--browser` reserves login-walled engines as `unmeasured`; `--record` returns browser observations to the same log; `--coverage` names blanks. A truncated response, unavailable AI-source boundary, or source-fetch/parse failure is `unmeasured`, never zero. Organic search-result links are not AI citations. |
+| `collect.py` | rows in `measure/log.jsonl` | **Collection attempts and explicit coverage gaps.** Naver, Daum, and Google AI Overviews have command-triggered collectors; `--browser` reserves login-walled engines as `unmeasured`; `--record` returns browser observations to the same log; `--coverage` names blanks. A truncated response, unavailable AI-source boundary, or source-fetch/parse failure is `unmeasured`, never zero. Organic search-result links are not AI citations. |
 | `drift` | immutable `history/`, `drift.json`, `DRIFT.md` | Compared snapshots and a due date; `next_due` does not schedule work |
 
 ## Read next

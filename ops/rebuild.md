@@ -38,3 +38,7 @@ python tools/rebuild.py plan <audit.json> --brief <brief.json> --observations <o
 ## 수집 및 해석 제한
 
 읽을 수 있는 본문이 없는 JS 셸은 `error`로 남기며 렌더링 또는 수동 검토가 필요하다. 제목의 문자 일치 기반 비교는 의미상 같은 내용을 놓칠 수 있다. `web_discovery` 같은 사용자 정의 채널은 검색 도구의 발견 기록으로 사용할 수 있지만 구글·네이버 순위나 특정 AI 제품의 인용으로 바꾸어 기록하지 않는다.
+
+## 실행 경계
+
+[전체 아키텍처](../docs/architecture.ko.md): 각 명령은 따로 호출한다. `init` 이후 편집, 경쟁 URL 발견, 본문 확정, 사이트 구현·배포는 사람 또는 별도 에이전트 작업이다. `research`와 `plan`이 자동으로 다음 명령을 실행하지 않으며 `plan` 산출물은 `generate`의 입력 계약이 아니다. `verify deploy`는 generate 초안과 라이브 응답을 검사하며 페이지 설계의 의미적 완성도를 검증하지 않는다.

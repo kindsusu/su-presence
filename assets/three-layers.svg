@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" width="900" height="420" role="img" aria-label="Three layers: reach, citation, recall. Reach — can crawlers read and index us at all (seo, ops/crawlers), weekly. Citation — are we the evidence inside the answer (aeo, geo, naver), weekly to monthly. Recall — does the model know us without searching (llmo, reputation), quarterly. Bottom-up: if a lower layer is empty, nothing above it arrives.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" width="900" height="420" role="img" aria-label="Concepts: accessibility, citations, organization facts and reputation. Not execution stages or automatic training; verify separately.">
   <style>
     .bg   { fill: #10201C }
     .pan  { fill: #1A2B28; stroke: #2E4A44; stroke-width: 1 }
@@ -20,10 +20,10 @@
   <circle cx="58" cy="60" r="17" fill="#0E6B5C" opacity="0.62"/>
   <text class="num" x="58" y="65">3</text>
   <text class="name" x="86" y="58">recall</text>
-  <text class="cad"  x="86" y="80">QUARTERLY</text>
+  <text class="cad"  x="86" y="80">SEPARATE OBSERVATION</text>
   <line class="div" x1="286" y1="36" x2="286" y2="108"/>
   <text class="q"  x="310" y="58">Does the model know us without searching?</text>
-  <text class="ln" x="310" y="82"><tspan class="id">llmo</tspan> — plant the brand in model knowledge</text>
+  <text class="ln" x="310" y="82"><tspan class="id">llmo</tspan> — organize consistent organization facts and sources</text>
   <text class="ln" x="310" y="101"><tspan class="id">reputation</tspan> — third parties describe us</text>
 
   <!-- layer 2 — citation -->
@@ -31,7 +31,7 @@
   <circle cx="58" cy="178" r="17" fill="#0E6B5C" opacity="0.8"/>
   <text class="num" x="58" y="183">2</text>
   <text class="name" x="86" y="176">citation</text>
-  <text class="cad"  x="86" y="198">WEEKLY – MONTHLY</text>
+  <text class="cad"  x="86" y="198">FIXED CONDITIONS</text>
   <line class="div" x1="286" y1="154" x2="286" y2="245"/>
   <text class="q"  x="310" y="176">Are we the evidence inside the answer?</text>
   <text class="ln" x="310" y="200"><tspan class="id">aeo</tspan> — answer boxes (AI Overviews · Copilot)</text>
@@ -43,11 +43,11 @@
   <circle cx="58" cy="315" r="17" fill="#0E6B5C"/>
   <text class="num" x="58" y="320">1</text>
   <text class="name" x="86" y="313">reach</text>
-  <text class="cad"  x="86" y="335">WEEKLY</text>
+  <text class="cad"  x="86" y="335">ON INVOCATION</text>
   <line class="div" x1="286" y1="291" x2="286" y2="363"/>
   <text class="q"  x="310" y="313">Can crawlers read and index us at all?</text>
   <text class="ln" x="310" y="337"><tspan class="id">seo</tspan> — SSR, sitemap, structured data</text>
   <text class="ln" x="310" y="356"><tspan class="id">ops/crawlers</tspan> — does bot policy open the door?</text>
 
-  <text class="note" x="24" y="402">Bottom-up. If a lower layer is empty, nothing you do above it ever arrives.</text>
+  <text class="note" x="24" y="402">Concepts, not execution stages. Access ≠ indexing ≠ citations ≠ model training.</text>
 </svg>

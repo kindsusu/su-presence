@@ -78,6 +78,8 @@ python tools/seo_geo.py rebuild plan out/example.com/audit.json --brief out/exam
 
 ## 실제 작업 순서
 
+현재 구조는 **명령별 CLI**입니다. 아래 그림의 자동 단계도 사람이거나 외부 실행기가 명령을 호출해야 시작됩니다. 기술 초안(`generate`)과 페이지 설계(`rebuild`)는 선택 가능한 별도 경로이며 자동으로 서로 연결되지 않습니다. [실행 아키텍처와 자동·수동 경계](docs/architecture.ko.md)를 참고하세요.
+
 ![파이프라인 — 진단, 기준선, 생성, 배포, 검증, 재측정, 비교](assets/pipeline.ko.svg)
 
 ### 사이트 변경 전: 기준선을 남긴다
@@ -137,10 +139,11 @@ python tools/seo_geo.py drift compare out/example.com/audit.json
 | 단계 | 주요 산출물 | 확인하는 범위 |
 |---|---|---|
 | `audit` | `audit.json`, `report.html` | 원시 HTTP 관측과 실제 수집 범위 |
+| `rebuild init/research/plan` | `brief.json`, `research.json`, `plan.json`, `guide.md`, `pages/*` | 브리프 편집·URL 선정은 수동/외부. 지정 URL 수집과 오프라인 계획은 명령 실행 시 자동. 구현·배포는 별도 |
 | `generate` | `deploy/`, `DEPLOY.md` | 검토 가능한 배포 초안. 배포 완료 증거는 아님 |
 | `verify deploy` | `verify.json`, `VERIFY.md` | 배포 뒤 라이브 응답 검사. `1`은 검증된 실패, `2`는 불완전 또는 잘못된 범위 |
 | `measure` | 수동 폼, `log.jsonl`, `summary.json`, `MEASURE.md` | 고정 cohort의 반복 인용 관측. API와 웹 UI는 별도 표면 |
-| `collect.py` | `measure/log.jsonl` 행 | **표면 누락 없는 수집.** 네이버·다음·구글 AI개요는 무인, `--browser`는 로그인 필요한 엔진을 `unmeasured`로 예약하고, `--record`로 브라우저 측정 결과를 같은 로그에 되받으며, `--coverage`는 빈칸을 찍는다. 축소 응답·AI 출처 경계 미식별·출처 조회/파싱 실패는 0이 아니라 `unmeasured`다. 일반 검색 결과 링크는 AI 인용이 아니다. |
+| `collect.py` | `measure/log.jsonl` 행 | **지원 표면의 수집 시도와 미측정 추적.** 네이버·다음·구글 AI개요는 명령 실행 후 자동 수집을 시도하며, `--browser`는 로그인 필요한 엔진을 `unmeasured`로 예약하고, `--record`로 브라우저 측정 결과를 같은 로그에 되받으며, `--coverage`는 빈칸을 찍는다. 축소 응답·AI 출처 경계 미식별·출처 조회/파싱 실패는 0이 아니라 `unmeasured`다. 일반 검색 결과 링크는 AI 인용이 아니다. |
 | `drift` | 불변 `history/`, `drift.json`, `DRIFT.md` | 스냅샷 비교와 다음 점검일. `next_due`는 예약을 만들지 않음 |
 
 ## 더 읽기

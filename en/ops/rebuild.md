@@ -33,3 +33,7 @@ python tools/rebuild.py plan templates/rebuild/audit.json --brief templates/rebu
 ## Collection and interpretation limits
 
 JavaScript shells without readable body text are recorded as `error` and need rendering or manual review. Literal heading comparisons can miss semantically equivalent content. A custom channel such as `web_discovery` can record tool-based discovery, but must not be relabelled as a Google/Naver ranking or an AI product citation.
+
+## Execution boundaries
+
+See the [full architecture](../../docs/architecture.md). Invoke commands separately. Brief editing after init, competitor discovery, final copy, implementation and deployment require a person or separate agent. Research and plan do not invoke subsequent commands; plan output is not an input contract for generate. Verify deploy checks generate artifacts against live responses, not semantic completeness of a page blueprint.

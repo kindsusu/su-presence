@@ -1,82 +1,60 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 626" width="900" height="626" role="img" aria-label="진단 → 사실·기준선 확인 → 초안 생성 → 승인 범위 배포 → 라이브 검증 → 조건 고정 측정 → 스냅샷 비교. next_due는 자동 예약이 아니다.">
-  <style>
-    .bg   { fill: #10201C }
-    .pan  { fill: #1A2B28; stroke: #2E4A44; stroke-width: 1 }
-    .gate { fill: #1A2B28; stroke: #A96A00; stroke-width: 1.4; stroke-dasharray: 7 5 }
-    text  { font-family: ui-sans-serif, -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", Roboto, Arial, sans-serif }
-    .l1   { font-size: 13.5px; fill: #C9DCD6 }
-    .l2   { font-size: 12.5px; fill: #9DB5AE }
-    .note { font-size: 11.5px; fill: #7E9992 }
-    .st   { font-size: 13px; font-weight: 700; fill: #E9F2EF; letter-spacing: .04em }
-    .tool { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; fill: #58BBA6 }
-    .file { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; fill: #C9DCD6 }
-    .ar   { fill: #4E6F68 }
-    .num  { font-size: 12px; font-weight: 700; fill: #FFFFFF; text-anchor: middle }
-    .chip { font-size: 10.5px; font-weight: 700; fill: #10201C; letter-spacing: .04em; text-anchor: middle }
-    .flow { stroke: #4E6F68; stroke-width: 1.6; fill: none }
-    .lbl  { font-size: 11px; fill: #9DB5AE }
-    .bad  { fill: #B3372B }
-  </style>
-  <defs>
-    <marker id="h" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
-      <path d="M0,0 L9,4.5 L0,9 z" fill="#4E6F68"/>
-    </marker>
-  </defs>
-
-  <rect class="bg" x="0" y="0" width="900" height="626"/>
-
-  <!-- 1 진단 -->
-  <rect class="pan" x="24" y="20" width="828" height="64" rx="9"/>
-  <circle cx="52" cy="43" r="13" fill="#0E6B5C"/><text class="num" x="52" y="47">1</text>
-  <text class="l1" x="76" y="48"><tspan class="st">진단</tspan>   <tspan class="tool">crawl.py</tspan>  <tspan class="ar">→</tspan>  <tspan class="file">audit.json</tspan>  <tspan class="ar">→</tspan>  <tspan class="tool">report.py</tspan>  <tspan class="ar">→</tspan>  <tspan class="file">report.html</tspan></text>
-  <text class="note" x="76" y="68">자바스크립트 없이 받은 HTML만 본다. 판정할 수 없는 칸은 “미확인”으로 남는다.</text>
-  <path class="flow" d="M58,84 L58,102" marker-end="url(#h)"/>
-
-  <!-- 승인 게이트 -->
-  <rect class="gate" x="24" y="104" width="828" height="48" rx="9"/>
-  <rect x="40" y="118" width="52" height="20" rx="10" fill="#A96A00"/>
-  <text class="chip" x="66" y="132">사람</text>
-  <text class="l2" x="106" y="133">목표·회사 사실·기준선을 확인한다. 승인된 범위의 진단과 초안을 진행한다.</text>
-  <path class="flow" d="M58,152 L58,170" marker-end="url(#h)"/>
-
-  <!-- 2 생성 -->
-  <rect class="pan" x="24" y="172" width="828" height="84" rx="9"/>
-  <circle cx="52" cy="193" r="13" fill="#0E6B5C"/><text class="num" x="52" y="197">2</text>
-  <text class="l1" x="76" y="198"><tspan class="st">생성</tspan>   <tspan class="tool">generate.py</tspan>  <tspan class="ar">→</tspan>  <tspan class="file">deploy/</tspan>  +  <tspan class="file">DEPLOY.md</tspan></text>
-  <text class="l2" x="76" y="220"><tspan class="file">robots.txt</tspan> · <tspan class="file">sitemap.xml</tspan> · <tspan class="file">llms.txt</tspan> · <tspan class="file">jsonld/</tspan> · <tspan class="file">meta-draft.csv</tspan></text>
-  <text class="note" x="76" y="240">전부 초안이다. 모르는 값은 지어내지 않고 <tspan class="file">&lt;&lt;TODO: …&gt;&gt;</tspan>로 남는다.</text>
-  <path class="flow" d="M58,256 L58,274" marker-end="url(#h)"/>
-
-  <!-- 배포 게이트 -->
-  <rect class="gate" x="24" y="276" width="828" height="48" rx="9"/>
-  <rect x="40" y="290" width="52" height="20" rx="10" fill="#A96A00"/>
-  <text class="chip" x="66" y="304">사람</text>
-  <text class="l2" x="106" y="305">초안과 적용 범위를 검토한 뒤, 승인된 운영 환경에 배포한다.</text>
-  <path class="flow" d="M58,324 L58,342" marker-end="url(#h)"/>
-
-  <!-- 3 증명 -->
-  <rect class="pan" x="24" y="344" width="828" height="64" rx="9"/>
-  <circle cx="52" cy="367" r="13" fill="#0E6B5C"/><text class="num" x="52" y="371">3</text>
-  <text class="l1" x="76" y="372"><tspan class="st">증명</tspan>   <tspan class="tool">verify.py deploy</tspan>  <tspan class="ar">→</tspan>  <tspan class="file">verify.json</tspan>  +  <tspan class="file">VERIFY.md</tspan></text>
-  <text class="note" x="76" y="392">라이브를 다시 받아 항목별로 판정한다. <tspan class="bad">실패는 exit 1, 미검사 범위는 exit 2.</tspan></text>
-  <path class="flow" d="M58,408 L58,436" marker-end="url(#h)"/>
-  <text class="lbl" x="74" y="428">첫 재관측 제안: 14일 후</text>
-
-  <!-- 4 재측정 -->
-  <rect class="pan" x="24" y="438" width="828" height="84" rx="9"/>
-  <circle cx="52" cy="459" r="13" fill="#0E6B5C"/><text class="num" x="52" y="463">4</text>
-  <text class="l1" x="76" y="464"><tspan class="st">재측정</tspan>   <tspan class="tool">crawl.py</tspan> 재크롤  <tspan class="ar">→</tspan>  <tspan class="tool">verify.py diff</tspan></text>
-  <text class="l2" x="76" y="486"><tspan class="tool">measure.py</tspan> form <tspan class="ar">→</tspan> [ 같은 조건으로 직접 측정 ] <tspan class="ar">→</tspan> import <tspan class="ar">→</tspan> report <tspan class="ar">→</tspan> <tspan class="file">summary.json</tspan></text>
-  <text class="note" x="76" y="506">생성 답변은 매번 다르다 — 같은 질문을 5~10회 반복하고 N회 중 몇 회로 적는다.</text>
-  <path class="flow" d="M58,522 L58,540" marker-end="url(#h)"/>
-
-  <!-- 5 루프 -->
-  <rect class="pan" x="24" y="542" width="828" height="64" rx="9"/>
-  <circle cx="52" cy="565" r="13" fill="#0E6B5C"/><text class="num" x="52" y="569">5</text>
-  <text class="l1" x="76" y="570"><tspan class="st">루프</tspan>   <tspan class="tool">drift.py compare</tspan>  <tspan class="ar">→</tspan>  <tspan class="file">drift.json</tspan>  +  <tspan class="file">DRIFT.md</tspan>  <tspan class="ar">→</tspan>  <tspan class="file">next_due</tspan></text>
-  <text class="note" x="76" y="590">같은 조건의 스냅샷을 비교한다. <tspan class="file">next_due</tspan>는 예정일이며 자동 예약이 아니다.</text>
-
-  <!-- 되돌이 -->
-  <path class="flow" d="M852,574 L874,574 L874,480 L854,480" marker-end="url(#h)"/>
-  <text class="lbl" x="888" y="527" text-anchor="middle" transform="rotate(-90 888 527)">조건을 고정해 반복</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1250" viewBox="0 0 1080 1250" role="img" aria-label="실행 아키텍처 · v2.3.0">
+<title>실행 아키텍처 · v2.3.0</title><desc>각 명령은 별도로 호출합니다. 화살표는 작업 순서이며 자동 연쇄 실행이 아닙니다.</desc>
+<style>text{font-family:Segoe UI,Malgun Gothic,Arial,sans-serif;fill:#e9f2ef}.title{font-size:26px;font-weight:700}.label{font-size:12px;fill:#58bba6}.name{font-size:19px;font-weight:700}.code{font-size:16px;fill:#c9dcd6}.note{font-size:14px;fill:#abc0b9}</style>
+<rect width="1080" height="1250" fill="#10201c"/>
+<text x="32" y="40" class="title">실행 아키텍처 · v2.3.0</text><text x="32" y="70" class="note">각 명령은 별도로 호출합니다. 화살표는 작업 순서이며 자동 연쇄 실행이 아닙니다.</text>
+<rect x="28" y="94" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
+<text x="48" y="115" class="label">자동 · 명령 실행</text>
+<text x="48" y="140" class="name">1  진단 / audit</text>
+<text x="48" y="164" class="code">crawl.py → audit.json + report.html</text>
+<text x="48" y="188" class="note">원시 HTTP HTML·robots·발견 URL을 검사. 렌더링·색인·순위 증명 아님.</text>
+<text x="532" y="217" class="note">↓</text>
+<rect x="28" y="219" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#b98b38"/>
+<text x="48" y="240" class="label">수동 / 외부</text>
+<text x="48" y="265" class="name">2  목표·사실·변경 전 기준선</text>
+<text x="48" y="289" class="code">질문·경쟁 URL·회사 사실 확인 / measure init·form</text>
+<text x="48" y="313" class="note">직접 관측 또는 collect 실행 후 (필요 시 import) report·drift snapshot을 별도 호출.</text>
+<text x="532" y="342" class="note">↓</text>
+<rect x="28" y="344" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
+<text x="48" y="365" class="label">자동 · 선택 A</text>
+<text x="48" y="390" class="name">3A  기술 초안 / generate</text>
+<text x="48" y="414" class="code">audit.json + site.json → deploy/ + DEPLOY.md</text>
+<text x="48" y="438" class="note">robots·사이트맵·JSON-LD·메타 등. rebuild plan을 자동으로 읽지 않음.</text>
+<text x="532" y="467" class="note">A / B</text>
+<rect x="28" y="469" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#b98b38"/>
+<text x="48" y="490" class="label">수동 + 자동 · 선택 B</text>
+<text x="48" y="515" class="name">3B  페이지 설계 / rebuild</text>
+<text x="48" y="539" class="code">init → 브리프 편집 → research → plan</text>
+<text x="48" y="563" class="note">research: 지정 공개 URL 수집(선택) / plan: 오프라인 근거 비교.</text>
+<text x="532" y="592" class="note">↓</text>
+<rect x="28" y="594" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
+<text x="48" y="615" class="label">자동 · 선택 B 산출물</text>
+<text x="48" y="640" class="name">페이지·채널 실행 계획</text>
+<text x="48" y="664" class="code">plan.json · guide.md · report.html · pages/*</text>
+<text x="48" y="688" class="note">JSON·Markdown·HTML 초안. 경쟁사 검색·완성 본문 작성·배포는 자동 아님.</text>
+<text x="532" y="717" class="note">↓</text>
+<rect x="28" y="719" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#b98b38"/>
+<text x="48" y="740" class="label">수동 / 외부</text>
+<text x="48" y="765" class="name">4  검토·구현·배포</text>
+<text x="48" y="789" class="code">개발자 또는 별도 에이전트·CMS·배포 도구</text>
+<text x="48" y="813" class="note">A/B 초안에서 필요한 변경 선택. 사실 확인·코드 수정·외부 게시 수행.</text>
+<text x="532" y="842" class="note">↓</text>
+<rect x="28" y="844" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
+<text x="48" y="865" class="label">자동 · 명령 실행</text>
+<text x="48" y="890" class="name">5  배포 검증 / verify deploy</text>
+<text x="48" y="914" class="code">generate 산출물 ↔ 라이브 응답 → verify.json</text>
+<text x="48" y="938" class="note">rebuild 설계의 의미·전환·전 채널 노출을 자동 검증하지 않음.</text>
+<text x="532" y="967" class="note">↓</text>
+<rect x="28" y="969" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#b98b38"/>
+<text x="48" y="990" class="label">혼합 · 개별 실행</text>
+<text x="48" y="1015" class="name">6  같은 조건으로 재관측</text>
+<text x="48" y="1039" class="code">collect / 브라우저 관측 → measure report</text>
+<text x="48" y="1063" class="note">--browser는 미측정 자리 예약. 별도 브라우저 관측 후 --record로 입력.</text>
+<text x="532" y="1092" class="note">↓</text>
+<rect x="28" y="1094" width="1024" height="110" rx="10" fill="#1a2b28" stroke="#2e7061"/>
+<text x="48" y="1115" class="label">자동 · 명령 실행</text>
+<text x="48" y="1140" class="name">7  기록 비교 / drift snapshot·compare</text>
+<text x="48" y="1164" class="code">같은 조건의 전후 스냅샷 → drift.json + next_due</text>
+<text x="48" y="1188" class="note">예약 실행 없음. 다음 관측은 사람·외부 스케줄러가 명령을 다시 실행.</text>
+<path d="M1040 430 L1065 430 L1065 760 L1054 760" fill="none" stroke="#58bba6" stroke-width="2" stroke-dasharray="5 4"/><text x="1058" y="748" class="label">A</text>
 </svg>

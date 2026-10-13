@@ -75,6 +75,10 @@ when crawl coverage is incomplete, and records JSON-LD file-to-URL mappings in a
 JSON-LD, and `llms.txt` only when appropriate; none is a universal citation requirement. A training
 bot policy is not the same as search citation access.
 
+### Optional page redesign branch
+
+Follow the [execution architecture](../docs/architecture.md). Run `rebuild init`, then have a person or separate agent edit queries, facts and URLs. `rebuild research` fetches specified URLs; `rebuild plan` compares evidence and drafts blueprints offline. This is separate from `generate`, with no automatic plan-to-generate handoff. Copywriting, code changes, deployment and external publishing use separate tools within authorized scope. This skill's workflow instructions do not create automatic CLI orchestration.
+
 ## 3. Verify the live deployment
 
 ```bash
@@ -100,8 +104,7 @@ list lives in [coverage](ops/coverage.md).
 python <skill-root>/tools/seo_geo.py collect <audit.json> --coverage
 ```
 
-Collection splits into three access types. **"Requires sign-in" is not "manual"** — the human
-signs in and nothing else; the agent runs the query, the verdict and the source extraction.
+Collection splits into three access types. Browser queries, interpretation and source extraction require a person or separate browser agent. The CLI does not launch or sign into a browser. External agent automation depends on available permissions and sessions.
 
 | Access | Surfaces | Command |
 |---|---|---|

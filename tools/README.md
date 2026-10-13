@@ -4,21 +4,31 @@
 `crawl.py`와 같은 파서로 판정), 나머지는 Python 3.10+ 표준 라이브러리만 쓴다.
 
 ```
-crawl → report → generate → [사람이 배포] → verify → (14일) crawl·measure → drift → next_due
+audit(crawl + report) ──┬── generate 기술 초안 ── [사람이 배포] ── verify
+                       └── rebuild init → brief·관측 작성 → 선택적 research → plan
+measure init → collect/수동 입력/선택적 API auto → report → drift(next_due 계산)
 ```
+
+위 화살표는 권장 작업 순서다. 각 CLI는 호출할 때만 실행되며 상주 서비스나 자동 예약은 없다.
+audit 결과에서 `generate` 기술 초안과 `rebuild` 콘텐츠 설계를 독립적으로 진행할 수 있다.
+`rebuild plan`은 `generate`를 호출하지 않으며, 어느 명령도 자동 배포하지 않는다.
+[실행 아키텍처](../docs/architecture.ko.md) · [재구축 안내](../docs/plans/rebuild-guide.md)
 
 ### 스키마 버전 — 도구 사이의 계약
 
 | 파일 | 스키마 | 만드는 도구 | 읽는 도구 |
 |---|---|---|---|
-| `audit.json` | `su-presence/audit/1` | `crawl.py` | `report` `generate` `verify` `measure` `drift` |
+| `audit.json` | `su-presence/audit/1` | `crawl.py` | `report` `generate` `verify` `measure` `rebuild` `drift` |
 | `verify.json` | `su-presence/verify/1` | `verify.py` | `drift`(스냅샷) |
-| `measure/queries.json` | `su-presence/queries/1` (v2도 읽기 지원) | 사람(`measure.py init`이 현재 v1 템플릿을 복사) | `measure` |
-| `collect.py` | 전 표면 인용 수집 — 무인(네이버·다음·구글) + 브라우저 경유(ChatGPT·Gemini·Claude·Perplexity) + `--coverage` 빈칸 점검. `ops/coverage.md` · `ops/measure-playbook.md` |
-| `measure/log.jsonl` | `su-presence/measure-row/2` (v1 읽기 지원) | `measure.py import`·`auto` | `measure report` |
+| `measure/queries.json` | `su-presence/queries/2` (v1도 읽기 지원) | 사람(`measure.py init`이 현재 v2 템플릿을 복사) | `measure`·`collect`·`rebuild init` |
+| `measure/log.jsonl` | `su-presence/measure-row/2` (v1 읽기 지원) | `measure.py import`·`auto`, `collect.py` | `measure report`, 선택적 `rebuild` |
 | `measure/summary.json` | `su-presence/measure/2` (drift가 v1도 읽음) | `measure.py report` | `drift` |
 | `history/index.json` | `su-presence/history/1` (옛 `su-multi-geo/history/1` 읽기 지원) | `drift.py snapshot` | `drift` |
 | `drift.json` | `su-presence/drift/1` | `drift.py compare` | 사람 |
+| `rebuild/brief.json` | `su-presence/rebuild-brief/1` | `rebuild.py init` + 사람 | `rebuild research`·`plan` |
+| `rebuild/observations.json` | `su-presence/rebuild-observations/1` | `rebuild.py init` + 사람/외부 조사 | `rebuild research`·`plan` |
+| `rebuild/run-*/research.json` | `su-presence/rebuild-research/1` | `rebuild.py research` | 선택적 `rebuild plan` |
+| `rebuild/run-*/plan.json` | `su-presence/rebuild-plan/1` | `rebuild.py plan` | 사람 |
 
 > **옛 `su-multi-geo/...` 스키마도 전부 읽는다.** 2026-09-12 이름 변경 때 쓰기만 새 이름으로
 > 바꾸고 읽기는 신·구를 모두 받게 했다. 호환을 잃으면 이미 만들어진 기준선이 **에러 없이
@@ -36,6 +46,8 @@ crawl → report → generate → [사람이 배포] → verify → (14일) craw
 | `generate.py` | 진단 결과 → 배포 산출물 초안 | `audit.json` (+ `site.json`) | `out/<host>/deploy/` + `DEPLOY.md` |
 | `verify.py` | 배포가 실제로 서빙되는지 / 전후 비교 | `audit.json` (+ `deploy/`) | `verify.json` + `VERIFY.md` |
 | `measure.py` | AI 인용 측정 루프 | `audit.json` + `queries.json` | `log.jsonl` → `summary.json` + `MEASURE.md` |
+| `collect.py` | 검색 표면 무인 관측·브라우저 관측 예약/기록·누락 점검 | `audit.json` + `queries.json` | `log.jsonl` + 콘솔 |
+| `rebuild.py` | 의도별 페이지 재구축 설계 | `audit.json` + 편집한 brief/관측 + 선택적 research/log | 새 `run-*` 폴더의 plan·guide·report·pages |
 | `test_audit.sh` | audit.sh 회귀 테스트 | — | PASS/FAIL |
 
 흐름:
@@ -63,6 +75,7 @@ python tools/seo_geo.py generate all out/example.com/audit.json --site out/examp
 불완전 크롤이면 관측 파일을 보존하면서 exit 2를 낸다. 재진단 전 기존 audit는 `observations/`에
 보존된다. `status`는 audit·deploy manifest·verify·measure·drift의 **로컬 기록 여부**만 읽는다.
 네트워크 검증이나 예약 작업 생성은 하지 않는다.
+`status`는 rebuild 실행 폴더를 추적하지 않는다. 재구축 결과는 각 `run-*` 폴더에서 확인한다.
 
 ## audit.sh — 빠른 1페이지 점검
 
@@ -344,7 +357,7 @@ API 키가 하나도 없어도 측정 루프는 완전히 돈다. 자동화는 �
 ### 계약
 
 ```
-out/<host>/measure/queries.json   `init`은 현재 su-presence/queries/1 템플릿을 복사하며, /2도 읽는다
+out/<host>/measure/queries.json   `init`은 현재 su-presence/queries/2 템플릿을 복사하며, /1도 읽는다
   {"queries":[{"id":"Q01","text":"...","type":"brand|nonbrand","note":""}]}
 
 out/<host>/measure/log.jsonl      su-presence/measure-row/2  · append-only · 한 줄 = 질의 1회
@@ -428,6 +441,18 @@ Gemini·Perplexity·Google AI Overviews·네이버·다음·Copilot은 자동화
 
 ### collect.py — 검색 페이지의 AI 출처 수집
 
+```bash
+python tools/collect.py out/example.com/audit.json --runs 5
+python tools/collect.py out/example.com/audit.json --browser
+python tools/collect.py out/example.com/audit.json --record chatgpt --query Q01 --run 1 --cited https://example.com/guide --sources https://publisher.example/article --search on --login in
+python tools/collect.py out/example.com/audit.json --coverage
+```
+
+기본 호출은 네이버·다음·구글 AI 표면을 무인 수집한다. `--browser`는 대화형 엔진의
+`unmeasured` 예약 행과 로그인 안내를 남기며 브라우저를 조작하지 않는다. 실제 UI 관측은
+`--record`로 같은 로그에 적는다. `--coverage`는 누락 상태만 읽는다. API 기반
+`measure.py auto`는 별도 표면이며 웹 UI 관측과 합산해 해석하지 않는다.
+
 `collect.py`는 검색 결과 전체의 링크를 인용으로 세지 않는다. Google은 AI Overview의 명시된 출처
 영역을 식별했을 때만 그 URL을 기록한다. 네이버는 AI 브리핑의 유효한 출처 데이터만 기록한다.
 AI 출처 경계를 찾을 수 없거나 출처 조회·파싱이 실패하면 해당 행은 `unmeasured`이며 `cited=false`가
@@ -443,6 +468,22 @@ AI 출처 경계를 찾을 수 없거나 출처 조회·파싱이 실패하면 �
   출력하고, `--yes`가 없으면 확인을 받는다. 회차 사이에 `--delay`(기본 2초)를 지킨다
 - 실패한 회차는 `outcome=error`와 사유로 기록하되 **미인용으로 세거나 인용률 분모에 넣지 않는다.**
   오류율은 별도 지표이며 응답 원문은 저장하지 않는다
+
+## rebuild.py — 근거 기반 재구축 설계
+
+```bash
+python tools/seo_geo.py rebuild init out/example.com/audit.json
+# brief.json의 질문 의도·확인된 사실, observations.json의 실제 URL·시점을 작성
+python tools/seo_geo.py rebuild research out/example.com/rebuild/brief.json --observations out/example.com/rebuild/observations.json --out out/example.com/rebuild
+python tools/seo_geo.py rebuild plan out/example.com/audit.json --brief out/example.com/rebuild/brief.json --observations out/example.com/rebuild/observations.json --research out/example.com/rebuild/run-YYYYMMDDTHHMMSS-xxxx/research.json --out out/example.com/rebuild
+```
+
+`init`은 기본 `measure/queries.json`을 복사해 편집 가능한 `brief.json`과 빈 `observations.json`을
+만든다. 기존 brief는 덮지 않는다. `research`는 brief·관측에 명시된 공개 URL만 제한적으로 조사하고
+새 `run-*` 폴더에 `research.json`을 쓴다. `plan`은 오프라인으로 `plan.json`, `guide.md`,
+`report.html`, 의도별 `pages/*.json|md|html`을 다른 새 실행 폴더에 쓴다. `--research`,
+`--observations`, `--log`는 plan에서 선택 입력이다. 불완전한 크롤·조사와 미측정 채널은 결론을
+유보한다. `plan`은 `generate`를 실행하지 않는다. [입력 작성과 검토](../docs/plans/rebuild-guide.md).
 
 ## drift.py — 기준선 스냅샷 + 드리프트 비교
 

@@ -1,0 +1,11 @@
+{
+  "schema": "su-presence/content-review-input/1",
+  "identity": {"name": "Example Studio", "category": "Advisory", "audience": "Small teams"},
+  "profiles": [{"url": "https://example.org/profile", "name": "Example Studio", "category": "Consulting", "audience": "Small teams"}],
+  "pages": [{
+    "id": "service", "url": "https://example.com/service", "intent": "What is included?",
+    "body": "# Example service\n\n## What is included?\nThe example service includes a planning session.\n\n## Limitations\nImplementation is not included.\n\nSynthetic fixture only; verify all details before use.",
+    "updated_at": "2026-10-01",
+    "claims": [{"text": "The example service includes a planning session.", "source_url": "https://example.com/terms", "quote": "includes a planning session", "source_text": "The example service includes a planning session. Implementation is not included.", "source_date": "2026-10-01"}]
+  }]
+}

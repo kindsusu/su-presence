@@ -24,6 +24,8 @@
 
 **3.0.0** connects site audit, candidate source discovery, public-page research, evidence comparison and page design through a resumable `rebuild run`. The separate audit, measurement and deployment verification commands remain available.
 
+After writing the page, use `rebuild review` for offline content/evidence and supplied profile checks, then `rebuild protocol` for a repeatable observation worksheet. These commands neither approve publication nor predict visibility. See the [content review workflow](ops/content-review.md).
+
 - `rebuild run/status/resume` connects research and page design with durable progress. See the [automation guide](docs/plans/rebuild-automation-guide.md) for providers and configuration.
 - Plan evidence-led page updates with the [content operations guide](ops/content.md) ([English](en/ops/content.md)), [content brief template](templates/content-brief.example.md), and [content inventory CSV](templates/content-inventory.example.csv). These are planning records, not performance forecasts.
 - Build an evidence-linked page and channel plan with `python tools/rebuild.py init <audit.json>`, then explicit `research` and offline `plan`. The [rebuild guide](ops/rebuild.md) ([English](en/ops/rebuild.md)) explains inputs, immutable run outputs, and the [synthetic fixtures](templates/rebuild/brief.json). It drafts page changes; it does not publish or guarantee visibility.

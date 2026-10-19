@@ -20,6 +20,7 @@ import rebuild_analysis
 import rebuild_discovery
 import rebuild_evidence as evidence
 import rebuild_plan
+import rebuild_protocol
 
 SCHEMA = 'su-presence/rebuild-run/1'
 STAGES = ('brief', 'audit', 'discovery', 'research', 'analysis', 'plan')
@@ -217,7 +218,7 @@ def _stage_fingerprint(name, state, config):
     code_files = {'brief': (evidence,), 'audit': (crawl,),
                   'discovery': (rebuild_discovery,), 'research': (evidence,),
                   'analysis': (rebuild_analysis,),
-                  'plan': (rebuild_plan, rebuild_analysis, rebuild)}[name]
+                  'plan': (rebuild_plan, rebuild_analysis, rebuild, rebuild_protocol)}[name]
     code_versions = [_file_hash(__file__)] + [_file_hash(module.__file__) for module in code_files]
     return _digest({'version': 1, 'name': name, 'code_versions': code_versions,
                     'input': dict(common, **specific),

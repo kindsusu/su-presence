@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
 
 from rebuild_evidence import validate_brief
+from rebuild_protocol import build_protocol
 
 SCHEMA = "su-presence/rebuild-plan/1"
 
@@ -363,6 +364,9 @@ def build_plan(audit, brief, observations, research, measurement_rows=None, disc
                            "internal_links": [p["url"] for p in audit_pages if p.get("status") == 200 and
                                               p.get("url") not in own_candidates][:5],
                            "acceptance_checks": ["Confirm intent and page ownership before publishing.",
+                                                 "Review the completed body with rebuild review; resolve placeholders and manually check that each answer addresses its question.",
+                                                 "Confirm source dates, author responsibility, and applicable limitations; do not add arbitrary numbers or FAQ quotas.",
+                                                 "Compare supplied external profiles with verified brand facts; missing information remains unknown.",
                                                  "Verify every factual claim against its cited source and confirm fact-to-intent relevance.",
                                                  "Check indexability, canonical URL, and crawlable internal links.",
                                                  "Record follow-up observations for each query and channel."],
@@ -413,4 +417,5 @@ def build_plan(audit, brief, observations, research, measurement_rows=None, disc
             "target": site, "summary": {"intents": len(blueprints), "observations": len(observed),
                                             "critical_blockers": len(blockers), "audit_complete": complete},
             "evidence": evidence, "page_blueprints": blueprints, "channel_actions": channel_actions,
-            "backlog": backlog, "limits": limits}
+            "backlog": backlog, "limits": limits,
+            "measurement_protocol": build_protocol(brief)}

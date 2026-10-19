@@ -38,6 +38,20 @@ def inputs(complete=True):
 
 
 class PlanTests(unittest.TestCase):
+    def test_post_design_protocol_preserves_observation_boundary(self):
+        import rebuild
+        audit, brief, research = inputs()
+        brief['queries'][0]['type'] = 'nonbrand'
+        brief['queries'][1]['type'] = 'brand'
+        result = build_plan(audit, brief, [], research)
+        protocol = result['measurement_protocol']
+        self.assertEqual(len(protocol['slots']), 3)
+        self.assertTrue(all(slot['status'] == 'pending' for slot in protocol['slots']))
+        self.assertEqual(protocol['excluded_brand_query_ids'], ['q2'])
+        self.assertIn('rebuild review', rebuild.markdown(result))
+        self.assertIn('rebuild review', rebuild.render_html(result))
+        self.assertTrue(any('rebuild review' in check for check in result['page_blueprints'][0]['acceptance_checks']))
+
     def test_group_variants_and_trace_comparison(self):
         audit, brief, research = inputs()
         obs = [{"id": "hit1", "query_id": "q1", "channel": "google", "outcome": "observed",

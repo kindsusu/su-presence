@@ -216,7 +216,7 @@ def _stage_fingerprint(name, state, config):
                      'import': _external_hash(config.get('analysis', {}).get('analysis_file'))},
         'plan': {}}[name]
     code_files = {'brief': (evidence,), 'audit': (crawl,),
-                  'discovery': (rebuild_discovery,), 'research': (evidence,),
+                  'discovery': (rebuild_discovery,), 'research': (evidence, rebuild_discovery),
                   'analysis': (rebuild_analysis,),
                   'plan': (rebuild_plan, rebuild_analysis, rebuild, rebuild_protocol)}[name]
     code_versions = [_file_hash(__file__)] + [_file_hash(module.__file__) for module in code_files]
@@ -316,12 +316,22 @@ def _brief(state, config):
 def _make_research(brief, audit, discovery, config):
     candidates = discovery.get('candidates', [])
     own_host = urlsplit(brief['site_url']).hostname
-    owned = list(dict.fromkeys([brief['site_url']] + [page['url'] for page in brief['pages']]
-                               + [page['url'] for page in audit.get('pages', [])
-                                  if isinstance(page, dict) and evidence.public_url(page.get('url'))
-                                  and urlsplit(page['url']).hostname == own_host]))
-    candidate_urls = list(dict.fromkeys(row['url'] for row in candidates
-                                       if urlsplit(row['url']).hostname != own_host))
+    def unique_urls(urls):
+        seen = set()
+        result = []
+        for url in urls:
+            key = rebuild_discovery._url_key(url)
+            if key not in seen:
+                result.append(url)
+                seen.add(key)
+        return result
+
+    owned = unique_urls([brief['site_url']] + [page['url'] for page in brief['pages']]
+                        + [page['url'] for page in audit.get('pages', [])
+                           if isinstance(page, dict) and evidence.public_url(page.get('url'))
+                           and urlsplit(page['url']).hostname == own_host])
+    candidate_urls = unique_urls(row['url'] for row in candidates
+                                 if urlsplit(row['url']).hostname != own_host)
     # Spread external sources across hosts before taking second results from one host.
     seen_hosts = set()
     first, later = [], []
@@ -331,7 +341,7 @@ def _make_research(brief, audit, discovery, config):
             continue
         (first if host not in seen_hosts else later).append(url)
         seen_hosts.add(host)
-    external = list(dict.fromkeys(first + later))
+    external = unique_urls(first + later)
     urls = []
     for index in range(max(len(owned), len(external))):
         if index < len(owned):
@@ -341,11 +351,11 @@ def _make_research(brief, audit, discovery, config):
     limit = _bounded(config.get('max_research_pages'), 30, MAX_RESEARCH_PAGES, 'max_research_pages')
     by_url = {}
     for candidate in candidates:
-        by_url.setdefault(candidate['url'], []).append(candidate)
+        by_url.setdefault(rebuild_discovery._url_key(candidate['url']), []).append(candidate)
     pages = []
     for url in urls[:limit]:
         page = evidence.fetch_page(url)
-        hits = by_url.get(url, [])
+        hits = by_url.get(rebuild_discovery._url_key(url), [])
         if hits:
             page['query_ids'] = list(dict.fromkeys(hit['query_id'] for hit in hits))
             page['discovery_ids'] = list(dict.fromkeys(hit['id'] for hit in hits))

@@ -185,6 +185,12 @@ def markdown(plan):
     lines += ['', '## Channel actions', '']
     for c in plan['channel_actions']:
         lines += ['### ' + c['channel'] + ' — ' + c['status'], ''] + ['- ' + a for a in c['actions']] + ['']
+    if plan.get('measurement_protocol'):
+        lines += ['## Publication and follow-up', '',
+                  'Complete the page copy, run rebuild review, and resolve human review items before publication.',
+                  'Use rebuild protocol <brief.json> --out <folder> for a separate measurement worksheet.',
+                  'The following slots are planned work, not observations or exposure probabilities.', '',
+                  '```json', json.dumps(plan['measurement_protocol'], ensure_ascii=False, indent=2), '```', '']
     lines += ['## Evidence register', '']
     for e in plan['evidence']:
         lines += ['- %s: %s (%s)' % (e['id'], e.get('url', ''), e.get('kind', ''))]
@@ -225,7 +231,10 @@ def render_html(plan):
             '<header><p>SU-PRESENCE / REBUILD</p><h1>근거에서 페이지 설계까지</h1><p>' + esc(plan['target']) + ' · ' + esc(plan['generated_at']) +
             '</p><p>의도 ' + esc(plan['summary']['intents']) + '개 · 관측 ' + esc(plan['summary']['observations']) + '개 · 중요 기술 과제 ' +
             esc(plan['summary']['critical_blockers']) + '개</p></header><section><h2>분석 범위와 한계</h2>' + listing(plan['limits']) + '<pre>' + esc(json.dumps(plan.get('execution', {}), ensure_ascii=False, indent=2)) + '</pre></section>' + ''.join(cards) +
-            '<section><h2>채널별 실행</h2>' + channels + '</section><section><h2>구현 순서</h2>' + backlog +
+            '<section><h2>채널별 실행</h2>' + channels + '</section><section><h2>작성 후 검토와 반복 측정</h2>'
+            '<p>완성된 본문은 rebuild review로 점검하고 의미·사실 검토 후 발행하세요. 아래 계획은 실제 관측 결과가 아닙니다.</p><pre>' +
+            esc(json.dumps(plan.get('measurement_protocol', {}), ensure_ascii=False, indent=2)) +
+            '</pre></section><section><h2>구현 순서</h2>' + backlog +
             '</section><section><h2>근거와 입력 이력</h2><pre>' + esc(json.dumps({'evidence':plan['evidence'], 'inputs':plan.get('input_provenance',{})},ensure_ascii=False,indent=2)) +
             '</pre></section></body></html>')
 
@@ -370,6 +379,10 @@ def main(argv=None):
     a.add_argument('--research'); a.add_argument('--log'); a.add_argument('--out'); a.set_defaults(func=plan)
     import rebuild_run
     rebuild_run.add_parsers(sub)
+    import rebuild_review
+    import rebuild_protocol
+    rebuild_review.add_parsers(sub)
+    rebuild_protocol.add_parsers(sub)
     args = p.parse_args(argv)
     if args.command == 'research' and not 1 <= args.max_pages <= 100:
         p.error('--max-pages must be 1..100')

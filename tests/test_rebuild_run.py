@@ -58,6 +58,26 @@ class RunTests(unittest.TestCase):
         row.update(url=url, final_url=url)
         return row
 
+    def test_research_deduplicates_equivalent_roots_and_merges_provenance(self):
+        brief = {'site_url': 'https://www.example.com',
+                 'pages': [{'url': 'https://www.example.com/'}],
+                 'competitors': ['https://rival.com/']}
+        audit = {'pages': [{'url': 'https://www.example.com:443/#top'}]}
+        discovery = {'provider': 'import', 'candidates': [
+            {'id': 'hit-1', 'query_id': 'q1', 'provider': 'import', 'url': 'https://rival.com'},
+            {'id': 'hit-2', 'query_id': 'q2', 'provider': 'import', 'url': 'https://rival.com:443/#result'},
+            {'id': 'hit-3', 'query_id': 'q2', 'provider': 'import', 'url': 'https://rival.com/?ref=other'}]}
+        with patch.object(rebuild_run.evidence, 'fetch_page', side_effect=self._fake_fetch) as fetch:
+            research = rebuild_run._make_research(brief, audit, discovery, {'max_research_pages': 3})
+        self.assertEqual(fetch.call_count, 3)
+        self.assertEqual(research['coverage']['requested'], 3)
+        self.assertTrue(research['coverage']['complete'])
+        self.assertEqual([page['url'] for page in research['pages']],
+                         ['https://www.example.com', 'https://rival.com', 'https://rival.com/?ref=other'])
+        self.assertEqual(research['pages'][1]['query_ids'], ['q1', 'q2'])
+        self.assertEqual(research['pages'][1]['discovery_ids'], ['hit-1', 'hit-2'])
+        self.assertEqual(research['pages'][2]['discovery_ids'], ['hit-3'])
+
     def test_run_resume_reuses_outputs_and_refreshes_import(self):
         with patch.object(rebuild_run.evidence, 'fetch_page', side_effect=self._fake_fetch) as fetch:
             self.assertEqual(rebuild_run.run(self._run()), 0, self._state())

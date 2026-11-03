@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="version 3.0.0" src="https://img.shields.io/badge/version-3.0.0-0E6B5C">
+  <img alt="version 3.1.0" src="https://img.shields.io/badge/version-3.1.0-0E6B5C">
   <img alt="stdlib only, zero dependencies" src="https://img.shields.io/badge/stdlib%20only-zero%20dependencies-1A2B28">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-0E6B5C">
   <a href="LICENSE"><img alt="License PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-A96A00"></a>
@@ -22,9 +22,9 @@
 
 **검색·AI 노출을 진단하고, 경쟁 출처와 자사 페이지를 비교해 재구축 설계와 실행 가이드를 만드는 한국어 우선 도구입니다.** SEO·AEO·GEO·LLMO·네이버(NEO)·다음/카카오(KEO)·평판을 별도 레인으로 다루며, 크롤러 접근·색인 상태·인용·사업 성과를 같은 결과로 섞지 않습니다.
 
-## v3.0.0 주요 내용
+## v3.1.0 주요 내용
 
-**3.0.0**은 자사 진단, 검색 후보 발견, 공개 페이지 조사, 근거 비교, 페이지 설계를 재개 가능한 `rebuild run`으로 연결합니다. 개별 진단·측정·배포 검증 명령도 유지합니다.
+**3.1.0**은 기존 조사·설계 흐름에 선택적 측정 작업 큐, 실제 인용 출처 조사와 원고 검토를 연결합니다. 미확인 인용과 미인용을 구분하고, 새 대화로 반복 측정할 때 계획 회차를 정확히 집계합니다. 실제 브라우저 실행과 사람의 검토·발행은 별도입니다.
 
 - `rebuild run/status/resume`으로 조사·설계를 연결하고 상태를 저장·재개합니다. 검색·분석 제공자와 예제 설정은 [자동화 안내](docs/plans/rebuild-automation-guide.md)를 참고하세요.
 - 근거에 기반해 기존 페이지를 보강하려면 [콘텐츠 운영 안내](ops/content.md) ([English](en/ops/content.md)), [콘텐츠 브리프 양식](templates/content-brief.example.md), [페이지 인벤토리 CSV](templates/content-inventory.example.csv)를 사용합니다. 계획 기록이며 성과 예측 자료는 아닙니다.

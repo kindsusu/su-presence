@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [3.1.0] — 2026-11-03
+
 - Add a connected measurement cycle, durable browser-host dispatch and reconciliation, observed-source research, and copy-review provenance without deployment.
 - Separate organic visibility, brand mentions and citation completeness; preserve unknown outcomes and show actual repetition coverage.
 - Keep live browser control in an explicitly connected host; local fake-host tests do not certify live provider UI compatibility.

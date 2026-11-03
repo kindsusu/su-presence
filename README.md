@@ -13,7 +13,7 @@ The optional [connected measurement cycle](docs/plans/measurement-cycle.md) adds
 
 <p align="center">
   <a href="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kindsusu/su-presence/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="version 3.0.0" src="https://img.shields.io/badge/version-3.0.0-0E6B5C">
+  <img alt="version 3.1.0" src="https://img.shields.io/badge/version-3.1.0-0E6B5C">
   <img alt="stdlib only, zero dependencies" src="https://img.shields.io/badge/stdlib%20only-zero%20dependencies-1A2B28">
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-0E6B5C">
   <a href="LICENSE"><img alt="License PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20NC%201.0.0-A96A00"></a>
@@ -22,9 +22,9 @@ The optional [connected measurement cycle](docs/plans/measurement-cycle.md) adds
 
 **A Korean-first toolkit that audits search and AI visibility, compares competitor sources with owned pages, and produces evidence-based rebuilding plans.** It keeps SEO, AEO, GEO, LLMO, Naver (NEO), Daum/Kakao (KEO), and reputation as separate evidence lanes; crawler access, index state, citations, and business outcomes are not treated as the same result.
 
-## Version 3.0.0
+## Version 3.1.0
 
-**3.0.0** connects site audit, candidate source discovery, public-page research, evidence comparison and page design through a resumable `rebuild run`. The separate audit, measurement and deployment verification commands remain available.
+**3.1.0** adds optional measurement queues, observed-source research and copy review to the existing resumable planning flow. It distinguishes unknown citations from confirmed absence and counts planned repetitions correctly across fresh sessions. Live browser execution, human review and publication remain separate.
 
 After writing the page, use `rebuild review` for offline content/evidence and supplied profile checks, then `rebuild protocol` for a repeatable observation worksheet. These commands neither approve publication nor predict visibility. See the [content review workflow](ops/content-review.md).
 

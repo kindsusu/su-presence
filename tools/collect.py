@@ -507,6 +507,16 @@ def record_one(a, mdir, host, today, queries) -> int:
     if a.query not in qindex:
         sys.stderr.write("queries.json에 없는 질의 id: %s\n" % a.query)
         return 2
+    if a.run < 1:
+        sys.stderr.write("--run은 1 이상이어야 한다\n")
+        return 2
+    status = getattr(a, "status", "observed")
+    coverage = getattr(a, "citation_coverage", "unknown")
+    answer = getattr(a, "answer", "unknown")
+    if status != "observed" and coverage == "complete":
+        coverage = "unknown"
+    if answer != "complete" and coverage == "complete":
+        coverage = "partial" if answer == "partial" else "unknown"
 
     supplied = [u.strip() for u in a.cited.split(",") if u.strip()]
     ours = [u for u in supplied if measure.is_ours(u, host)]
@@ -532,19 +542,28 @@ def record_one(a, mdir, host, today, queries) -> int:
     row = measure.make_row(
         today, a.query, a.record, a.run, "browser",
         {"in": False, "out": True, "unknown": None}[a.login],
-        bool(ours), list(dict.fromkeys(ours + source_urls)), a.brand == "yes", foreign,
+        bool(ours) if coverage == "complete" and answer == "complete" else
+        True if ours and answer == "complete" else None,
+        list(dict.fromkeys(ours + source_urls)),
+        {"yes": True, "no": False, "unknown": None}[a.brand], foreign,
         note=a.note or "브라우저 측정",
-        outcome="observed", surface=a.record,
+        outcome=status, surface=a.record, locale=getattr(a, "locale", ""),
         login_state={"in": "signed_in", "out": "signed_out", "unknown": "unknown"}[a.login],
         search_enabled={"on": True, "off": False, "unknown": None}[a.search],
-        campaign_id=campaign, query_fingerprint_value=measure.query_fingerprint(query))
+        campaign_id=campaign, query_fingerprint_value=measure.query_fingerprint(query),
+        model=getattr(a, "model", ""), session_id=getattr(a, "session", ""),
+        raw_response_reference=getattr(a, "evidence", ""),
+        answer_complete={"complete": True, "partial": False, "unknown": None}[answer],
+        citation_coverage=coverage)
 
     log = os.path.join(mdir, "log.jsonl")
     measure.append_rows(log, [row])
-    print("기록 %s / %s #%d — 인용 %s · 언급 %s · 검색 %s · 제3자 출처 %d"
+    print("기록 %s / %s #%d — %s · 인용 %s · 언급 %s · 검색 %s · 제3자 출처 %d"
           % (measure.ENGINES[a.record], a.query, a.run,
-             ("%d건" % len(ours)) if ours else "없음",
-             "있음" if a.brand == "yes" else "없음", a.search, len(foreign)))
+             status, ("%d건" % len(ours)) if row["cited"] is True else
+             ("없음" if row["cited"] is False else "미확인"),
+             "있음" if a.brand == "yes" else "없음" if a.brand == "no" else "미확인",
+             a.search, len(foreign)))
     print("-> %s" % log)
     return 0
 
@@ -569,7 +588,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="인용 측정 자동 수집기")
     ap.add_argument("audit", help="out/<host>/audit.json")
     ap.add_argument("--runs", type=int, default=measure.DEFAULT_RUNS,
-                    help="질의당 반복 횟수. 생성 답변은 매번 달라 5회 미만은 표본이 아니다")
+                    help="질의당 계획 반복 횟수")
     ap.add_argument("--pause", type=float, default=PAUSE, help="요청 간격 초")
     ap.add_argument("--coverage", action="store_true", help="누락 점검만 하고 끝낸다")
     ap.add_argument("--browser", action="store_true",
@@ -586,8 +605,17 @@ def main(argv=None) -> int:
     g.add_argument("--competitors", default="", metavar="DOM,DOM")
     g.add_argument("--sources", default="", metavar="URL,URL",
                    help="답변이 근거로 쓴 제3자 출처 URL·도메인 전부 — 출처 채널 집계에 쓴다")
-    g.add_argument("--brand", choices=("yes", "no"), default="no",
+    g.add_argument("--brand", choices=("yes", "no", "unknown"), default="unknown",
                    help="우리 상호가 답변에 언급됐는가")
+    g.add_argument("--answer", choices=("complete", "partial", "unknown"), default="unknown")
+    g.add_argument("--citation-coverage", choices=("complete", "partial", "unknown"),
+                   default="unknown", help="인용 추출 범위")
+    g.add_argument("--status", choices=("observed", "partial", "blocked", "unmeasured"),
+                   default="observed")
+    g.add_argument("--model", default="")
+    g.add_argument("--locale", default="")
+    g.add_argument("--session", default="")
+    g.add_argument("--evidence", default="", help="원문·스크린샷 등의 참조 경로 또는 ID")
     g.add_argument("--search", choices=("on", "off", "unknown"), default="unknown",
                    help="그 엔진의 웹검색이 켜져 있었는가 (LLMO는 off 로 잰다)")
     g.add_argument("--login", choices=("in", "out", "unknown"), default="in")
@@ -609,9 +637,9 @@ def main(argv=None) -> int:
         return coverage_report(audit, mdir)
 
     print("대상 %s · 질의 %d개 · 반복 %d회" % (host, len(queries), a.runs))
-    if a.runs < measure.MIN_RUNS_WARN:
-        print("주의: 반복 %d회는 표본이 아니다 (권장 %d회 이상)"
-              % (a.runs, measure.MIN_RUNS_WARN))
+    if a.runs < 1:
+        sys.stderr.write("--runs는 1 이상이어야 한다\n")
+        return 2
 
     rows, tally = [], {}
     campaign = measure.query_set_fingerprint(queries)[:16]
@@ -628,23 +656,29 @@ def main(argv=None) -> int:
                         note="출처·응답 확인 불가로 미측정", outcome="unmeasured",
                         error=str(exc)[:200], surface=engine, login_state="signed_out",
                         campaign_id=campaign,
-                        query_fingerprint_value=measure.query_fingerprint(qi)))
+                        query_fingerprint_value=measure.query_fingerprint(qi),
+                        planned_runs=a.runs))
                     break
                 except Exception as exc:                      # noqa: BLE001
                     rows.append(measure.make_row(
                         today, qid, engine, run, "auto", True, None, [], False, [],
                         note="수집 오류", outcome="error", error=str(exc)[:200],
                         surface=engine, login_state="signed_out", campaign_id=campaign,
-                        query_fingerprint_value=measure.query_fingerprint(qi)))
+                        query_fingerprint_value=measure.query_fingerprint(qi),
+                        planned_runs=a.runs))
                     break
                 ours = cited_urls_in(srcs, host)
                 rows.append(measure.make_row(
                     today, qid, engine, run, "auto", True, bool(ours), ours,
-                    organic, [d for d in domains_of(srcs) if not measure.is_ours(d, host)],
+                    None, [d for d in domains_of(srcs) if not measure.is_ours(d, host)],
                     note=("AI 답변 발동" if fired else "AI 답변 미발동"),
-                    outcome="observed", surface=engine, login_state="signed_out",
+                    outcome="observed",
+                    organic_visible=organic, answer_complete=bool(fired),
+                    citation_coverage="complete" if fired else "not_applicable",
+                    surface=engine, login_state="signed_out",
                     campaign_id=campaign,
-                    query_fingerprint_value=measure.query_fingerprint(qi)))
+                    query_fingerprint_value=measure.query_fingerprint(qi),
+                    planned_runs=a.runs))
                 slot = tally.setdefault((qid, engine),
                                         {"obs": 0, "organic": 0, "fired": 0, "cited": 0})
                 slot["obs"] += 1
@@ -673,7 +707,8 @@ def main(argv=None) -> int:
                 note="로그인 브라우저 필요 — 에이전트가 이어서 측정",
                 outcome="unmeasured", surface=key, login_state="unknown",
                 campaign_id=campaign,
-                query_fingerprint_value=measure.query_fingerprint(qi), reservation=True))
+                query_fingerprint_value=measure.query_fingerprint(qi), reservation=True,
+                planned_runs=a.runs))
 
     # 저장이 출력보다 먼저다. 콘솔에서 죽어도 수집분은 디스크에 남아야 한다.
     log = os.path.join(mdir, "log.jsonl")

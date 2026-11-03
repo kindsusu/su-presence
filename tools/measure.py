@@ -140,11 +140,12 @@ TYPE_LABEL = {"brand": "브랜드", "nonbrand": "비브랜드"}
 
 REMEASURE_DAYS = 14      # ops/measure.md 3번 — 변경 후 14일 뒤 재측정
 DEFAULT_RUNS = 5
-MIN_RUNS_WARN = 5
 
 CSV_FIELDS = ["date", "query_id", "query_text", "type", "engine", "run_no",
               "surface", "locale", "login_state", "search_enabled", "campaign_id",
-              "cited", "cited_urls", "brand_mentioned", "competitor_domains", "note"]
+              "cited", "cited_urls", "brand_mentioned", "competitor_domains", "note",
+              "answer_complete", "citation_coverage", "organic_visible", "model",
+              "session_id", "raw_response_reference"]
 
 # ⚠️ 모델명은 각사 사정으로 바뀐다. 여기 값은 출발점일 뿐이다 —
 #    OPENAI_MODEL / ANTHROPIC_MODEL 환경변수로 덮어쓰고, 현재 값은 각사 문서에서 확인하라.
@@ -189,7 +190,7 @@ API_TIMEOUT = 180
 
 RULES = [
     "비로그인·시크릿 창으로 질의한다 — 로그인 상태의 개인화 답은 우리가 재려는 값이 아니다.",
-    "같은 질문을 같은 날 몰아서 5~10회 반복한다 — 며칠에 나눠 재면 분포가 아니라 그 사이 변화가 섞인다.",
+    "같은 질문은 같은 날 반복하고 엔진·질의별 실제 완료 회차를 함께 보고한다.",
     "인용된 URL을 반드시 남긴다 — O/X만 적으면 다음에 할 일이 정해지지 않는다.",
     "브랜드 질의와 비브랜드 질의를 따로 본다 — 섞어서 평균 내면 둘 다 안 보인다.",
     "엔진은 ChatGPT·Google AI Overviews부터 — 엔진 수를 늘리는 것보다 같은 조건 유지가 먼저다.",
@@ -366,20 +367,28 @@ def row_key(row: dict) -> tuple:
             row.get("locale") or "", row.get("login_state") or
             ("signed_out" if row.get("signed_out") is True else ""),
             str(row.get("search_enabled") if row.get("search_enabled") is not None else ""),
-            row.get("campaign_id") or "")
+            row.get("campaign_id") or "", row.get("model") or "",
+            row.get("session_id") or "")
 
 
 def make_row(date_str, query_id, engine, run_no, mode, signed_out, cited,
              cited_urls, brand_mentioned, competitor_domains, note="", *, outcome=None,
              error=None, surface=None, locale="", login_state=None, search_enabled=None,
-             campaign_id="", query_fingerprint_value="", model="", reservation=False) -> dict:
+             campaign_id="", query_fingerprint_value="", model="", reservation=False,
+             organic_visible=None, answer_complete=None, citation_coverage=None,
+             session_id="", raw_response_reference="", planned_runs=None) -> dict:
     outcome = outcome or ("observed" if cited is not None else ("error" if error else "unmeasured"))
+    if citation_coverage is None:
+        citation_coverage = "complete" if outcome == "observed" else "unknown"
+    if answer_complete is None and outcome == "observed" and citation_coverage == "complete":
+        answer_complete = True
     return OrderedDict([
         ("schema", SCHEMA_ROW),
         ("date", date_str),
         ("query_id", query_id),
         ("engine", engine),
         ("run_no", int(run_no)),
+        ("planned_runs", planned_runs),
         ("mode", mode),
         ("surface", surface or ("api" if mode == "api" else engine)),
         ("locale", locale or ""),
@@ -389,13 +398,19 @@ def make_row(date_str, query_id, engine, run_no, mode, signed_out, cited,
         ("campaign_id", campaign_id or ""),
         ("query_fingerprint", query_fingerprint_value or ""),
         ("model", model or ""),
+        ("session_id", session_id or ""),
+        ("raw_response_reference", raw_response_reference or ""),
         ("reservation", bool(reservation)),
         ("signed_out", signed_out),
         ("outcome", outcome),
         ("error", error or None),
-        ("cited", bool(cited) if outcome == "observed" else None),
+        ("answer_complete", answer_complete),
+        ("citation_coverage", citation_coverage),
+        ("organic_visible", organic_visible),
+        ("cited", bool(cited) if outcome == "observed" and answer_complete is True and
+         (citation_coverage == "complete" or cited is True) else None),
         ("cited_urls", list(cited_urls or [])),
-        ("brand_mentioned", bool(brand_mentioned)),
+        ("brand_mentioned", brand_mentioned if isinstance(brand_mentioned, bool) else None),
         ("competitor_domains", list(competitor_domains or [])),
         ("note", note or ""),
         ("recorded_at", datetime.now(timezone.utc).isoformat(timespec="seconds")),
@@ -432,7 +447,7 @@ def load_log(path: str) -> list:
             if row.get("engine") not in ENGINES:
                 continue
             if row.get("schema") == SCHEMA_ROW and row.get("outcome") not in (
-                    "observed", "error", "unmeasured"):
+                    "observed", "error", "unmeasured", "partial", "blocked"):
                 continue
             latest[row_key(row)] = row
     rows = list(latest.values())
@@ -634,7 +649,7 @@ function build() {
     if (q.note) { html.push('<p class="muted">' + esc(q.note) + '</p>'); }
     html.push('<div class="tablewrap"><table><thead><tr>' +
       '<th>엔진</th><th class="mono">회차</th><th>인용</th><th>답변의 출처 URL 전부</th>' +
-      '<th>브랜드 언급</th><th>경쟁·제3자 도메인</th><th>메모</th></tr></thead><tbody>');
+      '<th>답변 완료</th><th>출처 범위</th><th>브랜드 언급</th><th>경쟁·제3자 도메인</th><th>메모</th></tr></thead><tbody>');
     DATA.engines.forEach(function (eng) {
       for (var n = 1; n <= DATA.runs; n++) {
         var k = q.id + "|" + eng[0] + "|" + n;
@@ -644,6 +659,8 @@ function build() {
           '<td class="mono">' + n + '</td>' +
           '<td><span class="yn">' + radio(k, "cited") + '</span></td>' +
           '<td>' + text(k, "urls", "우리 것 + 유튜브·블로그 등 전부 (띄어쓰기)") + '</td>' +
+          '<td><span class="yn">' + radio(k, "answer") + '</span></td>' +
+          '<td>' + coverageSelect(k) + '</td>' +
           '<td><span class="yn">' + radio(k, "brand") + '</span></td>' +
           '<td>' + text(k, "comp", "competitor.com") + '</td>' +
           '<td>' + text(k, "note", "") + '</td></tr>');
@@ -663,6 +680,15 @@ function radio(k, f) {
       '" value="' + o + '"' + (v === o ? " checked" : "") + "> " + o + "</label>";
   });
   return out;
+}
+function coverageSelect(k) {
+  var v = cell(k, "coverage"), out = '<select data-k="' + k + '" data-f="coverage">';
+  [["", "범위 선택"], ["complete", "전체"], ["partial", "일부"],
+   ["unknown", "미확인"]].forEach(function (pair) {
+    out += '<option value="' + pair[0] + '"' + (v === pair[0] ? ' selected' : '') +
+      '>' + pair[1] + '</option>';
+  });
+  return out + '</select>';
 }
 function text(k, f, ph) {
   return '<input type="text" data-k="' + k + '" data-f="' + f + '" placeholder="' + esc(ph) +
@@ -692,7 +718,8 @@ function csv() {
     if (!c) { return; }
     out.push([DATA.date, r.qid, r.text, r.type, r.engine, r.run, r.engine + "_web_ui",
       "", "signed_out", "Y", "", c,
-      cell(r.k, "urls"), cell(r.k, "brand") || c, cell(r.k, "comp"), cell(r.k, "note")]
+      cell(r.k, "urls"), cell(r.k, "brand"), cell(r.k, "comp"), cell(r.k, "note"),
+      cell(r.k, "answer"), cell(r.k, "coverage"), "", "", "", ""]
       .map(function (v) {
         v = String(v == null ? "" : v);
         return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
@@ -832,8 +859,6 @@ def cmd_form(args) -> int:
     todo = queries_todo(queries)
     if todo:
         print("⚠️ 아직 빈 칸인 질의가 있다 (%s) — 채우고 다시 만들어라." % ", ".join(todo))
-    if runs < MIN_RUNS_WARN:
-        print("⚠️ %d회는 표본이 아니다 — 같은 날 5~10회를 권한다." % runs)
     print("측정일 %s · 질의 %d × 엔진 %d × %d회 = %d행"
           % (date_str, len(queries), len(engines), runs, len(rows)))
     print("  엑셀용 : %s" % csv_path)
@@ -904,8 +929,6 @@ def _parse_csv_row(raw: dict, qindex: dict, host: str):
         return None, "cited가 비었거나 Y/N이 아니다: %r" % get("cited")
 
     mentioned = yn(get("brand_mentioned"))
-    if mentioned is None:
-        mentioned = cited      # 비어 있으면 인용 여부를 따른다
 
     urls, dropped = [], []
     for token in split_multi(get("cited_urls")):
@@ -929,12 +952,31 @@ def _parse_csv_row(raw: dict, qindex: dict, host: str):
     search_enabled = yn(get("search_enabled"))
     if get("search_enabled") and search_enabled is None:
         return None, "search_enabled가 Y/N이 아니다: %r" % get("search_enabled")
+    answer_complete = yn(get("answer_complete"))
+    if get("answer_complete") and answer_complete is None:
+        return None, "answer_complete가 Y/N이 아니다: %r" % get("answer_complete")
+    coverage = get("citation_coverage") or "unknown"
+    if coverage not in ("complete", "partial", "unknown", "not_applicable"):
+        return None, "citation_coverage가 유효하지 않다: %r" % coverage
+    # 구형 CSV의 N은 출처 추출이 완전했는지 알 수 없어 음성 판정이 아니다.
+    if not get("citation_coverage") and cited:
+        coverage = "partial"
+    if answer_complete is None and get("answer_complete") == "":
+        answer_complete = True if cited else None
+    if cited and coverage == "complete" and answer_complete is not True:
+        return None, "인용 Y와 전체 출처 범위에는 answer_complete=Y가 필요하다"
+    if cited and coverage == "not_applicable":
+        return None, "인용 Y에는 AI 답변의 출처 범위가 필요하다"
     query = qindex[qid]
     return make_row(date_str, qid, engine, run_no, "manual", login_state == "signed_out", cited,
                     urls, mentioned, comps, note, surface=get("surface") or engine,
                     locale=get("locale"), login_state=login_state,
                     search_enabled=search_enabled, campaign_id=get("campaign_id"),
-                    query_fingerprint_value=query_fingerprint(query)), None
+                    query_fingerprint_value=query_fingerprint(query), model=get("model"),
+                    session_id=get("session_id"),
+                    raw_response_reference=get("raw_response_reference"),
+                    answer_complete=answer_complete, citation_coverage=coverage,
+                    organic_visible=yn(get("organic_visible"))), None
 
 
 def cmd_import(args) -> int:
@@ -974,7 +1016,22 @@ def cmd_import(args) -> int:
 
 def _blank():
     return {"runs": 0, "cited": 0, "mentioned": 0, "queries": 0, "queries_cited": 0,
-            "errors": 0, "unmeasured": 0, "attempts": 0}
+            "errors": 0, "unmeasured": 0, "attempts": 0, "citation_known": 0,
+            "citation_unknown": 0, "answer_completed": 0, "organic_visible": 0,
+            "organic_known": 0, "mention_known": 0, "blocked": 0, "partial": 0}
+
+
+def citation_coverage_of(row):
+    """옛 행에는 추출 완료의 증거가 없으므로 미확인으로 둔다."""
+    value = row.get("citation_coverage")
+    return value if value in ("complete", "partial", "unknown", "not_applicable") else "unknown"
+
+
+def citation_known(row):
+    return (row.get("outcome", "observed") == "observed" and
+            row.get("answer_complete") is True and
+            (citation_coverage_of(row) == "complete" or row.get("cited") is True) and
+            isinstance(row.get("cited"), bool))
 
 
 def _rate(part, whole):
@@ -987,8 +1044,10 @@ def cell(part: dict) -> str:
     분모가 0이면 "인용 0건"이 아니라 "안 쟀다"이다. 같은 칸에 적으면 둘을 구별할 수 없고,
     한번 0으로 보고된 값은 사실로 굳는다 (ops/measure.md 「측정 범위 표기 규약」).
     """
+    if part.get("citation_known"):
+        return "%d/%d" % (part["cited"], part["citation_known"])
     if part.get("runs"):
-        return "%d/%d" % (part["cited"], part["runs"])
+        return "범위 미확인(%d)" % part["runs"]
     if part.get("unmeasured"):
         return "미측정(%d)" % part["unmeasured"]
     if part.get("errors"):
@@ -1023,7 +1082,9 @@ def _sources_out(slot: dict) -> dict:
 def aggregate(rows: list, queries: list, host: str, base: str, since=None, until=None,
               cumulative=True) -> dict:
     qindex = {q["id"]: q for q in queries}
-    rows = [r for r in rows if r.get("query_id") in qindex]
+    # append-only 중복은 마지막 기록이 이긴다. 직접 aggregate 호출에도 동일하게 적용한다.
+    rows = list(OrderedDict((row_key(r), r) for r in rows
+                            if r.get("query_id") in qindex).values())
     if since:
         rows = [r for r in rows if r.get("date", "") >= since]
     if until:
@@ -1066,22 +1127,35 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
         modes[row.get("mode") or "manual"] += 1
         if outcome != "observed":
             slot["errors" if outcome == "error" else "unmeasured"] += 1
+            if outcome in ("blocked", "partial"):
+                slot[outcome] += 1
             continue
         slot["runs"] += 1
-        slot["cited"] += 1 if row.get("cited") else 0
-        slot["mentioned"] += 1 if row.get("brand_mentioned") else 0
+        known = citation_known(row)
+        slot["citation_known" if known else "citation_unknown"] += 1
+        slot["answer_completed"] += int(row.get("answer_complete") is True)
+        if isinstance(row.get("organic_visible"), bool):
+            slot["organic_known"] += 1
+            slot["organic_visible"] += int(row["organic_visible"])
+        if isinstance(row.get("brand_mentioned"), bool):
+            slot["mention_known"] += 1
+            slot["mentioned"] += int(row["brand_mentioned"])
+        if known:
+            slot["cited"] += int(row["cited"])
 
         key = (row["date"], row["query_id"])
-        q_cited[key] = q_cited.get(key, False) or bool(row.get("cited"))
+        if known:
+            q_cited[key] = q_cited.get(key, False) or bool(row.get("cited"))
         ekey = key + (row["engine"],)
-        q_engine_cited[ekey] = q_engine_cited.get(ekey, False) or bool(row.get("cited"))
+        if known:
+            q_engine_cited[ekey] = q_engine_cited.get(ekey, False) or bool(row.get("cited"))
 
         bucket = by_query[row["query_id"]]
-        bucket["runs"] += 1
-        bucket["cited"] += 1 if row.get("cited") else 0
+        bucket["runs"] += int(known)
+        bucket["cited"] += int(known and row["cited"])
         eng = bucket["engines"].setdefault(row["engine"], {"runs": 0, "cited": 0})
-        eng["runs"] += 1
-        eng["cited"] += 1 if row.get("cited") else 0
+        eng["runs"] += int(known)
+        eng["cited"] += int(known and row["cited"])
 
         for url in row.get("cited_urls") or []:
             if is_ours(url, host):
@@ -1117,8 +1191,9 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
         item = {"engine": engine, "label": ENGINES[engine]}
         for qtype in TYPES:
             slot = dict(per_engine[engine][qtype])
-            slot["rate"] = _rate(slot["cited"], slot["runs"])
-            slot["mentioned_rate"] = _rate(slot["mentioned"], slot["runs"])
+            slot["rate"] = _rate(slot["cited"], slot["citation_known"])
+            slot["mentioned_rate"] = _rate(slot["mentioned"], slot["mention_known"])
+            slot["organic_rate"] = _rate(slot["organic_visible"], slot["organic_known"])
             item[qtype] = slot
         engine_out.append(item)
 
@@ -1144,18 +1219,22 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
         if outcome == "error":
             slot["errors"] += 1
             qslot["errors"] += 1
-        elif outcome == "unmeasured":
+        elif outcome != "observed":
             slot["unmeasured"] += 1
             qslot["unmeasured"] += 1
         else:
             slot["runs"] += 1
             qslot["observed"] += 1
-            slot["cited"] += int(bool(row.get("cited")))
-            slot["mentioned"] += int(bool(row.get("brand_mentioned")))
+            known = citation_known(row)
+            slot["citation_known" if known else "citation_unknown"] += 1
+            slot["cited"] += int(known and row["cited"])
+            if isinstance(row.get("brand_mentioned"), bool):
+                slot["mention_known"] += 1
+                slot["mentioned"] += int(row["brand_mentioned"])
     cohorts = []
     for cohort in cohort_map.values():
         for qtype in TYPES:
-            cohort[qtype]["rate"] = _rate(cohort[qtype]["cited"], cohort[qtype]["runs"])
+            cohort[qtype]["rate"] = _rate(cohort[qtype]["cited"], cohort[qtype]["citation_known"])
             cohort[qtype]["error_rate"] = _rate(cohort[qtype]["errors"], cohort[qtype]["attempts"])
         cohort["label"] = ("%s API (%s)" % (ENGINES[cohort["engine"]], cohort["model"] or "model 미기록")
                            if cohort["mode"] == "api" else
@@ -1166,7 +1245,7 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
     trend = []
     for day in dates:
         day_attempts = [r for r in trend_rows if r["date"] == day]
-        day_rows = [r for r in day_attempts if (r.get("outcome") or "observed") == "observed"]
+        day_rows = [r for r in day_attempts if citation_known(r)]
         entry = {"date": day, "runs": len(day_rows), "attempts": len(day_attempts),
                  "errors": sum(1 for r in day_attempts if r.get("outcome") == "error"),
                  "unmeasured": sum(1 for r in day_attempts if r.get("outcome") == "unmeasured"),
@@ -1202,6 +1281,29 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
     attempts = len(rows)
     observed = sum(1 for r in rows if (r.get("outcome") or "observed") == "observed")
     errors = sum(1 for r in rows if r.get("outcome") == "error")
+    citation_unknown = sum(1 for r in rows if (r.get("outcome") or "observed") == "observed"
+                           and not citation_known(r))
+    coverage = []
+    coverage_keys = sorted({(r["date"], r["engine"], r["query_id"]) for r in rows})
+    for day, engine, qid in coverage_keys:
+        group = [r for r in rows if (r["date"], r["engine"], r["query_id"]) ==
+                 (day, engine, qid)]
+        plans = {}
+        for r in group:
+            condition = (r.get("mode"), r.get("surface"), r.get("locale"),
+                         r.get("login_state"), r.get("search_enabled"),
+                         r.get("model"), r.get("campaign_id"))
+            plans[condition] = max(plans.get(condition, 0),
+                                   int(r.get("planned_runs") or r.get("run_no") or 0))
+        planned = sum(plans.values())
+        completed = sum(1 for r in group if r.get("outcome", "observed") == "observed"
+                        and r.get("answer_complete") is True)
+        citation_confirmed = sum(1 for r in group if citation_known(r))
+        coverage.append({"date": day, "engine": engine, "query_id": qid,
+                         "planned": planned, "completed": completed,
+                         "citation_confirmed": citation_confirmed,
+                         "unmeasured": max(0, planned - completed),
+                         "attempts": len(group)})
     summary = {
         "schema": SCHEMA_SUMMARY,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -1219,10 +1321,15 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
         "rows": observed,
         "quality": {"attempts": attempts, "observed": observed, "errors": errors,
                     "unmeasured": attempts - observed - errors,
+                    "citation_known": observed - citation_unknown,
+                    "citation_unknown": citation_unknown,
+                    "blocked": sum(1 for r in rows if r.get("outcome") == "blocked"),
+                    "partial": sum(1 for r in rows if r.get("outcome") == "partial"),
                     "error_rate": _rate(errors, attempts),
                     "incompatible_rows": len(incompatible),
                     "regression_eligible": errors == 0 and
-                    attempts - observed - errors == 0 and not incompatible},
+                    attempts - observed - errors == 0 and citation_unknown == 0 and
+                    not incompatible},
         "modes": dict(modes),
         "conditions": {
             "modes": sorted({r.get("mode") or "manual" for r in rows}),
@@ -1237,6 +1344,7 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
         },
         "engines": engine_out,
         "cohorts": cohorts,
+        "coverage": coverage,
         "urls": {"ours": [{"url": u, "count": n} for u, n in ours.most_common(20)],
                  "competitors": [{"domain": d, "count": n}
                                  for d, n in comp_domains.most_common(20)]},
@@ -1266,10 +1374,12 @@ def headline(summary: dict) -> list:
     if not trend:
         return ["[측정 없음] log.jsonl이 비었다 — form → import 부터."]
     first, last = trend[0], trend[-1]
-    qn = first["brand"]["queries"] + first["nonbrand"]["queries"]
-    per_query = first["runs"] / max(1, qn * max(1, len(first["engines"])))
-    out = ["[기준선] %s  AI인용 %s (엔진당 각 %d회 질의)"
-           % (first["date"], _day_line(first), max(1, round(per_query)))]
+    out = ["[기준선] %s  AI인용 %s" % (first["date"], _day_line(first))]
+    for item in summary.get("coverage", []):
+        if item["date"] == first["date"]:
+            out.append("         %s/%s 계획 %d · 완료 %d · 미측정 %d" % (
+                ENGINES[item["engine"]], item["query_id"], item["planned"],
+                item["completed"], item["unmeasured"]))
     if len(trend) > 1:
         delta = " (기준선 대비 비브랜드 %+d)" % (last["nonbrand"]["queries_cited"]
                                           - first["nonbrand"]["queries_cited"])
@@ -1278,6 +1388,11 @@ def headline(summary: dict) -> list:
         out.append("[결과]   %s  AI인용 %s%s" % (last["date"], _day_line(last), delta))
         if engines:
             out.append("         └ %s" % engines)
+        for item in summary.get("coverage", []):
+            if item["date"] == last["date"]:
+                out.append("         %s/%s 계획 %d · 완료 %d · 미측정 %d" % (
+                    ENGINES[item["engine"]], item["query_id"], item["planned"],
+                    item["completed"], item["unmeasured"]))
     if summary.get("next_measure"):
         out.append("[재측정] %s 예정 (마지막 측정 +%d일)"
                    % (summary["next_measure"], REMEASURE_DAYS))
@@ -1334,18 +1449,25 @@ def render_measure_md(summary: dict) -> str:
         summary["queries"]["total"], summary["queries"]["measured"]), ""]
 
     quality = summary.get("quality") or {}
-    if quality.get("errors") or quality.get("unmeasured") or quality.get("incompatible_rows"):
-        out += ["⚠️ 관측 %d/%d · 오류 %d · 미측정 %d · 질의 불일치 %d. 오류·불일치가 있는 회차는 회귀 판정에 쓰지 않는다." % (
+    if (quality.get("errors") or quality.get("unmeasured") or
+            quality.get("incompatible_rows") or quality.get("citation_unknown")):
+        out += ["⚠️ 관측 %d/%d · 오류 %d · 미측정 %d · 인용 확인 불가 %d · 질의 불일치 %d. 미확인 회차는 인용률 분모에서 제외한다." % (
             quality.get("observed", 0), quality.get("attempts", 0), quality.get("errors", 0),
-            quality.get("unmeasured", 0), quality.get("incompatible_rows", 0)), ""]
+            quality.get("unmeasured", 0), quality.get("citation_unknown", 0),
+            quality.get("incompatible_rows", 0)), ""]
 
     out += ["## 엔진별 인용률 — 회차 합산", "",
-            "| 엔진 | 브랜드 인용 | 비브랜드 인용 | 브랜드 언급(전체) |", "|---|---|---|---|"]
+            "| 엔진 | 브랜드 인용 | 비브랜드 인용 | 브랜드 언급 | 자연 노출 |", "|---|---|---|---|---|"]
     for item in summary["engines"]:
         brand, non = item["brand"], item["nonbrand"]
-        out.append("| %s | %s | %s | %d/%d |" % (
+        out.append("| %s | %s | %s | %s | %s |" % (
             item["label"], cell(brand), cell(non),
-            brand["mentioned"] + non["mentioned"], brand["runs"] + non["runs"]))
+            ("%d/%d" % (brand["mentioned"] + non["mentioned"],
+                         brand["mention_known"] + non["mention_known"]))
+            if brand["mention_known"] + non["mention_known"] else "미확인",
+            ("%d/%d" % (brand["organic_visible"] + non["organic_visible"],
+                         brand["organic_known"] + non["organic_known"]))
+            if brand["organic_known"] + non["organic_known"] else "미확인"))
     out += ["", "비브랜드 질의는 신규 수요 도달을 보는 핵심 지표다. 브랜드 질의만 개선됐다면 "
                 "현재 표본에서는 **브랜드를 이미 아는 수요에 성과가 치우쳤을 가능성**을 먼저 점검한다.", ""]
 
@@ -1484,6 +1606,8 @@ def ask_openai(send, query: str, api_key: str, model: str) -> tuple:
         return [], "", data["_error"]
     if data.get("error"):
         return [], "", "api_error"
+    if data.get("status") in ("incomplete", "failed", "cancelled"):
+        return [], "", "incomplete_response"
     urls, text = [], []
     for item in data.get("output") or []:
         for block in (item.get("content") or []) if isinstance(item, dict) else []:
@@ -1496,7 +1620,8 @@ def ask_openai(send, query: str, api_key: str, model: str) -> tuple:
                     urls.append(ann.get("url"))
     if not text and data.get("output_text"):
         text.append(str(data["output_text"]))
-    return urls, "\n".join(text), None
+    answer = "\n".join(text)
+    return urls, answer, None if answer.strip() else "incomplete_response"
 
 
 def ask_anthropic(send, query: str, api_key: str, model: str) -> tuple:
@@ -1510,6 +1635,8 @@ def ask_anthropic(send, query: str, api_key: str, model: str) -> tuple:
         return [], "", data["_error"]
     if data.get("error") or data.get("type") == "error":
         return [], "", "api_error"
+    if data.get("stop_reason") == "max_tokens":
+        return [], "", "incomplete_response"
     urls, text = [], []
     for block in data.get("content") or []:
         if not isinstance(block, dict) or block.get("type") != "text":
@@ -1520,7 +1647,8 @@ def ask_anthropic(send, query: str, api_key: str, model: str) -> tuple:
         for cite in block.get("citations") or []:
             if isinstance(cite, dict) and cite.get("url"):
                 urls.append(cite["url"])
-    return urls, "\n".join(text), None
+    answer = "\n".join(text)
+    return urls, answer, None if answer.strip() else "incomplete_response"
 
 
 ASKERS = {"chatgpt": ("OPENAI_API_KEY", "OPENAI_MODEL", OPENAI_MODEL_DEFAULT, ask_openai),
@@ -1576,7 +1704,10 @@ def run_auto(queries: list, engines: list, runs: int, host: str, keys: dict,
                     None if error else brand_hit(text, host, site_name),
                     list(OrderedDict.fromkeys(comps)),
                     ("실패: %s" % error) if error else "model=%s" % model,
-                    outcome="error" if error else "observed", error=error,
+                    outcome="partial" if error == "incomplete_response" else
+                    "error" if error else "observed", error=error,
+                    answer_complete=False if error else True,
+                    citation_coverage="unknown" if error else "complete",
                     surface="api", login_state="not_applicable", search_enabled=True,
                     campaign_id=query_set_fingerprint(queries)[:16],
                     query_fingerprint_value=query_fingerprint(query),

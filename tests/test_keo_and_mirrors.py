@@ -137,7 +137,7 @@ class TestUnmeasuredIsNotZero(unittest.TestCase):
                                        "unmeasured": 3, "errors": 0}), "미측정(3)")
 
     def test_cell_prints_real_rate_when_observed(self):
-        self.assertEqual(measure.cell({"runs": 5, "cited": 2}), "2/5")
+        self.assertEqual(measure.cell({"runs": 5, "citation_known": 5, "cited": 2}), "2/5")
 
     def test_cell_distinguishes_error_from_silence(self):
         self.assertEqual(measure.cell({"runs": 0, "cited": 0,

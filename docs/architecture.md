@@ -1,5 +1,9 @@
 # Runtime architecture
 
+## Optional connected measurement cycle
+
+The original diagram below shows the default six-stage path. For configurations containing `cycle`, see the current [cycle flow and host boundary](plans/measurement-cycle.md#runtime-flow). Measurement evidence, browser queue state and copy-review inputs now participate in resumable planning. The original diagram does not depict this optional extension.
+
 su-presence runs when a person or external orchestrator invokes a CLI command. It has no resident daemon or built-in scheduler. `rebuild run` chains its own stages and saves state for resume; publishing and deployment remain separate. [한국어](architecture.ko.md) · [CLI reference](../tools/README.md) · [Automation guide](plans/rebuild-automation-guide.md)
 
 ![Current runtime architecture: connected rebuild, technical drafts, measurement and human handoffs](../assets/runtime-architecture.svg)
@@ -43,7 +47,7 @@ After a person writes completed page copy, `rebuild review INPUT --out DIR` perf
 
 `rebuild protocol BRIEF --repeats N --out DIR` creates an unfilled worksheet for eligible nonbrand questions and configured AI channels (or documented default providers). It flags unclassified questions for review; pending slots are not observations. This protocol is a plan, not a measurement log and cannot be imported as one. Actual observations still require the existing `measure` collection/import/report workflow, with conditions and cited URLs recorded. Baseline and follow-up should use the same query and conditions. Repeated observations are exploratory samples, not visibility probabilities.
 
-These are optional post-design commands and do not add stages to the `rebuild run` state machine or change either architecture diagram. The boundary remains: generated review and measurement-plan artifacts → human fact/editorial approval → separate implementation and publication → actual measurement in the existing workflow.
+Standalone commands remain available. With optional `cycle` configuration their inputs and results also connect to resumable planning; the original six-stage diagram remains the default-path view. The boundary remains: generated review and measurement-plan artifacts → human fact/editorial approval → separate implementation and publication → actual measurement in the existing workflow.
 
 `collect.py AUDIT` runs unattended collection for Naver AI Briefing, Daum, and Google AI Overview when invoked. `--browser` records `unmeasured` reservations and prints guidance for ChatGPT, Gemini, Claude, and Perplexity; it does not operate a browser. `--record ENGINE --query ID ...` stores an actual browser observation, while `--coverage` checks gaps. Optional `measure.py auto` uses OpenAI or Anthropic APIs with available keys and counts citations in API responses. Web UI and API results, login conditions, and search modes must remain distinct.
 

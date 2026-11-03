@@ -92,12 +92,38 @@ class RebuildIntegrationTests(unittest.TestCase):
         self.assertEqual(rows[0]['url'],'https://rival.com/a')
         self.assertGreaterEqual(len(warnings),3)
 
+    def test_unfinished_answer_excluded_partial_positive_source_preserved(self):
+        q = self.brief['queries'][0]
+        base = dict(query_id=q['id'], query_fingerprint=measure.query_fingerprint(q),
+                    outcome='observed', mode='browser', surface='google', date='2026-10-01',
+                    cited_urls=['https://rival.com/a'], citation_coverage='partial',
+                    raw_response_reference='evidence/response.txt')
+        log = self.root / 'log.jsonl'
+        log.touch()
+        with patch.object(measure, 'load_log', return_value=[dict(base, answer_complete=False),
+                                                           dict(base, answer_complete=True)]):
+            rows, warnings = rebuild.from_log(log, self.brief)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['citation_coverage'], 'partial')
+        self.assertEqual(rows[0]['raw_response_reference'], 'evidence/response.txt')
+        self.assertTrue(any('unfinished' in warning for warning in warnings))
+
     def test_init_no_overwrite(self):
         args=['init',str(self.root/'audit.json'),'--out',str(self.root/'init')]
         self.assertEqual(rebuild.main(args),0)
         p=self.root/'init'/'brief.json'; before=p.read_bytes()
         self.assertEqual(rebuild.main(args),2)
         self.assertEqual(p.read_bytes(),before)
+
+    def test_cycle_report_is_visible_and_escapes_untrusted_evidence(self):
+        plan = rebuild.planner.build_plan(self.audit, self.brief, [], rebuild.load_research(None))
+        plan['cycle'] = {'measurement': {'status': 'blocked', 'reason': '<script>alert(1)</script>'},
+                         'review': {'status': 'pending'}, 'deployment': {'status': 'excluded'}}
+        rendered = rebuild.render_html(plan)
+        self.assertIn('연결 사이클 상태', rendered)
+        self.assertIn('deployment: excluded', rendered)
+        self.assertNotIn('<script>', rendered)
+        self.assertIn('Connected cycle status', rebuild.markdown(plan))
 
     def test_bounded_research_and_partial_exit(self):
         with patch.object(rebuild.evidence,'fetch_page',return_value=dict(outcome='blocked',url='https://rival.com')) as fetch:

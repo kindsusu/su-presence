@@ -1,5 +1,7 @@
 # su-presence
 
+The optional [connected measurement cycle](docs/plans/measurement-cycle.md) adds validated browser jobs, measured-source research and completed-copy review to resume. A browser-capable host is required for live UI execution; the CLI does not provide login sessions or deploy sites.
+
 ![su-presence — Be seen. Be cited. Be verified.](assets/su-presence.png)
 
 > Are we present in search and AI answers? SEO, AEO, GEO, LLMO, Naver and Daum as one surface. Hand-tuned by **su** ([kindsusu](https://github.com/kindsusu))

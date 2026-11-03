@@ -444,13 +444,17 @@ Gemini·Perplexity·Google AI Overviews·네이버·다음·Copilot은 자동화
 ```bash
 python tools/collect.py out/example.com/audit.json --runs 5
 python tools/collect.py out/example.com/audit.json --browser
-python tools/collect.py out/example.com/audit.json --record chatgpt --query Q01 --run 1 --cited https://example.com/guide --sources https://publisher.example/article --search on --login in
+python tools/collect.py out/example.com/audit.json --record chatgpt --query Q01 --run 1 --cited https://example.com/guide --sources https://publisher.example/article --search on --login in --answer complete --citation-coverage complete
 python tools/collect.py out/example.com/audit.json --coverage
 ```
 
 기본 호출은 네이버·다음·구글 AI 표면을 무인 수집한다. `--browser`는 대화형 엔진의
-`unmeasured` 예약 행과 로그인 안내를 남기며 브라우저를 조작하지 않는다. 실제 UI 관측은
-`--record`로 같은 로그에 적는다. `--coverage`는 누락 상태만 읽는다. API 기반
+`unmeasured` 예약 행과 로그인 안내를 남기며 브라우저를 조작하지 않는다. `--answer`는 응답이 끝났으면
+`complete`, 끊겼으면 `partial`로 기록한다. 독립적으로 `--citation-coverage`는 모든 출처 확인 시
+`complete`, 일부 확인 시 `partial`, 범위를 모르면 `unknown`이다. 예시처럼 둘 다 `complete`는 각각
+사실일 때만 쓴다. 일부 확인에서도 확인한 양성 인용은 보존되며, 불완전 범위는 미인용으로 계산되지 않는다.
+실제 UI 관측은 `--record`로 같은 로그에 적는다.
+`--coverage`는 누락 상태만 읽는다. API 기반
 `measure.py auto`는 별도 표면이며 웹 UI 관측과 합산해 해석하지 않는다.
 
 `collect.py`는 검색 결과 전체의 링크를 인용으로 세지 않는다. Google은 AI Overview의 명시된 출처

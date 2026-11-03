@@ -169,6 +169,26 @@ class RecordContractTest(unittest.TestCase):
             self.assertEqual(row["query_fingerprint"], measure.query_fingerprint(QUERY))
             self.assertEqual(row["campaign_id"], measure.query_set_fingerprint([QUERY])[:16])
 
+    def test_partial_record_keeps_positive_and_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = self.args(cited="https://example.com/a", answer="complete",
+                             citation_coverage="partial", model="model-x", locale="ko-KR",
+                             session="session-x", evidence="capture-1")
+            self.assertEqual(collect.record_one(args, tmp, HOST, "2026-09-13", [QUERY]), 0)
+            row = measure.load_log(os.path.join(tmp, "log.jsonl"))[0]
+            self.assertTrue(row["cited"])
+            self.assertEqual(row["citation_coverage"], "partial")
+            self.assertEqual(row["raw_response_reference"], "capture-1")
+            self.assertEqual(row["session_id"], "session-x")
+
+    def test_blocked_record_has_no_negative_citation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = self.args(status="blocked", answer="unknown", citation_coverage="unknown")
+            self.assertEqual(collect.record_one(args, tmp, HOST, "2026-09-13", [QUERY]), 0)
+            row = measure.load_log(os.path.join(tmp, "log.jsonl"))[0]
+            self.assertEqual(row["outcome"], "blocked")
+            self.assertIsNone(row["cited"])
+
 
 class CollectMainIntegrationTest(unittest.TestCase):
     def setUp(self):
@@ -220,6 +240,20 @@ class CollectMainIntegrationTest(unittest.TestCase):
         self.assertTrue(any(row.get("reservation") for row in loaded))
         self.assertTrue(any(row["engine"] == "google_aio" and
                             row["outcome"] == "unmeasured" for row in loaded))
+
+    def test_no_ai_block_keeps_organic_visibility_separate(self):
+        collect.UNATTENDED = (("google_aio", "구글", lambda _q, _h: (True, False, [])),)
+        self.assertEqual(self.run_main([self.audit, "--runs", "1", "--pause", "0"]), 0)
+        rows = measure.load_log(os.path.join(measure.measure_dir(self.audit), "log.jsonl"))
+        row = rows[0]
+        self.assertTrue(row["organic_visible"])
+        self.assertFalse(row["answer_complete"])
+        self.assertIsNone(row["brand_mentioned"])
+        self.assertIsNone(row["cited"])
+        summary = measure.aggregate(rows, [QUERY], HOST, "https://example.com")
+        slot = summary["engines"][0]["nonbrand"]
+        self.assertEqual(slot["organic_visible"], 1)
+        self.assertEqual(slot["citation_unknown"], 1)
 
 
 if __name__ == "__main__":

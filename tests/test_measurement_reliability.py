@@ -53,6 +53,54 @@ def v2_summary(cited, runs, *, qset="same", errors=0, unmeasured=0,
 
 
 class MeasureV2(unittest.TestCase):
+    def test_incomplete_api_response_is_partial(self):
+        rows = measure.run_auto(Q, ["chatgpt"], 1, HOST, {"chatgpt": "dummy"},
+                                send=lambda *_args: {"status": "incomplete", "output": []},
+                                delay=0)
+        self.assertEqual(rows[0]["outcome"], "partial")
+        self.assertFalse(rows[0]["answer_complete"])
+        self.assertIsNone(rows[0]["cited"])
+
+    def test_partial_positive_is_retained_and_partial_negative_is_unknown(self):
+        positive = mrow("2026-09-05", 1, True, citation_coverage="partial",
+                        answer_complete=True)
+        negative = mrow("2026-09-05", 2, False, citation_coverage="partial",
+                        answer_complete=True)
+        self.assertTrue(positive["cited"])
+        self.assertIsNone(negative["cited"])
+        result = measure.aggregate([positive, negative], Q, HOST, BASE)
+        slot = result["engines"][0]["nonbrand"]
+        self.assertEqual((slot["citation_known"], slot["citation_unknown"], slot["cited"]),
+                         (1, 1, 1))
+        self.assertFalse(result["quality"]["regression_eligible"])
+
+    def test_legacy_negative_has_unknown_coverage(self):
+        row = mrow("2026-09-05", 1, False)
+        row["schema"] = "su-multi-geo/measure-row/1"
+        for field in ("query_fingerprint", "answer_complete", "citation_coverage"):
+            row.pop(field)
+        result = measure.aggregate([row], Q, HOST, BASE)
+        self.assertEqual(result["engines"][0]["nonbrand"]["citation_unknown"], 1)
+        self.assertIsNone(result["engines"][0]["nonbrand"]["rate"])
+
+    def test_duplicate_slot_uses_latest_row_and_planned_count(self):
+        first = mrow("2026-09-05", 1, False, planned_runs=3)
+        corrected = mrow("2026-09-05", 1, True, planned_runs=3)
+        result = measure.aggregate([first, corrected], Q, HOST, BASE)
+        self.assertEqual(result["engines"][0]["nonbrand"]["cited"], 1)
+        self.assertEqual(result["coverage"][0]["planned"], 3)
+        self.assertEqual(result["coverage"][0]["unmeasured"], 2)
+
+    def test_fresh_sessions_share_one_planned_run_count(self):
+        rows = [mrow("2026-09-05", run, False, planned_runs=2,
+                     session_id="fresh-%d" % run, answer_complete=True,
+                     citation_coverage="complete") for run in (1, 2)]
+        self.assertNotEqual(measure.row_key(rows[0]), measure.row_key(rows[1]))
+        result = measure.aggregate(rows, Q, HOST, BASE)
+        self.assertEqual(result["coverage"][0]["planned"], 2)
+        self.assertEqual(result["coverage"][0]["completed"], 2)
+        self.assertEqual(result["coverage"][0]["unmeasured"], 0)
+
     def test_manual_and_api_slots_do_not_overwrite(self):
         rows = [mrow("2026-09-05", 1, True, surface="chatgpt_web_ui"),
                 mrow("2026-09-05", 1, False, mode="api", surface="api", model="gpt-test")]

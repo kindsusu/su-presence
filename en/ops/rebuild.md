@@ -1,5 +1,7 @@
 # Evidence-led site rebuild
 
+For connected measurements and completed-copy review, see the [measurement cycle](../../docs/plans/measurement-cycle.md).
+
 Turn an existing audit, exact-query observations, verified business facts, and explicitly fetched public pages into reviewable page blueprints. This is a planning workflow, not a visibility, ranking, citation, or conversion forecast. See the [reference-project review](../../docs/reviews/2026-10-13-reference-projects.ko.md) for design context.
 
 ```bash

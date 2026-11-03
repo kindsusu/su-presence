@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+- Add a connected measurement cycle, durable browser-host dispatch and reconciliation, observed-source research, and copy-review provenance without deployment.
+- Separate organic visibility, brand mentions and citation completeness; preserve unknown outcomes and show actual repetition coverage.
+- Keep live browser control in an explicitly connected host; local fake-host tests do not certify live provider UI compatibility.
+- Add a new-PC setup and output-file guide; update complete/partial browser-recording examples.
+- Count planned repetitions across fresh sessions without multiplying the campaign plan by session count.
+
 - 완성 본문에 대한 오프라인 문자·구조 검토와 제공된 외부 프로필의 명시 필드 대조를 추가한다. 출처의 진위·의미 검증이나 발행 승인은 자동화하지 않는다.
 - 비브랜드 질문의 반복 측정 프로토콜을 추가한다. 이는 비어 있는 계획표이며 실제 측정은 기존 measure 수집·가져오기 흐름에서 수행한다.
 - 작성 후 검토, 사람의 승인, 게시, 실제 측정의 경계를 README와 아키텍처 문서에 명시한다.

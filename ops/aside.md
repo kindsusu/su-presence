@@ -13,7 +13,7 @@
 
 [측정 실행 지침](measure-playbook.md)에 따라 고정 질의와 회차, 언어·지역, 실제 웹 제품, 검색·로그인 상태를 유지한다. 중립 모드를 확인하고 질문을 전송하기 전에 입력값을 대조한다. 계정 기억·맞춤 설정의 잔여 영향은 관측 한계로 기록한다.
 
-`collect <audit.json> --browser`로 측정 자리를 준비하고, 응답 완료와 실제 출처 URL을 확인한 관측만 `collect --record`로 되받는다. 로그인·CAPTCHA·응답 확인 실패는 미인용이 아니며 `unmeasured`를 유지한다. `--note`에 실행 수단과 관측 시각·증거 위치를 남기되 토큰·쿠키·불필요한 계정 정보는 기록하지 않는다. 질문과 회차는 현재 측정 계획에 맞춘다.
+`collect <audit.json> --browser`로 측정 자리를 준비하고 `--record`로 결과를 적는다. 응답이 끝났으면 `--answer complete`, 중단됐으면 `partial`이다. 별도로 모든 출처를 확인했으면 `--citation-coverage complete`, 일부만 확인했으면 `partial`, 확인 범위를 모르면 `unknown`을 쓴다. 두 항목 모두 확인된 경우에만 예시처럼 `--answer complete --citation-coverage complete`를 지정한다. 일부 출처 확인 중 찾은 양성 인용은 보존되며, 불완전 범위는 미인용으로 계산되지 않는다. 로그인·CAPTCHA·응답 확인 실패는 미인용이 아니며 `unmeasured`를 유지한다. `--note`에 실행 수단과 관측 시각·증거 위치를 남기되 토큰·쿠키·불필요한 계정 정보는 기록하지 않는다. 질문과 회차는 현재 측정 계획에 맞춘다.
 
 Aside가 ChatGPT 구독으로 추론하는 것과 ChatGPT 웹에서 질의하는 것은 다르다. Aside 에이전트의 답을 대상 AI 웹 제품의 인용 관측으로 기록하지 않는다. 집계는 기존 `measure report`를 사용한다.
 

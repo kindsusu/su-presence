@@ -223,6 +223,119 @@ class RunTests(unittest.TestCase):
         self.assertEqual(self._state()['stages']['audit']['attempts'], 1)
         self.assertEqual(self._state()['stages']['discovery']['attempts'], 2)
 
+    def test_cycle_imports_observed_url_and_invalidates_review(self):
+        brief = {'schema': 'su-presence/rebuild-brief/1', 'site_url': 'https://example.com',
+                 'queries': [{'id': 'q1', 'text': 'product price', 'type': 'nonbrand',
+                              'intent_id': 'topic', 'terms': ['product price'], 'required_sections': [],
+                              'page_type': 'guide', 'priority': 2}], 'competitors': [],
+                 'channels': ['chatgpt'], 'facts': [], 'pages': []}
+        (self.root / 'brief.json').write_text(json.dumps(brief), encoding='utf-8')
+        self.config['brief_file'] = 'brief.json'
+        self.config['cycle'] = {'repeats': 1, 'observations_file': 'observations.json'}
+        observations = {'schema': rebuild.SCHEMA_OBS, 'observations': [
+            {'id': 'seen', 'query_id': 'q1', 'query_text': 'product price', 'channel': 'chatgpt',
+             'outcome': 'observed', 'url': 'https://cited.example.org/answer',
+             'evidence_url': 'https://cited.example.org/answer',
+             'observed_at': '2026-10-19T00:00:00Z'}]}
+        (self.root / 'observations.json').write_text(json.dumps(observations), encoding='utf-8')
+        self._write_config()
+        with patch.object(rebuild_run.evidence, 'fetch_page', side_effect=self._fake_fetch):
+            self.assertEqual(rebuild_run.run(self._run()), 2, self._state())
+        folder = self._folder()
+        plan = json.loads((folder / 'plan.json').read_text(encoding='utf-8'))
+        self.assertTrue(any(row.get('kind') == 'visibility_observation' for row in plan['evidence']))
+        research = json.loads((folder / 'research.json').read_text(encoding='utf-8'))
+        self.assertIn('https://cited.example.org/answer', [page['url'] for page in research['pages']])
+        cycle = json.loads((folder / 'cycle-report.json').read_text(encoding='utf-8'))
+        self.assertEqual(cycle['measurement']['observed_rows'], 1)
+        self.assertEqual(cycle['measurement']['pending_slots'], 1)
+        self.assertEqual(cycle['review']['status'], 'pending')
+        self.assertTrue((folder / 'browser-queue.json').is_file())
+        page = plan['page_blueprints'][0]
+        review_input = {'schema': rebuild_run.rebuild_review.INPUT_SCHEMA, 'pages': [
+            {'id': page['id'], 'url': 'https://example.com/review', 'intent': 'topic',
+             'body': '# Pricing\nPublic pricing details.', 'claims': []}]}
+        (self.root / 'review.json').write_text(json.dumps(review_input), encoding='utf-8')
+        self.config['cycle']['review_file'] = 'review.json'
+        self._write_config()
+        with patch.object(rebuild_run.evidence, 'fetch_page', side_effect=AssertionError('research repeated')):
+            self.assertEqual(rebuild_run.resume(argparse.Namespace(folder=str(folder), config=None,
+                               refresh=False, recover_lock=False)), 2)
+        first = json.loads((folder / 'review.json').read_text(encoding='utf-8'))
+        self.assertEqual(first['input_sha256'], rebuild_run._file_hash(self.root / 'review.json'))
+        review_input['pages'][0]['body'] += '\nUpdated details.'
+        (self.root / 'review.json').write_text(json.dumps(review_input), encoding='utf-8')
+        with patch.object(rebuild_run.evidence, 'fetch_page', side_effect=AssertionError('research repeated')):
+            self.assertEqual(rebuild_run.resume(argparse.Namespace(folder=str(folder), config=None,
+                               refresh=False, recover_lock=False)), 2)
+        second = json.loads((folder / 'review.json').read_text(encoding='utf-8'))
+        self.assertNotEqual(first['input_sha256'], second['input_sha256'])
+        self.assertEqual(self._state()['stages']['research']['attempts'], 1)
+
+    def test_cycle_counts_completed_zero_citation_queue(self):
+        brief = {'schema': 'su-presence/rebuild-brief/1', 'site_url': 'https://example.com',
+                 'queries': [{'id': 'q1', 'text': 'product price', 'type': 'nonbrand',
+                              'intent_id': 'topic', 'terms': [], 'required_sections': [],
+                              'page_type': 'guide'}], 'competitors': [], 'channels': ['chatgpt'],
+                 'facts': [], 'pages': []}
+        (self.root / 'brief.json').write_text(json.dumps(brief), encoding='utf-8')
+        self.config.update(brief_file='brief.json', cycle={'repeats': 1})
+        self._write_config()
+        with patch.object(rebuild_run.evidence, 'fetch_page', side_effect=self._fake_fetch):
+            self.assertEqual(rebuild_run.run(self._run()), 2)
+        folder = self._folder()
+        queue_path = folder / 'browser-queue.json'
+        job = rebuild_run.rebuild_browser.claim_next(queue_path)
+        rebuild_run.rebuild_browser.mark_submitted(queue_path, job['slot_id'], job['dispatch_id'], 'session-1')
+        rebuild_run.rebuild_browser.record_result(queue_path, {
+            'run_id': job['run_id'], 'slot_id': job['slot_id'], 'dispatch_id': job['dispatch_id'],
+            'query_sha256': job['query_sha256'], 'query_text': job['query_text'], 'provider': job['provider'],
+            'conditions': {'product': job['provider'], 'model': 'test', 'locale': 'en-US',
+                           'web_search': True, 'session_mode': 'fresh', 'measurement_date': '2026-10-19'},
+            'observed_at': '2026-10-19T00:00:00Z', 'session_evidence': 'session-1',
+            'raw_response_reference': 'response-1', 'answer_complete': True,
+            'brand_mentioned': False, 'citation_coverage': 'complete', 'cited_urls': []})
+        with patch.object(rebuild_run.evidence, 'fetch_page', side_effect=self._fake_fetch):
+            self.assertEqual(rebuild_run.resume(argparse.Namespace(folder=str(folder), config=None,
+                               refresh=False, recover_lock=False)), 2)
+        cycle = json.loads((folder / 'cycle-report.json').read_text(encoding='utf-8'))
+        self.assertEqual(cycle['measurement']['status'], 'complete', self._state())
+        self.assertEqual(cycle['measurement']['completed_slots'], 1)
+        self.assertEqual(cycle['measurement']['zero_citation_completed_slots'], 1)
+        self.assertEqual(cycle['measurement']['observed_rows'], 0)
+
+    def test_cycle_preserves_queue_and_flags_changed_query_and_unsupported_provider(self):
+        brief = {'schema': 'su-presence/rebuild-brief/1', 'site_url': 'https://example.com',
+                 'queries': [{'id': 'q1', 'text': 'product price', 'type': 'nonbrand',
+                              'intent_id': 'topic', 'terms': [], 'required_sections': [],
+                              'page_type': 'guide'}], 'competitors': [],
+                 'channels': ['chatgpt', 'copilot'], 'facts': [], 'pages': []}
+        brief_path = self.root / 'brief.json'
+        brief_path.write_text(json.dumps(brief), encoding='utf-8')
+        self.config.update(brief_file='brief.json', cycle={'repeats': 1})
+        self._write_config()
+        with patch.object(rebuild_run.evidence, 'fetch_page', side_effect=self._fake_fetch):
+            self.assertEqual(rebuild_run.run(self._run()), 2)
+        folder = self._folder()
+        queue_path = folder / 'browser-queue.json'
+        initial = queue_path.read_bytes()
+        report = json.loads((folder / 'cycle-report.json').read_text(encoding='utf-8'))
+        self.assertEqual(report['measurement']['browser_unsupported_providers'], ['copilot'])
+        self.assertEqual(len(json.loads(initial)['slots']), 1)
+        brief['queries'][0]['text'] = 'product pricing'
+        brief_path.write_text(json.dumps(brief), encoding='utf-8')
+        self._write_discovery()
+        discovery = json.loads(self.discovery_file.read_text(encoding='utf-8'))
+        discovery['candidates'][0]['query_text'] = 'product pricing'
+        self.discovery_file.write_text(json.dumps(discovery), encoding='utf-8')
+        with patch.object(rebuild_run.evidence, 'fetch_page', side_effect=self._fake_fetch):
+            self.assertEqual(rebuild_run.resume(argparse.Namespace(folder=str(folder), config=None,
+                               refresh=False, recover_lock=False)), 2)
+        self.assertEqual(queue_path.read_bytes(), initial)
+        report = json.loads((folder / 'cycle-report.json').read_text(encoding='utf-8'))
+        self.assertTrue(report['measurement']['queue_stale'])
+        self.assertEqual(report['measurement']['status'], 'blocked')
+
 
 if __name__ == '__main__':
     unittest.main()

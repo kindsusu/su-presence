@@ -1,5 +1,7 @@
 # su-presence
 
+선택적 [측정 연결 사이클](docs/plans/measurement-cycle.ko.md)은 브라우저 작업 큐, 실제 인용 출처 조사, 완성 원고 검토를 재개 흐름에 연결합니다. 실제 UI 실행에는 브라우저를 제어할 수 있는 호스트가 필요하며, CLI가 로그인 세션을 제공하거나 사이트를 배포하지 않습니다.
+
 ![su-presence — Be seen. Be cited. Be verified.](assets/su-presence.png)
 
 > 검색·AI 답변에서 우리 자리가 있는가 — SEO·AEO·GEO·LLMO·네이버·다음을 한 표면으로. **su**(권수, [kindsusu](https://github.com/kindsusu))가 직접 다듬는 스킬
@@ -35,6 +37,8 @@
 버전 배지는 현재 소스의 버전을 가리킵니다. 게시된 패키지와 태그는 [Releases](https://github.com/kindsusu/su-presence/releases)에서 확인하세요.
 
 ## 빠른 시작
+
+처음 사용하는 PC에서는 [설치·실행·결과 파일 안내](docs/quickstart.ko.md)를 참고하세요. Windows 명령, 실제 서비스 측정에 필요한 준비, 열어볼 보고서와 PC 간 이동 방법을 정리했습니다.
 
 설치 경로 하나를 고릅니다. 플러그인은 Claude Code에서 편하고, 클론은 독립 실행과 개발에 적합합니다.
 

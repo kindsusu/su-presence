@@ -108,14 +108,17 @@ python <skill-root>/tools/seo_geo.py collect <audit.json> --coverage
 ```bash
 python <skill-root>/tools/seo_geo.py collect <audit.json> --runs 10 --pause 5
 python <skill-root>/tools/seo_geo.py collect <audit.json> --browser
-python <skill-root>/tools/seo_geo.py collect <audit.json> --record chatgpt --query B1 --cited https://example.com/page --sources https://www.youtube.com/watch?v=x,namu.wiki --brand yes --search on
+python <skill-root>/tools/seo_geo.py collect <audit.json> --record chatgpt --query B1 --cited https://example.com/page --sources https://www.youtube.com/watch?v=x,namu.wiki --brand yes --search on --answer complete --citation-coverage complete
 ```
 
 `--sources`에는 답변이 근거로 쓴 **우리 것이 아닌 출처도 전부** 적는다. `MEASURE.md`의 출처 채널 표가
 어느 채널에 자료를 더할지 가리키는 근거가 된다 ([ops/gap.md](ops/gap.md) 4단계).
 
-`--browser`는 막힌 엔진을 `unmeasured`로 예약하고 **무엇에 로그인해야 하는지 출력한다.**
-자격증명은 도구에 넣지 않는다. 측정 결과는 `--record`로 같은 log.jsonl에 `observed`로 돌아오고,
+`--answer`는 답변이 끝났으면 `complete`, 중간에 끊겼으면 `partial`로 기록한다. `--citation-coverage`는
+모든 출처를 확인했으면 `complete`, 일부만 확인했으면 `partial`, 범위를 모르면 `unknown`이다.
+예시의 두 `complete` 값은 답변과 출처 확인이 각각 완료된 경우에만 사용한다. 부분 출처 조사에서도 확인한 양성 인용은 보존된다.
+불완전·미확인 범위는 미인용으로 집계되지 않는다. `--browser`는 막힌 엔진을 `unmeasured`로 예약하고 **무엇에 로그인해야 하는지 출력한다.**
+자격증명은 도구에 넣지 않는다. 측정 결과는 `--record`로 같은 log.jsonl에 돌아오고,
 `measure report`가 그대로 집계한다. 엔진별 중립 모드(임시채팅·시크릿)와 접근 함정은
 [ops/measure-playbook.md](ops/measure-playbook.md)에 있다.
 

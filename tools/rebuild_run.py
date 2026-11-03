@@ -21,6 +21,8 @@ import rebuild_discovery
 import rebuild_evidence as evidence
 import rebuild_plan
 import rebuild_protocol
+import rebuild_review
+import rebuild_browser
 
 SCHEMA = 'su-presence/rebuild-run/1'
 STAGES = ('brief', 'audit', 'discovery', 'research', 'analysis', 'plan')
@@ -75,6 +77,9 @@ def _config(path):
     for key in ('audit_file', 'brief_file'):
         if data.get(key):
             data[key] = str((file.parent / data[key]).resolve())
+    for key in ('observations_file', 'log_file', 'review_file', 'queue_file'):
+        if data.get('cycle', {}).get(key):
+            data['cycle'][key] = str((file.parent / data['cycle'][key]).resolve())
     return data, str(file)
 
 
@@ -94,7 +99,7 @@ def _validate_config_data(data):
             for item in value:
                 check(item)
     check(data)
-    for section in ('discovery', 'analysis'):
+    for section in ('discovery', 'analysis', 'cycle'):
         if section in data and not isinstance(data[section], dict):
             raise ValueError('%s config must be an object' % section)
     for section, field in (('discovery', 'file'), ('analysis', 'analysis_file')):
@@ -106,6 +111,12 @@ def _validate_config_data(data):
         if data.get(key):
             if not isinstance(data[key], str):
                 raise ValueError('%s must be a path' % key)
+    cycle = data.get('cycle', {})
+    for key in ('observations_file', 'log_file', 'review_file', 'queue_file'):
+        if key in cycle and (not isinstance(cycle[key], str) or not cycle[key]):
+            raise ValueError('cycle.%s must be a path' % key)
+    if 'repeats' in cycle and (type(cycle['repeats']) is not int or not 1 <= cycle['repeats'] <= 20):
+        raise ValueError('cycle.repeats must be 1..20')
     _bounded(data.get('max_audit_pages'), 20, MAX_AUDIT_PAGES, 'max_audit_pages')
     _bounded(data.get('max_research_pages'), 30, MAX_RESEARCH_PAGES, 'max_research_pages')
     _bounded(data.get('max_queries'), 4, MAX_QUERIES, 'max_queries')
@@ -125,6 +136,118 @@ def _input_signature(state, config):
             'external': {key: _external_hash(config.get(key)) for key in ('audit_file', 'brief_file')},
             'discovery_import': _external_hash(config.get('discovery', {}).get('file')),
             'analysis_import': _external_hash(config.get('analysis', {}).get('analysis_file'))}
+
+
+def _cycle_config(config):
+    return config.get('cycle') or {}
+
+
+def _cycle_with_queue(folder, config):
+    if 'cycle' not in config:
+        return config
+    updated = dict(config)
+    updated['cycle'] = dict(_cycle_config(config))
+    updated['cycle'].setdefault('queue_file', str(folder / 'browser-queue.json'))
+    updated['cycle']['protocol_file'] = str(folder / 'browser-protocol.json')
+    return updated
+
+
+def _observations(brief, config):
+    cycle = _cycle_config(config)
+    explicit = rebuild.observations(cycle.get('observations_file'), brief)
+    imported, warnings = rebuild.from_log(cycle.get('log_file'), brief)
+    if cycle.get('queue_file') and Path(cycle['queue_file']).is_file():
+        queued, queue_warnings = _queue_observations(cycle['queue_file'], brief, cycle.get('protocol_file'))
+        imported.extend(queued)
+        warnings.extend(queue_warnings)
+    rows, ids = [], set()
+    excluded = []
+    query_types = {q['id']: q.get('type') for q in brief['queries']}
+    for row in explicit + imported:
+        if row['id'] in ids:
+            continue
+        ids.add(row['id'])
+        if query_types[row['query_id']] != 'nonbrand':
+            excluded.append({'id': row['id'], 'query_id': row['query_id'],
+                             'reason': 'query is brand or needs explicit classification'})
+            continue
+        rows.append(row)
+    return rows, warnings, excluded
+
+
+def _queue_observations(path, brief, current_protocol_path=None):
+    queue = rebuild_browser._queue(path)
+    if current_protocol_path and Path(current_protocol_path).is_file():
+        current = rebuild.read_json(current_protocol_path)
+        prior = rebuild.read_json(queue['protocol_path'])
+        identity = lambda value: [(row['id'], row['query_sha256']) for row in value.get('slots', [])]
+        if identity(current) != identity(prior):
+            return [], ['Excluded stale browser queue: query slots changed; use a new queue file.']
+    query_index = {query['id']: query for query in brief['queries']}
+    rows, warnings = [], []
+    for slot in queue['slots']:
+        query = query_index.get(slot.get('query_id'))
+        if not query or slot.get('query_sha256') != hashlib.sha256(query['text'].encode()).hexdigest():
+            warnings.append('Excluded stale queue slot: %s' % slot.get('id'))
+            continue
+        if slot.get('status') not in ('complete', 'incomplete'):
+            continue
+        result = slot.get('result') or {}
+        if result.get('answer_complete') is not True:
+            continue
+        for index, url in enumerate(result.get('cited_urls') or []):
+            if not evidence.public_url(url):
+                warnings.append('Excluded invalid queue citation URL')
+                continue
+            rows.append({'id': 'queue-%s-%d' % (hashlib.sha256(slot['id'].encode()).hexdigest()[:12], index),
+                         'query_id': query['id'], 'query_text': query['text'],
+                         'channel': slot['provider'], 'outcome': 'observed', 'url': url,
+                         'evidence_url': url, 'observed_at': result['observed_at'],
+                         'raw_response_reference': result.get('raw_response_reference'),
+                         'session_evidence': result.get('session_evidence'),
+                         'brand_mentioned': result.get('brand_mentioned'),
+                         'citation_coverage': result.get('citation_coverage'),
+                         'conditions': result.get('conditions')})
+    return rows, warnings
+
+
+def _queue_stale(path, current_protocol_path):
+    queue = rebuild_browser._queue(path)
+    current = rebuild.read_json(current_protocol_path)
+    prior = rebuild.read_json(queue['protocol_path'])
+    identity = lambda value: [(row['id'], row['query_sha256']) for row in value.get('slots', [])]
+    return identity(current) != identity(prior)
+
+
+def _ensure_protocol_queue(folder, config):
+    cycle = _cycle_config(config)
+    brief_path = folder / 'brief.json'
+    protocol_path = folder / 'protocol.json'
+    digest = _file_hash(brief_path)
+    previous = rebuild.read_json(protocol_path) if protocol_path.is_file() else None
+    if not isinstance(previous, dict) or previous.get('input_provenance', {}).get('brief_sha256') != digest or previous.get('repeats') != cycle.get('repeats', 3):
+        protocol = rebuild_protocol.build_protocol(rebuild.read_json(brief_path), cycle.get('repeats', 3))
+        protocol['input_provenance'] = {'brief_path': str(brief_path), 'brief_sha256': digest}
+        rebuild.save(protocol_path, protocol)
+        _write_text(folder / 'protocol.md', rebuild_protocol.markdown(protocol))
+    else:
+        protocol = previous
+    queue_path = Path(cycle.get('queue_file') or folder / 'browser-queue.json')
+    browser_protocol_path = folder / 'browser-protocol.json'
+    supported = [slot for slot in protocol['slots'] if slot['provider'] in rebuild_browser.PRODUCTS]
+    browser_protocol = dict(protocol, slots=supported,
+                            browser_excluded_providers=sorted({slot['provider'] for slot in protocol['slots']}
+                                                              - set(rebuild_browser.PRODUCTS)))
+    previous_browser = rebuild.read_json(browser_protocol_path) if browser_protocol_path.is_file() else None
+    if (not isinstance(previous_browser, dict) or previous_browser.get('input_provenance', {}).get('brief_sha256') != digest
+            or previous_browser.get('repeats') != cycle.get('repeats', 3)):
+        rebuild.save(browser_protocol_path, browser_protocol)
+    if not queue_path.exists() and supported:
+        immutable_protocol = folder / ('browser-protocol-' + _file_hash(browser_protocol_path)[:16] + '.json')
+        if not immutable_protocol.exists():
+            shutil.copy2(browser_protocol_path, immutable_protocol)
+        rebuild_browser.initialize(immutable_protocol, queue_path)
+    return protocol, queue_path
 
 
 def _state_path(folder):
@@ -170,7 +293,9 @@ def _write_state(folder, state):
 
 def _allowed_output(name, key):
     return key in OUTPUTS[name] or (name == 'plan' and isinstance(key, str) and
-                                     re.fullmatch(r'pages/[A-Za-z0-9_-]+-[0-9a-f]{8}\.(?:json|md|html)', key) is not None)
+                                     (key in ('protocol.json', 'protocol.md', 'browser-protocol.json', 'cycle-report.json',
+                                              'review.json', 'review.md', 'review.html') or
+                                      re.fullmatch(r'pages/[A-Za-z0-9_-]+-[0-9a-f]{8}\.(?:json|md|html)', key) is not None))
 
 
 def _expected_outputs(folder, name):
@@ -183,6 +308,10 @@ def _expected_outputs(folder, name):
         for page in pages:
             stem = rebuild.safe_name(page['id'])
             outputs.extend('pages/' + stem + '.' + ext for ext in ('json', 'md', 'html'))
+        if isinstance(plan.get('cycle'), dict):
+            outputs.extend(('protocol.json', 'protocol.md', 'browser-protocol.json', 'cycle-report.json'))
+            if plan['cycle'].get('review', {}).get('status') in ('human_review_required', 'partial'):
+                outputs.extend(('review.json', 'review.md', 'review.html'))
     return outputs
 
 
@@ -211,14 +340,21 @@ def _stage_fingerprint(name, state, config):
                   'max_audit_pages': config.get('max_audit_pages'), 'crawl_delay': config.get('crawl_delay')},
         'discovery': {'locale': state['locale'], 'settings': config.get('discovery', {}),
                       'import': _external_hash(config.get('discovery', {}).get('file'))},
-        'research': {'max_research_pages': config.get('max_research_pages')},
+        'research': {'max_research_pages': config.get('max_research_pages'),
+                     'observations_import': _external_hash(_cycle_config(config).get('observations_file')),
+                     'log_import': _external_hash(_cycle_config(config).get('log_file')),
+                     'queue_import': _external_hash(_cycle_config(config).get('queue_file'))},
         'analysis': {'settings': config.get('analysis', {}),
                      'import': _external_hash(config.get('analysis', {}).get('analysis_file'))},
-        'plan': {}}[name]
+        'plan': {'cycle': _cycle_config(config),
+                 'observations_import': _external_hash(_cycle_config(config).get('observations_file')),
+                 'log_import': _external_hash(_cycle_config(config).get('log_file')),
+                 'queue_import': _external_hash(_cycle_config(config).get('queue_file')),
+                 'review_import': _external_hash(_cycle_config(config).get('review_file'))}}[name]
     code_files = {'brief': (evidence,), 'audit': (crawl,),
                   'discovery': (rebuild_discovery,), 'research': (evidence, rebuild_discovery),
                   'analysis': (rebuild_analysis,),
-                  'plan': (rebuild_plan, rebuild_analysis, rebuild, rebuild_protocol)}[name]
+                  'plan': (rebuild_plan, rebuild_analysis, rebuild, rebuild_protocol, rebuild_review)}[name]
     code_versions = [_file_hash(__file__)] + [_file_hash(module.__file__) for module in code_files]
     return _digest({'version': 1, 'name': name, 'code_versions': code_versions,
                     'input': dict(common, **specific),
@@ -313,7 +449,7 @@ def _brief(state, config):
     return evidence.validate_brief(brief)
 
 
-def _make_research(brief, audit, discovery, config):
+def _make_research(brief, audit, discovery, config, observations=None):
     candidates = discovery.get('candidates', [])
     own_host = urlsplit(brief['site_url']).hostname
     def unique_urls(urls):
@@ -332,10 +468,12 @@ def _make_research(brief, audit, discovery, config):
                            and urlsplit(page['url']).hostname == own_host])
     candidate_urls = unique_urls(row['url'] for row in candidates
                                  if urlsplit(row['url']).hostname != own_host)
+    observed_urls = unique_urls(row['url'] for row in (observations or [])
+                                if row['outcome'] == 'observed' and urlsplit(row['url']).hostname != own_host)
     # Spread external sources across hosts before taking second results from one host.
     seen_hosts = set()
     first, later = [], []
-    for url in candidate_urls + brief['competitors']:
+    for url in observed_urls + candidate_urls + brief['competitors']:
         host = urlsplit(url).hostname
         if host == own_host:
             continue
@@ -360,6 +498,12 @@ def _make_research(brief, audit, discovery, config):
             page['query_ids'] = list(dict.fromkeys(hit['query_id'] for hit in hits))
             page['discovery_ids'] = list(dict.fromkeys(hit['id'] for hit in hits))
             page['discovery_providers'] = list(dict.fromkeys(hit['provider'] for hit in hits))
+        observations_for_page = [row for row in (observations or [])
+                                 if row['outcome'] == 'observed' and rebuild_discovery._url_key(row['url']) == rebuild_discovery._url_key(url)]
+        if observations_for_page:
+            page['observation_ids'] = list(dict.fromkeys(row['id'] for row in observations_for_page))
+            page['query_ids'] = list(dict.fromkeys(page.get('query_ids', []) +
+                                                  [row['query_id'] for row in observations_for_page]))
         pages.append(page)
     return {'schema': 'su-presence/rebuild-research/1', 'generated_at': _stamp(),
             'site_url': brief['site_url'], 'pages': pages,
@@ -433,7 +577,8 @@ def _execute(name, folder, state, config):
         return result['status'], result.get('next_action') or ('; '.join(result.get('warnings', [])[:3]) if result['status'] == 'partial' else None)
     discovery = rebuild.read_json(folder / 'discovery.json')
     if name == 'research':
-        result = _make_research(brief, rebuild.audit_input(folder / 'audit.json'), discovery, config)
+        observations, _, _ = _observations(brief, config) if 'cycle' in config else ([], [], [])
+        result = _make_research(brief, rebuild.audit_input(folder / 'audit.json'), discovery, config, observations)
         rebuild.save(folder / 'research.json', result)
         complete = result['coverage']['complete']
         return ('succeeded' if complete else 'partial'), (None if complete else 'Research coverage is incomplete; inspect research.json and use resume --refresh to retry')
@@ -449,16 +594,78 @@ def _execute(name, folder, state, config):
         return ('needs_input' if note else 'succeeded' if result['status'] == 'complete' else 'partial'), note or ('; '.join(result.get('warnings', [])[:3]) if result['status'] == 'partial' else None)
     audit = rebuild.audit_input(folder / 'audit.json')
     analysis = rebuild.read_json(folder / 'analysis.json')
-    plan = rebuild_plan.build_plan(audit, brief, [], research, discovery=discovery)
+    observations, import_warnings, excluded = _observations(brief, config) if 'cycle' in config else ([], [], [])
+    plan = rebuild_plan.build_plan(audit, brief, observations, research, discovery=discovery)
     plan = rebuild_analysis.enrich_plan(plan, analysis)
+    plan.setdefault('input_provenance', {})
+    if 'cycle' in config:
+        cycle = _cycle_config(config)
+        protocol, queue_path = _ensure_protocol_queue(folder, config)
+        unsupported_providers = rebuild.read_json(folder / 'browser-protocol.json').get('browser_excluded_providers', [])
+        queue_stale = queue_path.is_file() and _queue_stale(queue_path, folder / 'browser-protocol.json')
+        queue_counts = rebuild_browser.status(queue_path)['counts'] if queue_path.is_file() and not queue_stale else None
+        review_state = {'status': 'pending', 'next_action': 'Supply cycle.review_file with completed copy.'}
+        if cycle.get('review_file'):
+            review_input, review_hash = rebuild_review.load_input(cycle['review_file'])
+            page_ids = {page['id'] for page in plan['page_blueprints']}
+            supplied_ids = {page['id'] for page in review_input['pages']}
+            if not supplied_ids.issubset(page_ids):
+                raise ValueError('Content review page IDs must match current plan page IDs')
+            review_result = rebuild_review.review(review_input, review_hash)
+            review_result['plan_sha256'] = _digest({'page_blueprints': plan['page_blueprints'],
+                'source_hashes': {name: _file_hash(folder / (name + '.json')) for name in
+                                  ('brief', 'audit', 'research', 'analysis', 'discovery')}})
+            rebuild.save(folder / 'review.json', review_result)
+            _write_text(folder / 'review.md', rebuild_review.markdown(review_result))
+            _write_text(folder / 'review.html', rebuild_review.render_html(review_result))
+            review_state = {'status': 'partial' if page_ids - supplied_ids else 'human_review_required',
+                            'page_ids': sorted(supplied_ids),
+                            'missing_page_ids': sorted(page_ids - supplied_ids),
+                            'input_sha256': review_hash, 'plan_sha256': review_result['plan_sha256'],
+                            'next_action': 'Editor must resolve manual review findings.'}
+        measurement_status = ('blocked' if queue_stale or unsupported_providers or queue_counts and queue_counts['blocked'] else
+                              'complete' if queue_counts and queue_counts['complete'] == len(protocol['slots']) and
+                              not protocol['query_classification_needs_review'] else
+                              'partial' if observations or (queue_counts and queue_counts['complete']) else 'pending')
+        cycle_report = {'schema': 'su-presence/rebuild-cycle-report/1',
+                        'measurement': {'status': measurement_status,
+                                        'observed_rows': sum(row['outcome'] == 'observed' for row in observations),
+                                        'imported_rows': len(observations),
+                                        'pending_slots': (queue_counts['pending'] if queue_counts else len(protocol['slots'])),
+                                        'queue_counts': queue_counts,
+                                        'queue_stale': queue_stale,
+                                        'browser_unsupported_providers': unsupported_providers,
+                                        'completed_slots': queue_counts['complete'] if queue_counts else 0,
+                                        'zero_citation_completed_slots': (sum(slot['status'] == 'complete' and not slot['result'].get('cited_urls')
+                                            for slot in rebuild_browser._queue(queue_path)['slots']) if queue_counts else 0),
+                                        'query_classification_needs_review': protocol['query_classification_needs_review'],
+                                        'excluded_brand_query_ids': protocol['excluded_brand_query_ids'],
+                                        'excluded_import_rows': excluded, 'warnings': import_warnings,
+                                        'next_action': 'Record actual results for pending protocol slots; classify unspecified queries.'},
+                        'review': review_state,
+                        'research': {'status': state['stages']['research']['status'],
+                                     'coverage': research.get('coverage')},
+                        'deployment': {'status': 'excluded', 'reason': 'This cycle only prepares evidence and drafts.'}}
+        rebuild.save(folder / 'cycle-report.json', cycle_report)
+        plan['cycle'] = cycle_report
+        plan.setdefault('limits', []).extend(import_warnings)
+        if not observations:
+            plan['limits'].append('No validated visibility observations imported; measurement remains pending.')
+        if excluded:
+            plan['limits'].append('%d observation rows excluded because query type is brand or unclassified.' % len(excluded))
+        plan['input_provenance'].update({key: {'path': cycle[field], 'sha256': _file_hash(cycle[field])}
+                                          for key, field in [('observations', 'observations_file'),
+                                                             ('log', 'log_file'), ('review_input', 'review_file'),
+                                                             ('browser_queue', 'queue_file')]
+                                          if cycle.get(field) and Path(cycle[field]).is_file()})
     # Discovery hits are candidate sources, not proven search visibility observations.
     plan['discovery'] = {'provider': discovery.get('provider'), 'status': discovery.get('status'),
                          'candidate_count': len(discovery.get('candidates', [])),
                          'warnings': discovery.get('warnings', [])}
-    plan['input_provenance'] = {key: {'path': str(folder / filename), 'sha256': _file_hash(folder / filename)}
+    plan['input_provenance'].update({key: {'path': str(folder / filename), 'sha256': _file_hash(folder / filename)}
                                 for key, filename in [('audit', 'audit.json'), ('brief', 'brief.json'),
                                                       ('discovery', 'discovery.json'), ('research', 'research.json'),
-                                                      ('analysis', 'analysis.json')]}
+                                                      ('analysis', 'analysis.json')]})
     if discovery.get('status') != 'succeeded':
         plan.setdefault('limits', []).append('Discovery is %s; search visibility and competitor coverage are incomplete.' % discovery.get('status'))
     if state['stages']['analysis']['status'] == 'needs_input':
@@ -494,6 +701,10 @@ def _overall(state):
         return 'partial'
     if 'partial' in statuses:
         return 'partial'
+    if 'cycle' in state.get('config_snapshot', {}):
+        # Automated copy review still requires human approval; this runner has
+        # no approval transition, so a measured cycle is not overall complete.
+        return 'partial'
     return 'complete'
 
 
@@ -509,12 +720,15 @@ def _safe_error(exc):
 
 
 def _drive(folder, state, config, refresh=False):
+    config = _cycle_with_queue(folder, config)
     for name in STAGES:
         stage = state['stages'][name]
         if any(state['stages'][dep]['status'] in ('failed', 'pending', 'running', 'skipped') for dep in DEPENDENCIES[name]):
             stage.update(status='skipped', error='Upstream stage unavailable')
             _write_state(folder, state)
             continue
+        if name == 'research' and 'cycle' in config and state['stages']['brief']['status'] in ('succeeded', 'partial'):
+            _ensure_protocol_queue(folder, config)
         fingerprint = _stage_fingerprint(name, state, config)
         force = refresh and name in ('discovery', 'research', 'analysis', 'plan')
         if refresh and name in ('audit', 'brief') and stage['status'] == 'partial':
@@ -606,6 +820,11 @@ def status(args):
         output['stages'][name] = {'status': item['status'], 'attempts': item.get('attempts', 0),
                                   'outputs_valid': valid,
                                   'next_action': item.get('error')}
+    if 'cycle' in state.get('config_snapshot', {}) and (folder / 'cycle-report.json').is_file():
+        output['cycle'] = rebuild.read_json(folder / 'cycle-report.json')
+        cycle_path = folder / 'browser-queue.json'
+        if cycle_path.is_file():
+            output['cycle']['live_browser_queue'] = rebuild_browser.status(cycle_path)
     if invalid:
         output['status'] = 'invalid_artifacts'
     print(json.dumps(output, ensure_ascii=False, indent=2))

@@ -115,14 +115,18 @@ Collection splits into three access types. Browser queries, interpretation and s
 ```bash
 python <skill-root>/tools/seo_geo.py collect <audit.json> --runs 10 --pause 5
 python <skill-root>/tools/seo_geo.py collect <audit.json> --browser
-python <skill-root>/tools/seo_geo.py collect <audit.json> --record chatgpt --query B1 --cited https://example.com/page --sources https://www.youtube.com/watch?v=x,namu.wiki --brand yes --search on
+python <skill-root>/tools/seo_geo.py collect <audit.json> --record chatgpt --query B1 --cited https://example.com/page --sources https://www.youtube.com/watch?v=x,namu.wiki --brand yes --search on --answer complete --citation-coverage complete
 ```
 
 Put **every source the answer relied on, including ones that are not ours**, in `--sources`. The source-channel
 table in `MEASURE.md` then shows which channel needs material ([gap](ops/gap.md) step 4).
 
+Record `--answer complete` when the answer finished and `partial` when it was cut off. Independently,
+set `--citation-coverage complete` when all sources were inspected, `partial` when only some were inspected,
+and `unknown` when the inspection scope is unknown. Use the example's two `complete` values only when each is true.
+A confirmed positive citation remains evidence even when source inspection is partial; incomplete or unknown scope is not counted as a non-citation.
 `--browser` reserves blocked engines as `unmeasured` and **prints what to sign into.** Credentials
-never go into the tool. Results come back through `--record` as `observed` in the same
+never go into the tool. Results come back through `--record` in the same
 `log.jsonl`, and `measure report` aggregates them together. Per-engine neutral modes (temporary
 chat, incognito) and access traps are in [measure-playbook](ops/measure-playbook.md).
 

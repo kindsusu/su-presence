@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 
 
@@ -20,7 +21,16 @@ def atomic_json(path: Path, value):
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
             json.dump(value, stream, ensure_ascii=False, indent=2)
             stream.write("\n")
-        os.replace(temporary, path)
+        # Windows indexers can briefly open the destination without delete sharing.
+        # Retry only these bounded transient Windows errors; never remove the old file.
+        for attempt in range(5):
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError as exc:
+                if getattr(exc, 'winerror', None) not in (5, 32, 33) or attempt == 4:
+                    raise
+                time.sleep(0.025 * (attempt + 1))
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)

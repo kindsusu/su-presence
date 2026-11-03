@@ -96,6 +96,8 @@ def fill_form_csv(src, dst, answer):
         cited, urls = answer(row)
         row["cited"] = cited
         row["cited_urls"] = urls
+        row["answer_complete"] = "Y"
+        row["citation_coverage"] = "complete"
     with open(dst, "w", encoding="utf-8-sig", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=fields, lineterminator="\n")
         writer.writeheader()

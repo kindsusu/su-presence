@@ -238,7 +238,7 @@ class TestForm(Fixture):
         self.assertEqual(code, 0)
         self.assertIn("bing", out)
         self.assertIn("빈 칸", out)
-        self.assertIn("표본이 아니다", out)      # runs < 5
+        self.assertNotIn("표본이 아니다", out)
 
     def test_form_without_queries_fails(self):
         os.remove(os.path.join(self.mdir, "queries.json"))
@@ -329,13 +329,13 @@ class TestImport(Fixture):
         self.assertEqual(len(rows), 1)
         self.assertIs(rows[0]["cited"], True)
 
-    def test_blank_brand_mentioned_follows_cited(self):
+    def test_blank_brand_mentioned_is_unknown(self):
         path = self.csv_path([row(cited="Y", cited_urls="example.com/a"),
                               row(run_no=2, cited="N")])
         self.run_cli(["import", self.audit, path])
         rows = sorted(measure.load_log(self.log), key=lambda r: r["run_no"])
-        self.assertIs(rows[0]["brand_mentioned"], True)
-        self.assertIs(rows[1]["brand_mentioned"], False)
+        self.assertIsNone(rows[0]["brand_mentioned"])
+        self.assertIsNone(rows[1]["brand_mentioned"])
 
     def test_cited_without_url_is_noted(self):
         path = self.csv_path([row(cited="Y", cited_urls="")])

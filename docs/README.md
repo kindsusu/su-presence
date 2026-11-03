@@ -7,6 +7,8 @@
 | 목적 / Task | 문서 / Guide |
 |---|---|
 | 설치하고 첫 진단 실행 / Install and audit | [한국어](../README.ko.md#빠른-시작) · [English](../README.md#quick-start) |
+| 다른 PC 설치·결과 파일 확인 / New PC and output files | [설치·실행 안내](quickstart.ko.md) |
+| 측정·조사·설계 연결 / Connected measurement cycle | [한국어](plans/measurement-cycle.ko.md) · [English](plans/measurement-cycle.md) |
 | CLI 명령·옵션·파일 스키마 / CLI reference | [tools/README.md](../tools/README.md) |
 | 실제 실행 구조·단계 경계 / Runtime architecture | [한국어](architecture.ko.md) · [English](architecture.md) |
 | 근거 기반 사이트 재구축 / Evidence-based rebuilding | [재구축 실행 안내](plans/rebuild-guide.md) |

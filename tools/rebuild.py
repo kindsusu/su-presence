@@ -109,6 +109,9 @@ def from_log(path, brief):
         if row.get('mode') == 'api' or row.get('search_enabled') is False:
             warnings.append('Excluded API/search-off row from web visibility: %s' % q['id'])
             continue
+        if row.get('answer_complete') is False:
+            warnings.append('Excluded unfinished answer for %s' % q['id'])
+            continue
         channel = row.get('surface') or row.get('engine')
         if channel not in brief['channels']:
             warnings.append('Unselected/unknown measurement surface: %s' % channel)
@@ -122,7 +125,10 @@ def from_log(path, brief):
                 channel=channel, url=url, outcome='observed', observed_at=row.get('recorded_at') or row['date'],
                 evidence_url=url, note='Imported citation; original row in measurement log; no SERP rank inferred',
                 mode=row.get('mode'), locale=row.get('locale'), login_state=row.get('login_state'),
-                search_enabled=row.get('search_enabled'), model=row.get('model'), campaign_id=row.get('campaign_id')))
+                search_enabled=row.get('search_enabled'), model=row.get('model'), campaign_id=row.get('campaign_id'),
+                citation_coverage=row.get('citation_coverage', 'unknown'),
+                raw_response_reference=row.get('raw_response_reference'),
+                measurement_log=str(Path(path).resolve()), measurement_row_key=list(measure.row_key(row))))
         if row.get('competitor_domains'):
             warnings.append('Domain-only competitor mentions are not exact observed pages: %s' % q['id'])
     return result, sorted(set(warnings))
@@ -165,6 +171,10 @@ def markdown(plan):
     lines += ['- ' + str(x).replace('\n', ' ') for x in plan.get('limits', [])]
     if plan.get('execution'):
         lines += ['', '## Execution', '', json.dumps(plan['execution'], ensure_ascii=False)]
+    if plan.get('cycle'):
+        lines += ['', '## Connected cycle status', '',
+                  'Measurement, research, copy review and excluded deployment are tracked separately.',
+                  '', '```json', json.dumps(plan['cycle'], ensure_ascii=False, indent=2), '```']
     for b in plan['page_blueprints']:
         lines += ['', '## ' + b['title'], '', 'Action: ' + b['action'],
                   '', 'Proposed URL: ' + b['suggested_url'], '', 'Reason: ' + b['rationale'],
@@ -222,6 +232,14 @@ def render_html(plan):
                      '<details><summary>전체 청사진 JSON</summary><pre>' + esc(json.dumps(b, ensure_ascii=False, indent=2)) + '</pre></details></section>')
     channels = ''.join('<article><h3>' + esc(c['channel']) + ' · ' + esc(c['status']) + '</h3>' + listing(c['actions']) + '</article>' for c in plan['channel_actions'])
     backlog = listing(task['id'] + ' · ' + task['action'] + ' · 선행: ' + ', '.join(task['depends_on']) for task in plan['backlog'])
+    cycle = ''
+    if plan.get('cycle'):
+        state = plan['cycle']
+        cycle = '<section><h2>연결 사이클 상태</h2>' + listing(
+            name + ': ' + str(state.get(name, {}).get('status', 'unknown'))
+            for name in ('measurement', 'research', 'review', 'deployment'))
+        cycle += '<p>측정·조사·원고 검토 상태는 별도입니다. 실제 사이트 배포는 수행하지 않습니다.</p><details><summary>회차와 남은 작업</summary><pre>'
+        cycle += esc(json.dumps(state, ensure_ascii=False, indent=2)) + '</pre></details></section>'
     return ('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
             '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'">'
             '<title>su-presence rebuild guide</title><style>body{font:16px/1.6 system-ui;max-width:1100px;margin:40px auto;padding:0 20px;color:#18352d;background:#f6f8f7}'
@@ -230,7 +248,7 @@ def render_html(plan):
             '.tag{font-weight:bold}article{border-top:1px solid #d4ded9}li{margin:8px 0}p{overflow-wrap:anywhere}</style></head><body>'
             '<header><p>SU-PRESENCE / REBUILD</p><h1>근거에서 페이지 설계까지</h1><p>' + esc(plan['target']) + ' · ' + esc(plan['generated_at']) +
             '</p><p>의도 ' + esc(plan['summary']['intents']) + '개 · 관측 ' + esc(plan['summary']['observations']) + '개 · 중요 기술 과제 ' +
-            esc(plan['summary']['critical_blockers']) + '개</p></header><section><h2>분석 범위와 한계</h2>' + listing(plan['limits']) + '<pre>' + esc(json.dumps(plan.get('execution', {}), ensure_ascii=False, indent=2)) + '</pre></section>' + ''.join(cards) +
+            esc(plan['summary']['critical_blockers']) + '개</p></header>' + cycle + '<section><h2>분석 범위와 한계</h2>' + listing(plan['limits']) + '<pre>' + esc(json.dumps(plan.get('execution', {}), ensure_ascii=False, indent=2)) + '</pre></section>' + ''.join(cards) +
             '<section><h2>채널별 실행</h2>' + channels + '</section><section><h2>작성 후 검토와 반복 측정</h2>'
             '<p>완성된 본문은 rebuild review로 점검하고 의미·사실 검토 후 발행하세요. 아래 계획은 실제 관측 결과가 아닙니다.</p><pre>' +
             esc(json.dumps(plan.get('measurement_protocol', {}), ensure_ascii=False, indent=2)) +
@@ -383,6 +401,8 @@ def main(argv=None):
     import rebuild_protocol
     rebuild_review.add_parsers(sub)
     rebuild_protocol.add_parsers(sub)
+    import rebuild_browser
+    rebuild_browser.add_parsers(sub)
     args = p.parse_args(argv)
     if args.command == 'research' and not 1 <= args.max_pages <= 100:
         p.error('--max-pages must be 1..100')

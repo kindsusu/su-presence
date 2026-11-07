@@ -73,9 +73,10 @@ The connected workflow is the shortest route from a site and topic to a reviewab
 
 ```bash
 python tools/seo_geo.py rebuild run https://example.com --topic "core service" --config templates/rebuild/run-config.json --out out/example.com/rebuild
-# Use the run-* directory printed by the previous command.
-python tools/seo_geo.py rebuild status out/example.com/rebuild/<run-id>
-python tools/seo_geo.py rebuild resume out/example.com/rebuild/<run-id>
+# Paste the run-* directory printed on the first line above (an absolute path).
+read -r -p "Run directory: " run_dir
+python tools/seo_geo.py rebuild status "$run_dir"
+python tools/seo_geo.py rebuild resume "$run_dir"
 ```
 
 `status` reports saved stage results. `resume` reuses validated outputs; add `--refresh` to retry incomplete discovery, research or analysis after fixing their input. Missing search configuration becomes `needs_input`, and incomplete collection becomes `partial` (exit code `2`). An initial topic creates draft queries sharing one intent. Supply a reviewed `brief_file` in the configuration for confirmed business facts, page mappings and multiple intents. See the [automation guide](docs/plans/rebuild-automation-guide.md).
@@ -86,8 +87,9 @@ For explicit control of inputs and observations, use the original three commands
 python tools/seo_geo.py rebuild init out/example.com/audit.json
 # Edit the generated brief: queries, competitor URLs, verified facts, and page mappings.
 python tools/seo_geo.py rebuild research out/example.com/rebuild/brief.json --out out/example.com/research
-# Supply research.json from the run-* directory printed above.
-python tools/seo_geo.py rebuild plan out/example.com/audit.json --brief out/example.com/rebuild/brief.json --research <research.json> --out out/example.com/rebuild
+# Paste the research.json path printed by the previous command (an absolute path).
+read -r -p "Research JSON path: " research_file
+python tools/seo_geo.py rebuild plan out/example.com/audit.json --brief out/example.com/rebuild/brief.json --research "$research_file" --out out/example.com/rebuild
 ```
 
 Add recorded discovery/observations with `--observations <observations.json>` or compatible measurement logs with `--log <log.jsonl>`. Research fetches specified URLs; it does not automatically query search engines or authenticated AI products. Planning is offline. Failed fetches, empty HTML, and unmeasured channels do not establish absence of visibility. Page drafts require factual and editorial review.

@@ -75,9 +75,10 @@ python tools/seo_geo.py audit https://example.com --out out
 
 ```bash
 python tools/seo_geo.py rebuild run https://example.com --topic "핵심 서비스" --config templates/rebuild/run-config.json --out out/example.com/rebuild
-# 첫 명령에 출력된 run-* 디렉터리를 사용합니다.
-python tools/seo_geo.py rebuild status out/example.com/rebuild/<run-id>
-python tools/seo_geo.py rebuild resume out/example.com/rebuild/<run-id>
+# 첫 줄에 출력된 run-* 디렉터리의 절대 경로를 입력합니다.
+read -r -p "실행 디렉터리: " run_dir
+python tools/seo_geo.py rebuild status "$run_dir"
+python tools/seo_geo.py rebuild resume "$run_dir"
 ```
 
 `status`는 저장된 단계 결과를 보여 줍니다. `resume`은 유효한 산출물을 재사용하고, 입력을 수정한 후 `--refresh`를 붙이면 미완료 검색·조사·분석을 다시 시도합니다. 검색 설정이 없으면 `needs_input`, 수집이 불완전하면 `partial`이며 종료 코드는 `2`입니다. 기본 주제는 하나의 의도로 묶인 질문 초안만 만듭니다. 확인된 사업 사실·기존 페이지 연결·다른 의도를 반영하려면 설정 파일의 `brief_file`로 검토한 브리프를 전달합니다. 자세한 사용법은 [자동화 안내](docs/plans/rebuild-automation-guide.md)에 있습니다.
@@ -88,8 +89,9 @@ python tools/seo_geo.py rebuild resume out/example.com/rebuild/<run-id>
 python tools/seo_geo.py rebuild init out/example.com/audit.json
 # 생성된 brief.json의 질문·경쟁 URL·확인된 사실·기존 페이지 매핑을 편집합니다.
 python tools/seo_geo.py rebuild research out/example.com/rebuild/brief.json --out out/example.com/research
-# 출력된 run-* 경로의 research.json을 아래에 전달합니다.
-python tools/seo_geo.py rebuild plan out/example.com/audit.json --brief out/example.com/rebuild/brief.json --research <research.json> --out out/example.com/rebuild
+# 직전 명령에 출력된 research.json의 절대 경로를 입력합니다.
+read -r -p "조사 JSON 경로: " research_file
+python tools/seo_geo.py rebuild plan out/example.com/audit.json --brief out/example.com/rebuild/brief.json --research "$research_file" --out out/example.com/rebuild
 ```
 
 검색 발견 결과나 직접 관측은 `--observations <observations.json>`으로, 호환되는 측정 기록은 `--log <log.jsonl>`로 추가합니다. `research`는 지정 URL을 수집하며 검색 엔진이나 로그인 AI 제품을 자동 조사하지 않습니다. `plan`은 오프라인입니다. 수집 실패·빈 HTML·미측정 채널은 노출 부재의 증거가 아닙니다. HTML 초안에는 실제 본문 편집과 사실 확인이 필요합니다.

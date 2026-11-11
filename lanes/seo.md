@@ -12,7 +12,8 @@
       전부 열기 어려우면 티저(첫 문단·핵심 수치)라도 SSR로 열고 나머지를 게이트한다
 - [ ] `curl -sL <url>` HTML에 핵심 본문이 있는가? SPA/CSR이면 SSR·SSG·프리렌더를 검토한다.
       Google은 JavaScript를 렌더링할 수 있으므로 원시 본문이 적다는 사실만으로 색인 불가를 확정하지 말고,
-      렌더링 결과와 Search Console도 확인한다
+      렌더링 결과와 Search Console도 확인한다. 원시와 렌더를 비교할 항목과 보고 방식은
+      [렌더 비교](../ops/evidence.md#javascript-렌더-비교--원시와-렌더를-나란히)를 따른다
 - [ ] ⚠️ **CSR 바일아웃 함정**: SSR 프레임워크에서도 특정 훅·API가 페이지를 통째로 클라이언트
       렌더로 떨어뜨릴 수 있다 (Next.js의 Suspense 없는 `useSearchParams` 등).
       **배포마다 대표 페이지를 curl로 재확인하라** — 본문 글자 수가 갑자기 줄면 사고다

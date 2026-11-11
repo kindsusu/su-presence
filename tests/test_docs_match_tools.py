@@ -86,6 +86,55 @@ class TestProbedCrawlersAreDocumented(unittest.TestCase):
             "crawl.py 가 검사하는데 ops/crawlers.md 에 없다: %s" % undocumented)
 
 
+LOG_LOOP = re.compile(r"^for ua in (.*?); do$", re.M | re.S)
+# 서버 로그에 나타날 수 없거나(Google-Extended — HTTP UA가 없다) 일반 검색 크롤러라 AI 봇 집계에서
+# 일부러 빼는 UA다.
+NOT_IN_LOG_LOOP = {"Google-Extended", "Googlebot", "Bingbot"}
+
+
+def log_loop_uas(path):
+    """`measure.md` 서버 로그 집계 루프(`for ua in ...; do`)의 UA 목록. 루프가 없으면 None."""
+    with io.open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    match = LOG_LOOP.search(text)
+    if not match:
+        return None
+    return match.group(1).replace("\\\n", " ").split()
+
+
+class TestMeasureLogLoopMatchesCrawlers(unittest.TestCase):
+    """로그 집계 루프에 빠진 봇은 방문이 0으로 보인다. Perplexity-User·Yeti·Daum이 빠져 있었다."""
+
+    PAIRS = ((os.path.join("ops", "measure.md"), os.path.join("ops", "crawlers.md")),
+             (os.path.join("en", "ops", "measure.md"), os.path.join("en", "ops", "crawlers.md")))
+
+    def test_korean_measure_doc_has_the_loop(self):
+        self.assertIsNotNone(log_loop_uas(os.path.join(ROOT, "ops", "measure.md")),
+                             "ops/measure.md 에서 `for ua in ...; do` 로그 집계 루프를 찾지 못했다")
+
+    def test_every_logged_ua_is_documented_in_crawlers(self):
+        for measure, crawlers in self.PAIRS:
+            uas = log_loop_uas(os.path.join(ROOT, measure))
+            if uas is None:
+                continue
+            with io.open(os.path.join(ROOT, crawlers), encoding="utf-8") as fh:
+                text = fh.read()
+            undocumented = [ua for ua in uas if "`%s`" % ua not in text]
+            self.assertEqual(undocumented, [],
+                             "%s 루프에 있는데 %s 에 없다: %s" % (measure, crawlers, undocumented))
+
+    def test_every_probed_ua_is_counted_in_the_log_loop(self):
+        expected = [ua for ua in crawl.ALL_UAS if ua not in NOT_IN_LOG_LOOP]
+        for measure, _crawlers in self.PAIRS:
+            uas = log_loop_uas(os.path.join(ROOT, measure))
+            if uas is None:
+                continue
+            missing = [ua for ua in expected if ua not in uas]
+            self.assertEqual(missing, [],
+                             "crawl.py 가 검사하는데 %s 로그 루프에 없다: %s" % (measure, missing))
+            self.assertEqual(len(uas), len(set(uas)), "%s 로그 루프에 중복 UA: %s" % (measure, uas))
+
+
 class TestLaneDocsExistForEveryLane(unittest.TestCase):
     """레인을 늘리면 그 레인 문서도 있어야 한다. KEO 를 세울 때 영문 미러를 빠뜨렸었다."""
 

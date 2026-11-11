@@ -3,12 +3,13 @@
 """su-presence M3 — 배포 후 검증. "고쳤다"를 크롤러의 눈으로 증명한다.
 
 사용:
-    python tools/verify.py deploy out/<host>/audit.json [--deploy out/<host>/deploy]
+    python tools/verify.py deploy out/<host>/audit.json [--deploy out/<host>/deploy] [--facts facts.json]
     python tools/verify.py diff   before/audit.json after/audit.json
 
 출력:
     <out>/verify.json (스키마: su-multi-geo/verify/1) + VERIFY.md + 콘솔 요약
-    exit code: fail이 하나라도 있으면 1
+    exit code: fail이 하나라도 있으면 1, fail은 없지만 검사 범위 불완전(deploy)이나
+               결론 보류(diff — after 진단이 판정하지 못한 레인·findings)면 2, 그 밖엔 0
 
 원칙
   · 라이브 사이트에서 받은 것만 근거다. 패키지에 있다는 것은 근거가 아니다.
@@ -62,11 +63,20 @@ NEXT = {
     "jsonld.visible": "LD가 화면에 없는 말을 한다 — 스팸으로 분류될 수 있다. "
                       "본문에 그 문구를 노출하거나 LD에서 빼라.",
     "jsonld.org_id": "Organization @id가 페이지마다 다르다 — 엔티티가 쪼개진다. 전역 1개로 통일하라.",
+    "jsonld.rating_scale": "평점이 숫자가 아니거나 선언한 척도(worstRating~bestRating, 기본 1~5) 밖이다 — "
+                           "조작된 평점으로 읽혀 리치 결과를 잃는다. 실제 평점과 척도를 다시 확인해 고쳐라.",
+    "jsonld.rating_count": "ratingCount·reviewCount는 0 이상의 정수여야 한다 — 실제 리뷰 수를 세어 정수로 적어라.",
+    "facts.match": "사실 원장의 기대값과 라이브 LD가 다르다 — 근거(evidence) 문서를 다시 보고 "
+                   "LD나 원장 중 틀린 쪽을 고쳐라. 추정으로 맞추지 마라.",
+    "facts.visible": "LD 값은 맞지만 화면에서 그 값을 찾지 못했다 — 본문에 노출하거나 표기를 확인하라.",
     "meta.applied": "meta 초안이 반영되지 않았다 — meta-draft.csv를 검토해 적용하라.",
     "meta.duplicate": "중복 title이 남아 있다 — 페이지 고유 문구를 사람이 붙여야 한다.",
     "diff.new": "새로 생긴 findings다 — 배포가 만든 회귀인지 먼저 확인하라.",
     "diff.persisting": "critical이 그대로 남았다 — 다음 사이클 최우선 과제다.",
-    "diff.scorecard": "레인 점수가 나빠졌다 — 무엇이 바뀌었는지 findings를 대조하라.",
+    "diff.scorecard": "레인 점수가 나빠졌거나 after 진단에서 판정하지 못했다 — 악화면 findings를 "
+                      "대조하고, 미확인이면 원인(robots.txt 응답 등)을 고친 뒤 다시 진단하라.",
+    "diff.unverified": "after 진단이 robots.txt를 읽지 못해 크롤러 정책 findings를 확인하지 못했다 — "
+                       "robots.txt가 200으로 응답하게 고친 뒤 다시 진단하고 비교하라.",
     "diff.pages": "이전 크롤에 있던 URL이 사라졌다 — 404인지 리다이렉트인지 확인하라.",
 }
 
@@ -173,7 +183,8 @@ def nodes(obj):
 
 
 def norm_text(value) -> str:
-    return crawl.WS.sub(" ", str(value or "")).strip()
+    """공백만 정규화한 문자열. None만 빈 값이다 — 0·False를 ""로 접지 않는다."""
+    return crawl.WS.sub(" ", "" if value is None else str(value)).strip()
 
 
 def visible(text: str, needle) -> bool:
@@ -193,6 +204,243 @@ def price_visible(text: str, price) -> bool:
         return format(int(float(raw)), ",") in text
     except ValueError:
         return False
+
+
+# ─────────────────────────────────────────────────────────── 필드 단위 비교 (JSON pointer)
+
+_MISSING = object()
+_NUMBER = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$")
+# 값이 URL·식별자라 화면 글자와 비교할 대상이 아닌 키
+URL_KEYS = frozenset(("@id", "url", "item", "logo", "image", "sameAs", "contentUrl",
+                      "thumbnailUrl", "embedUrl", "mainEntityOfPage"))
+NON_VISIBLE_KEYS = URL_KEYS | frozenset(("@type", "@context", "priceCurrency", "availability",
+                                         "itemCondition", "inLanguage", "position",
+                                         "worstRating", "bestRating"))
+# 앞자리 0까지 의미가 있는 식별자 — 숫자로 바꿔 비교하지 않는다
+ID_KEYS = frozenset(("sku", "mpn", "gtin", "gtin8", "gtin12", "gtin13", "gtin14", "isbn",
+                     "productID", "identifier", "telephone", "faxNumber", "postalCode",
+                     "vatID", "taxID", "duns", "leiCode"))
+NUMERIC_KEYS = frozenset(("price", "lowPrice", "highPrice", "minPrice", "maxPrice",
+                          "ratingValue", "bestRating", "worstRating", "ratingCount",
+                          "reviewCount", "minValue", "maxValue"))
+# `value`는 담은 노드에 따라 뜻이 다르다 — 수량·금액이면 수, PropertyValue(식별자 등)면 글자 그대로.
+NUMERIC_VALUE_TYPES = frozenset(("QuantitativeValue", "MonetaryAmount"))
+_LEADING_ZERO = re.compile(r"^\s*[+-]?0\d")
+
+
+def numeric_key(key: str, container_types=None) -> bool:
+    """이 키의 값을 수로 비교하는가. `value`는 QuantitativeValue·MonetaryAmount 안에서만 수다."""
+    if key in ID_KEYS:
+        return False
+    if key == "value":
+        return bool(NUMERIC_VALUE_TYPES.intersection(container_types or ()))
+    return key in NUMERIC_KEYS
+
+
+def _leading_zero(value) -> bool:
+    """'007'처럼 앞자리 0이 의미를 갖는 문자열인가 (0.5 같은 소수는 아니다)."""
+    return isinstance(value, str) and bool(_LEADING_ZERO.match(value))
+
+
+def pointer_escape(token) -> str:
+    return str(token).replace("~", "~0").replace("/", "~1")
+
+
+def pointer_tokens(pointer: str) -> list:
+    """RFC 6901 JSON pointer를 토큰으로 나눈다. 빈 문자열은 루트."""
+    if pointer == "":
+        return []
+    if not isinstance(pointer, str) or not pointer.startswith("/"):
+        raise ValueError("JSON pointer는 '/'로 시작해야 한다: %r" % (pointer,))
+    return [t.replace("~1", "/").replace("~0", "~") for t in pointer[1:].split("/")]
+
+
+def resolve_pointer(obj, pointer: str):
+    """pointer가 가리키는 값. 없으면 _MISSING (배열 첨자는 엄격하게 본다)."""
+    current = obj
+    for token in pointer_tokens(pointer):
+        if isinstance(current, dict):
+            if token not in current:
+                return _MISSING
+            current = current[token]
+        elif isinstance(current, list):
+            if not re.fullmatch(r"0|[1-9]\d*", token) or int(token) >= len(current):
+                return _MISSING
+            current = current[int(token)]
+        else:
+            return _MISSING
+    return current
+
+
+def node_types(node) -> list:
+    t = node.get("@type") if isinstance(node, dict) else None
+    return [t] if isinstance(t, str) else [x for x in (t or []) if isinstance(x, str)]
+
+
+def typed_nodes(obj, path: str = ""):
+    """nodes()와 같은 순서로 dict 노드를 훑되 JSON pointer를 함께 낸다."""
+    if isinstance(obj, dict):
+        yield path, obj
+        for key, value in obj.items():
+            yield from typed_nodes(value, "%s/%s" % (path, pointer_escape(key)))
+    elif isinstance(obj, list):
+        for i, item in enumerate(obj):
+            yield from typed_nodes(item, "%s/%d" % (path, i))
+
+
+def ld_leaves(node, path: str = ""):
+    """패키지 객체의 말단 값 (pointer, key, value). @context는 비교하지 않는다."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "@context":
+                continue
+            sub = "%s/%s" % (path, pointer_escape(key))
+            if key == "@type":
+                yield sub, key, value
+            else:
+                yield from ld_leaves(value, sub)
+    elif isinstance(node, list):
+        for i, item in enumerate(node):
+            yield from ld_leaves(item, "%s/%d" % (path, i))
+    else:
+        key = path.rsplit("/", 1)[-1] if path else ""
+        if key.isdigit():  # 배열 원소면 배열의 키를 쓴다 (sameAs/0 → sameAs)
+            key = path.rsplit("/", 2)[-2] if path.count("/") >= 2 else ""
+        yield path, key, node
+
+
+def as_decimal(value):
+    """JSON 수 또는 숫자 문자열 → Decimal. 숫자가 아니면 None (bool·NaN·무한대 포함)."""
+    from decimal import Decimal, InvalidOperation
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        text = repr(value)
+    elif isinstance(value, str) and _NUMBER.match(value.strip()):
+        text = value.strip()
+    else:
+        return None
+    try:
+        number = Decimal(text)
+    except InvalidOperation:
+        return None
+    return number if number.is_finite() else None
+
+
+def _identifier(value) -> str:
+    if not value:
+        return ""
+    try:
+        parts = urllib.parse.urlsplit(str(value))
+        base = crawl.normalize(urllib.parse.urlunsplit(
+            (parts.scheme, parts.netloc, parts.path, parts.query, "")))
+    except (TypeError, ValueError):
+        return norm_text(value)
+    return base + (("#" + parts.fragment) if parts.fragment else "")
+
+
+def same_value(a, b, key: str = "", container_types=None) -> bool:
+    """패키지/기대값 a와 라이브 값 b가 같은 사실인가. 추론 없이 표기 차이만 접는다.
+
+    container_types: 값을 담은 노드의 @type 목록 (`value` 키의 뜻을 가른다).
+    """
+    if key == "@type":
+        return sorted(node_types({"@type": a})) == sorted(node_types({"@type": b}))
+    if isinstance(a, (dict, list)) or isinstance(b, (dict, list)):
+        return a == b
+    if a is None or b is None or isinstance(a, bool) or isinstance(b, bool):
+        return type(a) is type(b) and a == b
+    if key in URL_KEYS:
+        return _identifier(a) == _identifier(b)
+    if numeric_key(key, container_types) or (
+            key not in ID_KEYS and (isinstance(a, (int, float)) or isinstance(b, (int, float)))
+            and not (_leading_zero(a) or _leading_zero(b))):
+        da, db = as_decimal(a), as_decimal(b)
+        if da is not None and db is not None:
+            return da == db
+        if da is not None or db is not None:
+            return False   # 한쪽만 수다 — 0과 ""(빈 값)·글자를 같은 값으로 보지 않는다
+    return norm_text(a) == norm_text(b)
+
+
+def number_visible(text: str, number, raw: str) -> bool:
+    """숫자가 화면에 있는가 — 1,234 표기를 같게 보고, 더 긴 숫자의 일부는 인정하지 않는다."""
+    candidates = {raw} if raw else set()
+    if number == number.to_integral_value():
+        whole = int(number)
+        candidates |= {str(whole), format(whole, ",")}
+    else:
+        plain = format(number.normalize(), "f")
+        candidates |= {plain, format(number.normalize(), ",f")}
+    for cand in sorted(candidates):
+        if re.search(r"(?<![\d.,])%s(?![\d]|[.,]\d)" % re.escape(cand), text):
+            return True
+    return False
+
+
+def value_visible(text: str, value, key: str = "", container_types=None):
+    """값이 가시 텍스트에 있는가. URL·코드값처럼 화면 비교 대상이 아니면 None."""
+    if value is None or isinstance(value, (bool, dict, list, tuple)) or key in NON_VISIBLE_KEYS:
+        return None
+    if isinstance(value, str) and value.strip().lower().startswith(("http://", "https://")):
+        return None
+    if numeric_key(key, container_types) or (key not in ID_KEYS
+                                             and isinstance(value, (int, float))):
+        number = as_decimal(value)
+        if number is not None:
+            return number_visible(text, number, norm_text(value))
+    return visible(text, value)
+
+
+def _clip(value, limit: int = 200):
+    if isinstance(value, str) and len(value) > limit:
+        return value[:limit] + "…"
+    return value
+
+
+def container_types(root, pointer: str) -> list:
+    """pointer가 가리키는 말단 값을 담은 가장 가까운 dict 노드의 @type 목록."""
+    tokens = pointer_tokens(pointer)
+    while tokens:
+        tokens = tokens[:-1]
+        node = resolve_pointer(root, "".join("/" + pointer_escape(t) for t in tokens))
+        if isinstance(node, dict):
+            return node_types(node)
+    return []
+
+
+def ld_field_diffs(pkg_root, live_root, text: str) -> list:
+    """패키지 객체의 말단 값마다 라이브 객체의 같은 pointer 값과 비교한 차이 목록."""
+    out = []
+    for pointer, key, value in ld_leaves(pkg_root):
+        live_value = resolve_pointer(live_root, pointer) if live_root is not None else _MISSING
+        present = live_value is not _MISSING
+        types = container_types(pkg_root, pointer)
+        if present and same_value(value, live_value, key, types):
+            continue
+        out.append({
+            "path": pointer,
+            "package": _clip(value),
+            "live": _clip(live_value) if present else None,
+            "live_present": present,
+            "visible": value_visible(text, value, key, types),
+            "live_visible": value_visible(text, live_value, key, types) if present else None,
+        })
+    return out
+
+
+def ld_match(pkg_root, live_roots: list) -> tuple:
+    """패키지 루트 객체에 대응하는 라이브 객체. (객체 또는 None, 핵심 필드 일치 여부)"""
+    identity = ld_identity(pkg_root)
+    for root in live_roots:
+        if ld_identity(root) == identity:
+            return root, True
+    same_kind = [r for r in live_roots if ld_identity(r)[0] == identity[0]]
+    if not same_kind:
+        return None, False
+    # 차이가 가장 적은 객체 — 동률이면 페이지에 먼저 나온 것 (결정적)
+    best = min(same_kind, key=lambda r: len(ld_field_diffs(pkg_root, r, "")))
+    return best, False
 
 
 # ─────────────────────────────────────────────────────────── A. deploy 검증
@@ -546,29 +794,42 @@ def ld_roots(obj) -> list:
     return [x for x in graph if isinstance(x, dict)] if isinstance(graph, list) else [obj]
 
 
-def ld_visible_misses(obj, text: str) -> list:
-    """LD가 화면에 없는 말을 하는지 — 빠진 문자열 목록."""
-    misses = []
-    for node in nodes(obj):
-        t = node.get("@type")
-        types = [t] if isinstance(t, str) else [x for x in (t or []) if isinstance(x, str)]
+def _visible_claims(obj, text: str):
+    """가시 텍스트와 대조하는 LD 값 (종류, pointer, 원래 값, 가시 여부). pointer는 obj 기준."""
+    for path, node in typed_nodes(obj):
+        types = node_types(node)
         if "Question" in types:
-            if not visible(text, node.get("name")):
-                misses.append(("question", norm_text(node.get("name"))[:60]))
+            yield "question", path + "/name", node.get("name"), visible(text, node.get("name"))
             answer = node.get("acceptedAnswer") or {}
-            if isinstance(answer, dict) and not visible(text, answer.get("text")):
-                misses.append(("answer", norm_text(answer.get("text"))[:60]))
+            if isinstance(answer, dict):
+                yield ("answer", path + "/acceptedAnswer/text", answer.get("text"),
+                       visible(text, answer.get("text")))
         elif "Organization" in types and node.get("name"):
-            if not visible(text, node["name"]):
-                misses.append(("organization name", norm_text(node["name"])[:60]))
+            yield "organization name", path + "/name", node["name"], visible(text, node["name"])
         elif "Product" in types:
-            if node.get("name") and not visible(text, node["name"]):
-                misses.append(("product name", norm_text(node["name"])[:60]))
+            if node.get("name"):
+                yield "product name", path + "/name", node["name"], visible(text, node["name"])
             offers = node.get("offers") or {}
             if isinstance(offers, dict) and offers.get("price") is not None:
-                if not price_visible(text, offers["price"]):
-                    misses.append(("price", norm_text(offers["price"])[:60]))
-    return misses
+                yield ("price", path + "/offers/price", offers["price"],
+                       price_visible(text, offers["price"]))
+
+
+def ld_visible_fields(obj, text: str, live=None) -> list:
+    """필드마다 pointer·패키지 값·라이브 값·가시 여부. live가 있으면 같은 pointer 값을 싣는다."""
+    out = []
+    for kind, pointer, value, ok in _visible_claims(obj, text):
+        live_value = resolve_pointer(live, pointer) if live is not None else _MISSING
+        out.append({"field": kind, "path": pointer, "package": _clip(value),
+                    "live": _clip(live_value) if live_value is not _MISSING else None,
+                    "visible": ok})
+    return out
+
+
+def ld_visible_misses(obj, text: str) -> list:
+    """LD가 화면에 없는 말을 하는지 — 빠진 (종류, 문자열) 목록."""
+    return [(kind, norm_text(value)[:60])
+            for kind, _pointer, value, ok in _visible_claims(obj, text) if not ok]
 
 
 def check_jsonld(checks, session: Session, base: str, audit: dict, pkg: dict) -> None:
@@ -577,7 +838,7 @@ def check_jsonld(checks, session: Session, base: str, audit: dict, pkg: dict) ->
         chk(checks, "jsonld.present", "skip", "패키지에 JSON-LD 파일이 없다")
         return
 
-    missing, wrong_type, invisible, unmapped = [], [], [], []
+    missing, wrong_type, invisible, unmapped, drift = [], [], [], [], []
     for target in targets:
         if target["obj"] is None:
             wrong_type.append({"file": target["file"], "reason": "패키지 파일이 JSON으로 파싱되지 않는다"})
@@ -597,23 +858,40 @@ def check_jsonld(checks, session: Session, base: str, audit: dict, pkg: dict) ->
         if rec["ld_broken"]:
             wrong_type.append({"file": target["file"], "url": target["url"],
                                "reason": "ld+json 블록 %d개가 JSON으로 파싱되지 않는다" % rec["ld_broken"]})
+        live_roots = [x for obj in rec["ld_objs"] for x in ld_roots(obj)]
+        matches = [(root, ld_match(root, live_roots)) for root in ld_roots(target["obj"])]
+        # 핵심 필드가 어긋난 객체의 필드 단위 차이 (pointer는 그 객체 기준)
+        fields = [dict(node=ld_identity(root)[0], **diff)
+                  for root, (live_root, exact) in matches if not exact
+                  for diff in ld_field_diffs(root, live_root, rec["text"])]
         for wanted in target["types"]:
             if wanted not in rec["ld_types"]:
                 wrong_type.append({"file": target["file"], "url": target["url"],
-                                   "reason": "@type %s가 페이지 LD에 없다" % wanted})
+                                   "reason": "@type %s가 페이지 LD에 없다" % wanted,
+                                   "fields": fields[:20]})
                 break
         else:
             wanted_ids = [ld_identity(x) for x in ld_roots(target["obj"])]
-            live_ids = {ld_identity(x) for obj in rec["ld_objs"] for x in ld_roots(obj)}
+            live_ids = {ld_identity(x) for x in live_roots}
             absent = [identity for identity in wanted_ids if identity not in live_ids]
             if absent:
                 wrong_type.append({"file": target["file"], "url": target["url"],
-                                   "reason": "같은 @type은 있지만 패키지의 핵심 필드가 일치하지 않는다"})
+                                   "reason": "같은 @type은 있지만 패키지의 핵심 필드가 일치하지 않는다",
+                                   "fields": fields[:20]})
                 continue
+            for root, (live_root, _exact) in matches:
+                for diff in ld_field_diffs(root, live_root, rec["text"]):
+                    drift.append(dict(file=target["file"], url=target["url"],
+                                      node=ld_identity(root)[0], **diff))
             misses = ld_visible_misses(target["obj"], rec["text"])
             if misses:
+                fields = [dict(node=ld_identity(root)[0], **field)
+                          for root, (live_root, _exact) in matches
+                          for field in ld_visible_fields(root, rec["text"], live=live_root)
+                          if not field["visible"]]
                 invisible.append({"file": target["file"], "url": target["url"],
-                                  "missing": ["%s: %s" % (k, v) for k, v in misses][:10]})
+                                  "missing": ["%s: %s" % (k, v) for k, v in misses][:10],
+                                  "fields": fields[:20]})
 
     if missing:
         chk(checks, "jsonld.present", "fail",
@@ -631,11 +909,15 @@ def check_jsonld(checks, session: Session, base: str, audit: dict, pkg: dict) ->
             {"files": unmapped[:20]})
     elif pkg.get("jsonld_manifest") is not None:
         chk(checks, "jsonld.mapping", "pass", "JSON-LD manifest의 파일→URL 매핑이 완전하다")
+    # 핵심 필드는 일치하지만 그 밖의 필드가 패키지와 다른 경우 — 판정은 바꾸지 않고 증적에만 싣는다
+    drift_evidence = {"field_drift": drift[:20]} if drift else {}
     if wrong_type:
         chk(checks, "jsonld.type", "fail",
-            "@type이 어긋나거나 깨진 LD가 %d건이다" % len(wrong_type), {"items": wrong_type[:20]})
+            "@type이 어긋나거나 깨진 LD가 %d건이다" % len(wrong_type),
+            dict({"items": wrong_type[:20]}, **drift_evidence))
     elif not missing:
-        chk(checks, "jsonld.type", "pass", "패키지와 라이브 페이지의 @type이 일치한다")
+        chk(checks, "jsonld.type", "pass", "패키지와 라이브 페이지의 @type이 일치한다",
+            drift_evidence)
     if invisible:
         chk(checks, "jsonld.visible", "fail",
             "LD가 화면에 없는 말을 한다 — %d개 페이지 (스팸 리스크)" % len(invisible),
@@ -662,6 +944,334 @@ def check_jsonld(checks, session: Session, base: str, audit: dict, pkg: dict) ->
     elif org_ids:
         chk(checks, "jsonld.org_id", "pass",
             "Organization @id가 전 페이지에서 하나다 (%s)" % list(org_ids)[0])
+
+
+RATING_TYPES = frozenset(("Rating", "AggregateRating", "EmployerAggregateRating"))
+_NONNEG_INT = re.compile(r"^\d+$")
+_NUM = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
+_RATING_PERCENT = re.compile(r"^\s*(%s)\s*%%\s*$" % _NUM)
+_RATING_FRACTION = re.compile(r"^\s*(%s)\s*/\s*(%s)\s*$" % (_NUM, _NUM))
+
+
+def parse_rating(value):
+    """ratingValue → (값, 함축 worst, 함축 best, 형식). 해석할 수 없으면 None.
+
+    Google 리뷰 스니펫 문서는 수(4), 백분율("60%"), 분수("6 / 10")를 받는다. 백분율은 0~100,
+    분수는 분모가 최고점이라는 척도를 함축한다. 수는 척도를 함축하지 않는다(기본 1~5).
+    """
+    number = as_decimal(value)
+    if number is not None:
+        return number, None, None, "number"
+    if not isinstance(value, str):
+        return None
+    from decimal import Decimal
+    m = _RATING_PERCENT.match(value)
+    if m:
+        return Decimal(m.group(1)), Decimal(0), Decimal(100), "percent"
+    m = _RATING_FRACTION.match(value)
+    if m:
+        return Decimal(m.group(1)), Decimal(0), Decimal(m.group(2)), "fraction"
+    return None
+
+
+def rating_issues(obj) -> tuple:
+    """평점 노드 무결성. (평점 노드 수, 척도 문제, 개수 문제) — pointer는 obj 기준."""
+    total, scale, counts = 0, [], []
+    for path, node in typed_nodes(obj):
+        types = node_types(node)
+        if not RATING_TYPES.intersection(types):
+            continue
+        total += 1
+        kind = next(t for t in types if t in RATING_TYPES)
+        value = node.get("ratingValue", _MISSING)
+        worst_raw = node.get("worstRating", _MISSING)
+        best_raw = node.get("bestRating", _MISSING)
+        parsed = parse_rating(value) if value is not _MISSING else None
+        rating, implied_worst, implied_best, form = parsed or (None, None, None, None)
+        worst = ((1 if implied_worst is None else implied_worst) if worst_raw is _MISSING
+                 else as_decimal(worst_raw))
+        best = ((5 if implied_best is None else implied_best) if best_raw is _MISSING
+                else as_decimal(best_raw))
+        item = {"path": path or "/", "node": kind,
+                "ratingValue": None if value is _MISSING else value,
+                "worstRating": None if worst_raw is _MISSING else worst_raw,
+                "bestRating": None if best_raw is _MISSING else best_raw}
+        reason = None
+        if value is _MISSING:
+            reason = "ratingValue가 없다"
+        elif rating is None:
+            reason = "ratingValue %r는 숫자가 아니다" % (value,)
+        elif worst is None:
+            reason = "worstRating %r는 숫자가 아니다" % (worst_raw,)
+        elif best is None:
+            reason = "bestRating %r는 숫자가 아니다" % (best_raw,)
+        elif form == "fraction" and best_raw is not _MISSING and best != implied_best:
+            reason = ("ratingValue %r의 분모(%s)가 bestRating(%s)과 다르다"
+                      % (value, implied_best, best_raw))
+        elif worst >= best:
+            reason = "worstRating(%s)이 bestRating(%s)보다 작지 않다" % (worst, best)
+        elif not worst <= rating <= best:
+            reason = "ratingValue %s가 척도 [%s, %s] 밖이다" % (value, worst, best)
+        if reason:
+            scale.append(dict(item, reason=reason))
+        for key in ("ratingCount", "reviewCount"):
+            if key not in node:
+                continue
+            count = node[key]
+            ok = ((isinstance(count, int) and not isinstance(count, bool) and count >= 0)
+                  or (isinstance(count, float) and count.is_integer() and count >= 0)
+                  or (isinstance(count, str) and bool(_NONNEG_INT.match(count.strip()))))
+            if not ok:
+                counts.append({"path": "%s/%s" % (path, key), "node": kind, "field": key,
+                               "value": count,
+                               "reason": "%s %r는 0 이상의 정수가 아니다" % (key, count)})
+    return total, scale, counts
+
+
+def check_ratings(checks, session: Session, pkg: dict, target_urls=None) -> None:
+    """패키지와 라이브에서 받은 모든 LD의 평점 노드가 선언한 척도·개수 규칙을 지키는가.
+
+    판정 범위를 나눈다. 패키지 파일과 패키지가 배포되는 대상 페이지의 결함은 이번 배포의
+    결함이라 fail이다. 그 밖에 세션이 받은 기존 페이지(사이트맵·noindex 확인용)의 결함은
+    배포와 무관하게 원래 있던 마크업이므로 warn으로 알리고 배포 실패로 세지 않는다.
+    target_urls가 None이면(옛 호출) 모두 배포 범위로 본다.
+    """
+    targets = (None if target_urls is None
+               else {crawl.normalize(u) for u in target_urls if u})
+
+    def in_scope(where) -> bool:
+        if where.get("source") == "package" or targets is None:
+            return True
+        return crawl.normalize(where.get("url") or "") in targets
+
+    scanned = []
+    for name, obj in pkg["jsonld"].items():
+        if obj is not None:
+            scanned.append(({"source": "package", "file": "jsonld/%s" % name}, obj))
+    for rec in session.cache.values():
+        if rec.get("status") == 200 and rec.get("html") and not rec.get("off_host"):
+            for i, obj in enumerate(rec.get("ld_objs") or []):
+                scanned.append(({"source": "live", "url": rec["url"], "block": i}, obj))
+    total, scale, counts, sources = 0, [], [], 0
+    for where, obj in scanned:
+        n, bad_scale, bad_count = rating_issues(obj)
+        sources += 1 if n else 0
+        total += n
+        scale.extend(dict(where, **item) for item in bad_scale)
+        counts.extend(dict(where, **item) for item in bad_count)
+    if not total:
+        return
+    count_fields = sum(1 for _w, obj in scanned for _p, node in typed_nodes(obj)
+                       if RATING_TYPES.intersection(node_types(node))
+                       for key in ("ratingCount", "reviewCount") if key in node)
+    evidence = {"rating_nodes": total, "sources": sources}
+    for item in scale + counts:
+        item["scope"] = "deploy" if in_scope(item) else "existing"
+
+    def verdict(items):
+        return "fail" if any(i["scope"] == "deploy" for i in items) else "warn"
+
+    def scope_note(items):
+        existing = sum(1 for i in items if i["scope"] == "existing")
+        return (" (배포 대상 밖 기존 페이지 %d건 포함 — 원래 있던 마크업)" % existing
+                if existing else "")
+
+    if scale:
+        chk(checks, "jsonld.rating_scale", verdict(scale),
+            "평점 %d건이 숫자가 아니거나 선언한 척도 밖이다 — 조작된 평점으로 읽힌다%s"
+            % (len(scale), scope_note(scale)),
+            dict(evidence, items=scale[:20]))
+    else:
+        chk(checks, "jsonld.rating_scale", "pass",
+            "평점 노드 %d개가 모두 선언한 척도(기본 1~5) 안의 숫자다" % total, evidence)
+    if counts:
+        chk(checks, "jsonld.rating_count", verdict(counts),
+            "ratingCount/reviewCount %d건이 0 이상의 정수가 아니다%s"
+            % (len(counts), scope_note(counts)),
+            dict(evidence, items=counts[:20]))
+    elif count_fields:
+        chk(checks, "jsonld.rating_count", "pass",
+            "ratingCount/reviewCount %d개가 모두 0 이상의 정수다" % count_fields, evidence)
+
+
+# ─────────────────────────────────────────────────────────── 사실 원장 (선택)
+
+FACTS_SCHEMA = "su-presence/facts/1"
+
+
+class FactsError(ValueError):
+    """사실 원장 파일이 계약을 어겼다 — 조용히 건너뛰지 않고 실행을 멈춘다."""
+
+
+def validate_facts(data) -> list:
+    """원장 항목을 검증해 정규화한 목록을 돌려준다. 하나라도 어긋나면 FactsError."""
+    if isinstance(data, dict):
+        if data.get("schema") not in (None, FACTS_SCHEMA):
+            raise FactsError("facts 스키마가 아니다: %r (기대: %s)"
+                             % (data.get("schema"), FACTS_SCHEMA))
+        data = data.get("facts")
+    if not isinstance(data, list):
+        raise FactsError('facts 파일은 항목 배열이거나 {"facts": [...]} 형식이어야 한다')
+    if not data:
+        raise FactsError("facts 항목이 하나도 없다")
+    errors, out = [], []
+    for i, entry in enumerate(data):
+        where = "facts[%d]" % i
+        if not isinstance(entry, dict):
+            errors.append("%s: 객체가 아니다" % where)
+            continue
+        problems = []
+        url = entry.get("url")
+        if not isinstance(url, str) or not url.strip().startswith(("http://", "https://")):
+            problems.append("url이 http(s) 주소가 아니다")
+        pointer = entry.get("pointer")
+        if not isinstance(pointer, str) or not pointer.startswith("/") or pointer == "/":
+            problems.append("pointer는 '/'로 시작하는 JSON pointer여야 한다 (예: /offers/price)")
+        if "expected" not in entry:
+            problems.append("expected 값이 없다")
+        else:
+            expected = entry["expected"]
+            if expected is None or isinstance(expected, (dict, list)):
+                problems.append("expected는 문자열·수·참거짓 값이어야 한다")
+            elif isinstance(expected, str) and not expected.strip():
+                problems.append("expected가 빈 문자열이다")
+            elif isinstance(expected, float) and as_decimal(expected) is None:
+                problems.append("expected가 유한한 수가 아니다")
+        evidence = entry.get("evidence")
+        if not isinstance(evidence, str) or not evidence.strip():
+            problems.append("evidence(이 사실의 출처 위치)가 비어 있다")
+        node_type = entry.get("type")
+        if node_type is not None and (not isinstance(node_type, str) or not node_type.strip()):
+            problems.append("type은 비어 있지 않은 문자열이어야 한다")
+        if problems:
+            errors.append("%s: %s" % (where, "; ".join(problems)))
+            continue
+        fact = OrderedDict([("url", url.strip()), ("pointer", pointer),
+                            ("expected", entry["expected"]), ("evidence", evidence.strip())])
+        if node_type:
+            fact["type"] = node_type.strip()
+        out.append(fact)
+    if errors:
+        raise FactsError("facts 파일을 받을 수 없다 — %d건:\n  %s"
+                         % (len(errors), "\n  ".join(errors)))
+    return out
+
+
+def load_facts(path: str) -> list:
+    with open(path, encoding="utf-8-sig") as fh:
+        try:
+            data = json.load(fh)
+        except ValueError as exc:
+            raise FactsError("facts 파일이 JSON이 아니다: %s" % exc) from exc
+    return validate_facts(data)
+
+
+def _same_page(a: str, b: str) -> bool:
+    try:
+        return crawl.normalize(a) == crawl.normalize(b)
+    except (TypeError, ValueError):
+        return a == b
+
+
+def _fact_values(objs, pointer: str, node_type) -> list:
+    """LD 루트 객체마다 pointer를 풀어 찾은 값 목록 (type이 있으면 그 @type 객체만)."""
+    found = []
+    for obj in objs:
+        for root in ld_roots(obj):
+            if node_type and node_type not in node_types(root):
+                continue
+            value = resolve_pointer(root, pointer)
+            if value is not _MISSING:
+                # _types는 비교용 내부 값이다 — 기록 전에 뺀다
+                found.append({"node": ld_identity(root)[0], "value": value,
+                              "_types": container_types(root, pointer)})
+    return found
+
+
+def _pointer_key(pointer: str) -> str:
+    tokens = [t for t in pointer_tokens(pointer) if not t.isdigit()]
+    return tokens[-1] if tokens else ""
+
+
+def check_facts(checks, session: Session, base: str, audit: dict, pkg: dict,
+                facts: list, source=None) -> dict:
+    """사실 원장 항목마다 라이브 LD 값과 대조한다. 받지 못한 페이지는 확인으로 치지 않는다."""
+    targets = [t for t in jsonld_targets(pkg, audit, base) if t["obj"] is not None and t["url"]]
+    results = []
+    for fact in facts:
+        key = _pointer_key(fact["pointer"])
+        node_type = fact.get("type")
+        package = _fact_values([t["obj"] for t in targets if _same_page(t["url"], fact["url"])],
+                               fact["pointer"], node_type)
+        item = OrderedDict(fact)
+        item["package_claimed"] = bool(package)
+        if package:
+            item["package_values"] = [{"node": v["node"], "value": _clip(v["value"])}
+                                      for v in package]
+        rec = session.get(fact["url"])
+        if rec["off_host"] or rec["status"] != 200 or not rec["html"]:
+            item.update(status="unverified", outcome="unverified", live_values=[], visible=None,
+                        reason="페이지를 받지 못했다 (HTTP %s%s)"
+                        % (rec["status"], ", %s" % rec["error"] if rec["error"] else ""))
+            results.append(item)
+            continue
+        live_values = _fact_values(rec["ld_objs"], fact["pointer"], node_type)
+        item["live_values"] = live_values
+        types = next((v["_types"] for v in live_values + package), [])
+        item["visible"] = value_visible(rec["text"], fact["expected"], key, types)
+        if not live_values:
+            item["status"] = "missing"
+            if package:
+                item["outcome"] = "fail"
+                item["reason"] = "패키지가 선언한 값인데 라이브 LD에 이 pointer가 없다"
+            else:
+                item["outcome"] = "unverified"
+                item["reason"] = ("라이브 LD에 이 pointer가 없다" if rec["ld_objs"]
+                                  else "페이지에 ld+json 블록이 없다")
+        elif all(not isinstance(v["value"], (dict, list))
+                 and same_value(fact["expected"], v["value"], key, v["_types"])
+                 for v in live_values):
+            item["status"], item["outcome"] = "agree", "pass"
+        else:
+            item["status"], item["outcome"] = "mismatch", "fail"
+            item["reason"] = "라이브 LD 값이 기대값과 다르다"
+        for found in live_values:  # 비교는 원래 값으로, 기록은 잘라서
+            found["value"] = _clip(found["value"])
+            found.pop("_types", None)
+        results.append(item)
+
+    summary = OrderedDict((k, sum(1 for r in results if r["status"] == k))
+                          for k in ("agree", "mismatch", "missing", "unverified"))
+    claimed_missing = sum(1 for r in results
+                          if r["status"] == "missing" and r["outcome"] == "fail")
+    unresolved = sum(1 for r in results if r["outcome"] == "unverified")
+    evidence = {"source": source, "summary": dict(summary), "unverified": unresolved,
+                "items": [r for r in results if r["status"] != "agree"][:20]}
+    if summary["mismatch"] or claimed_missing:
+        chk(checks, "facts.match", "fail",
+            "사실 원장 %d건 중 불일치 %d건 · 패키지가 선언했는데 라이브에 없는 값 %d건"
+            % (len(results), summary["mismatch"], claimed_missing), evidence)
+    elif unresolved:
+        chk(checks, "facts.match", "warn",
+            "사실 원장 %d건 중 %d건을 확인하지 못했다 (페이지 미수신 %d · LD 노드 없음 %d)"
+            % (len(results), unresolved, summary["unverified"], summary["missing"]), evidence)
+    else:
+        chk(checks, "facts.match", "pass",
+            "사실 원장 %d건이 모두 라이브 LD 값과 일치한다" % len(results), evidence)
+
+    hidden = [r for r in results if r["status"] == "agree" and r["visible"] is False]
+    judged = [r for r in results if r["status"] == "agree" and r["visible"] is not None]
+    if hidden:
+        chk(checks, "facts.visible", "warn",
+            "LD와 일치하지만 화면 텍스트에서 기대값을 찾지 못한 사실이 %d건이다" % len(hidden),
+            {"items": [OrderedDict((k, r[k]) for k in ("url", "pointer", "expected", "evidence"))
+                       for r in hidden[:20]]})
+    elif judged:
+        chk(checks, "facts.visible", "pass",
+            "LD와 일치한 사실 %d건의 기대값이 화면 텍스트에도 있다" % len(judged))
+    return OrderedDict([("schema", FACTS_SCHEMA), ("source", source),
+                        ("entries", len(results)), ("summary", summary),
+                        ("results", results)])
 
 
 def check_meta(checks, session: Session, audit: dict, pkg: dict, max_urls: int) -> None:
@@ -779,7 +1389,8 @@ def check_noindex(session: Session, audit: dict, max_urls: int) -> dict:
 
 
 def verify_deploy(audit: dict, deploy_dir: str, fetch=None, delay: float = 0.5,
-                  max_urls: int = 500) -> dict:
+                  max_urls: int = 500, facts=None, facts_source=None) -> dict:
+    """facts: validate_facts()를 통과한 사실 원장 (선택). 주면 verify.json에 `facts` 키가 생긴다."""
     base = ((audit.get("target") or {}).get("base") or "").rstrip("/")
     host = (audit.get("target") or {}).get("host") or crawl.host_of(base)
     pkg = load_package(deploy_dir)
@@ -790,12 +1401,17 @@ def verify_deploy(audit: dict, deploy_dir: str, fetch=None, delay: float = 0.5,
     check_sitemap(checks, session, base, raw_robots, pkg, host, max_urls)
     check_llms(checks, session, base, pkg)
     check_jsonld(checks, session, base, audit, pkg)
+    ledger = (check_facts(checks, session, base, audit, pkg, facts, facts_source)
+              if facts is not None else None)
     check_meta(checks, session, audit, pkg, max_urls)
-    checks.insert(0, check_noindex(session, audit, max_urls))  # 최우선 — 목록 맨 앞에 둔다
+    noindex = check_noindex(session, audit, max_urls)
+    check_ratings(checks, session, pkg,  # 받은 페이지 전부를 본다 — 모든 요청이 끝난 뒤
+                  [t["url"] for t in jsonld_targets(pkg, audit, base) if t["url"]])
+    checks.insert(0, noindex)  # 최우선 — 목록 맨 앞에 둔다
 
     incomplete = verification_incomplete(checks)
     failed = any(c["status"] == "fail" for c in checks)
-    return {
+    result = {
         "schema": SCHEMA,
         "mode": "deploy",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -807,6 +1423,9 @@ def verify_deploy(audit: dict, deploy_dir: str, fetch=None, delay: float = 0.5,
         "completion": {"complete": not incomplete, "reasons": incomplete},
         "exit_code": 1 if failed else (2 if incomplete else 0),
     }
+    if ledger is not None:
+        result["facts"] = ledger
+    return result
 
 
 def verification_incomplete(checks: list) -> list:
@@ -846,13 +1465,20 @@ def findings_by_code(report: dict) -> dict:
 
 
 SCORE_RANK = {"ok": 0, "warn": 1, "bad": 2, "na": -1}
+ASSESSED = ("ok", "warn", "bad")
 
 
 def verify_diff(before: dict, after: dict) -> dict:
     checks: list = []
     b, a = findings_by_code(before), findings_by_code(after)
 
-    resolved = [b[c] for c in b if c not in a]
+    # after 진단이 robots.txt를 읽지 못했으면 robots 원문에서만 나오는 findings는 "사라짐"이
+    # 아니라 "확인 못 함"이다 — 해소로 세지 않는다.
+    after_robots = (after.get("site") or {}).get("robots") or {}
+    robots_blind = crawl.robots_unknown(after.get("site") or {})
+    gone = [b[c] for c in b if c not in a]
+    unverified = [f for f in gone if robots_blind and f["code"] in crawl.ROBOTS_DERIVED_CODES]
+    resolved = [f for f in gone if f not in unverified]
     new = [a[c] for c in a if c not in b]
     persisting = [{"code": c, "lane": a[c]["lane"], "severity": a[c]["severity"],
                    "urls_before": b[c]["urls"], "urls_after": a[c]["urls"]}
@@ -862,6 +1488,13 @@ def verify_diff(before: dict, after: dict) -> dict:
         "해소된 findings %d건" % len(resolved),
         {"items": [{"code": f["code"], "lane": f["lane"], "severity": f["severity"]}
                    for f in resolved]})
+    if unverified:
+        chk(checks, "diff.unverified", "warn",
+            "사라졌지만 확인하지 못한 findings %d건 — after 진단이 robots.txt를 읽지 못했다 "
+            "(HTTP %s). 해소로 세지 않는다" % (len(unverified), after_robots.get("status")),
+            {"reason": "robots_unreachable_after", "robots_status": after_robots.get("status"),
+             "items": [{"code": f["code"], "lane": f["lane"], "severity": f["severity"]}
+                       for f in unverified]})
 
     if any(f["severity"] == "critical" for f in new):
         status = "fail"
@@ -880,16 +1513,30 @@ def verify_diff(before: dict, after: dict) -> dict:
         "그대로 남은 findings %d건 (critical %d · 영향 URL 증가 %d)"
         % (len(persisting), len(crit), len(worse)), {"items": persisting})
 
-    lanes, dropped = OrderedDict(), []
+    lanes, dropped, unconcluded = OrderedDict(), [], []
     for lane in crawl.LANES:
-        bs = ((before.get("scorecard") or {}).get(lane) or {}).get("status", "na")
-        as_ = ((after.get("scorecard") or {}).get(lane) or {}).get("status", "na")
+        bcell = (before.get("scorecard") or {}).get(lane) or {}
+        acell = (after.get("scorecard") or {}).get(lane) or {}
+        bs, as_ = bcell.get("status", "na"), acell.get("status", "na")
         lanes[lane] = {"before": bs, "after": as_}
-        if SCORE_RANK.get(as_, -1) > SCORE_RANK.get(bs, -1):
+        if acell.get("unassessed"):
+            lanes[lane]["after_unassessed"] = list(acell["unassessed"])
+        if bs not in ASSESSED:
+            continue   # 비교 기준이 없다 — 악화도 개선도 아니다
+        if as_ not in ASSESSED:
+            # 판정했던 레인을 이번엔 판정하지 못했다 — 통과·개선이 아니라 미결론이다
+            unconcluded.append("%s %s→%s" % (lane, bs, as_))
+        elif SCORE_RANK[as_] > SCORE_RANK[bs]:
             dropped.append("%s %s→%s" % (lane, bs, as_))
-    chk(checks, "diff.scorecard", "fail" if dropped else "pass",
-        "레인 점수 악화 %d건%s" % (len(dropped), (": " + ", ".join(dropped)) if dropped else ""),
-        {"lanes": lanes})
+        elif acell.get("unassessed") and not bcell.get("unassessed"):
+            # 일부 항목을 못 잰 판정 — 같거나 나아 보여도 결론으로 쓰지 않는다
+            unconcluded.append("%s %s→%s(일부 미확인)" % (lane, bs, as_))
+    message = "레인 점수 악화 %d건%s" % (len(dropped), (": " + ", ".join(dropped)) if dropped else "")
+    if unconcluded:
+        message += " · after에서 판정하지 못한 레인 %d건: %s" % (len(unconcluded),
+                                                         ", ".join(unconcluded))
+    chk(checks, "diff.scorecard", "fail" if dropped else ("warn" if unconcluded else "pass"),
+        message, {"lanes": lanes, "unconcluded": unconcluded})
 
     keys = sorted(set(before.get("stats") or {}) | set(after.get("stats") or {}))
     chk(checks, "diff.stats", "pass", "stats 전후 비교",
@@ -903,6 +1550,14 @@ def verify_diff(before: dict, after: dict) -> dict:
         "사라진 URL %d개 · 새 URL %d개" % (len(gone), len(fresh)),
         {"gone": gone[:50], "new": fresh[:50]})
 
+    incomplete = []
+    if unverified:
+        incomplete.append({"check": "diff.unverified", "kind": "robots_unreachable_after",
+                           "count": len(unverified)})
+    if unconcluded:
+        incomplete.append({"check": "diff.scorecard", "kind": "lane_unassessed_after",
+                           "count": len(unconcluded)})
+    failed = any(c["status"] == "fail" for c in checks)
     return {
         "schema": SCHEMA,
         "mode": "diff",
@@ -913,7 +1568,8 @@ def verify_diff(before: dict, after: dict) -> dict:
                    "after_at": after.get("generated_at")},
         "checks": checks,
         "summary": summarize(checks),
-        "exit_code": 1 if any(c["status"] == "fail" for c in checks) else 0,
+        "completion": {"complete": not incomplete, "reasons": incomplete},
+        "exit_code": 1 if failed else (2 if incomplete else 0),
     }
 
 
@@ -931,8 +1587,13 @@ def render_md(result: dict) -> str:
             "| ✅ pass | %d |" % s["pass"], "| — skip | %d |" % s["skip"], ""]
     completion = result.get("completion")
     if isinstance(completion, dict) and not completion.get("complete", True):
-        out += ["**검사 범위 불완전:** 확인하지 못한 URL·사이트맵이 남아 있어 성공으로 "
-                "종료하지 않았다(exit 2). 상세 범위는 `verify.json`의 `completion`에 있다.", ""]
+        if result["mode"] == "diff":
+            out += ["**결론 보류:** after 진단이 일부 레인·findings를 판정하지 못했다(robots.txt 미확인 등). "
+                    "사라진 항목을 해소로 세지 않았고 성공으로 종료하지 않았다(exit 2). "
+                    "상세는 `verify.json`의 `completion`에 있다.", ""]
+        else:
+            out += ["**검사 범위 불완전:** 확인하지 못한 URL·사이트맵이 남아 있어 성공으로 "
+                    "종료하지 않았다(exit 2). 상세 범위는 `verify.json`의 `completion`에 있다.", ""]
 
     for status, title in (("fail", "❌ 실패 — 이것부터 고친다"),
                           ("warn", "⚠️ 경고"),
@@ -946,6 +1607,22 @@ def render_md(result: dict) -> str:
             out.append("- **`%s`** — %s" % (c["id"], c["message"]))
             if status in ("fail", "warn") and NEXT.get(c["id"]):
                 out.append("  - 다음 조치: %s" % NEXT[c["id"]])
+        out.append("")
+
+    ledger = result.get("facts")
+    if ledger:
+        s = ledger["summary"]
+        out += ["## 사실 원장", "",
+                "일치 %d · 불일치 %d · LD 노드 없음 %d · 페이지 미수신 %d (총 %d건)"
+                % (s["agree"], s["mismatch"], s["missing"], s["unverified"], ledger["entries"]),
+                ""]
+        for r in [r for r in ledger["results"] if r["status"] != "agree"][:20]:
+            live_vals = ", ".join(json.dumps(v["value"], ensure_ascii=False)
+                                  for v in r.get("live_values") or []) or "없음"
+            out.append("- `%s` %s `%s` — 기대 %s · 라이브 %s · 근거: %s"
+                       % (r["status"], r["url"], r["pointer"],
+                          json.dumps(r["expected"], ensure_ascii=False), live_vals,
+                          r["evidence"]))
         out.append("")
 
     out += ["---", "",
@@ -990,6 +1667,9 @@ def main(argv=None) -> int:
     d.add_argument("--delay", type=float, default=0.5, help="요청 간격(초)")
     d.add_argument("--max-urls", type=int, default=500, help="사이트맵 URL 확인 상한")
     d.add_argument("--out", default=None, help="verify.json 경로")
+    d.add_argument("--facts", default=None,
+                   help="사실 원장 JSON (항목마다 url·pointer·expected·evidence 필수). "
+                        "선택 — 주면 라이브 LD 값과 항목별로 대조한다")
 
     f = sub.add_parser("diff", help="배포 전/후 audit.json 비교")
     f.add_argument("before")
@@ -1008,8 +1688,16 @@ def main(argv=None) -> int:
         if not os.path.isdir(deploy_dir):
             sys.stderr.write("배포 패키지 폴더가 없다: %s\n" % deploy_dir)
             return 2
+        facts = None
+        if args.facts:
+            try:
+                facts = load_facts(args.facts)
+            except (FactsError, OSError) as exc:
+                sys.stderr.write("사실 원장을 읽을 수 없다 (%s): %s\n" % (args.facts, exc))
+                return 2
         result = verify_deploy(audit, deploy_dir, delay=args.delay,
-                               max_urls=args.max_urls)
+                               max_urls=args.max_urls, facts=facts,
+                               facts_source=args.facts)
         default_out = os.path.join(here, "verify.json")
     else:
         before, after = load_json(args.before), load_json(args.after)

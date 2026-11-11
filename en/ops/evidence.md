@@ -11,6 +11,41 @@ Checked 2026-09-05. Update these rules against the official documents linked bel
 | Direct query | The answer and cited URLs **under those conditions** | Results for other accounts, regions, models or moments |
 | Search Console / analytics | Impressions, clicks and conversions **for that product** | Another product's numbers, or that a change caused the delta |
 
+## Evidence levels — attach one to every reported claim
+
+| Level | Meaning | Examples |
+|---|---|---|
+| **Source** (raw HTML) | Status, headers and body of one HTTP request | `curl`, `crawl.py` output |
+| **Rendered** | The DOM after a browser has run JavaScript | Browser-host results, URL Inspection |
+| **Export** | Aggregates downloaded from a search console or analytics tool | GSC, Bing Webmaster Tools, Naver Search Advisor, GA4 |
+| **Field** | What real answers or access logs showed | Direct-query records, server logs |
+| **Hypothesis** | An inference not yet confirmed by observation | A suspected cause, an expected improvement |
+
+- [ ] Every reported claim carries its **level, evidence location and check date**. The location
+      must be somewhere another person can reopen — a file path, URL or log line. A claim without
+      a level is a hypothesis
+- [ ] Do not settle a question with evidence from a level that cannot answer it. Raw HTML does
+      not settle the rendered view or indexing; a rendered view does not settle a real citation
+- [ ] Keep hypotheses out of conclusions and scores until an observation confirms them
+
+### Claim ledger — track claims separately in large audits
+
+When there are many pages and claims, keep a ledger beside the report body. The rows below are
+synthetic examples.
+
+| ID | Claim | Level | Evidence location | How to re-verify |
+|---|---|---|---|---|
+| C-01 | The raw HTML of `/pricing` has a `noindex` meta robots | Source | The page entry in `out/example.com/audit.json` | Check meta robots in `curl -sL https://example.com/pricing` |
+| C-02 | For fixed question Q3, ChatGPT cited example.com in 2 of 10 runs | Field | Measurement snapshot file and date | Re-query with the same question and conditions |
+| C-03 | The price table is client-rendered, so bots that do not render cannot read it | Hypothesis | — | Run the render comparison below |
+
+## Do not call a failure a block
+
+Do not report a generic fetch or browsing failure (timeout, connection error, tool error, empty
+response) as a 401, a 403 or a WAF block. Calling it a block requires **the actual status code and
+response evidence** — response headers, a challenge body, a log line. Without that, record a failed
+observation and measure again. Record a 429 separately as a rate-limit response.
+
 ## Technical conditions and where the opportunity actually is
 
 Google AI Overviews and AI Mode run on ordinary search indexing and snippet eligibility. There is
@@ -25,6 +60,26 @@ deliberate exclusion from a mistake by asking what the page is for.
 Google renders JavaScript. A thin raw-HTML body is not on its own proof that a page cannot be
 found. SSR or pre-rendering is still worth doing — for the bots that do not render, and for speed.
 [JavaScript SEO](https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics).
+
+### JavaScript render comparison — raw next to rendered
+
+When the raw HTML and the rendered view may differ, look at the same URL twice and record these
+fields side by side.
+
+| Field | Raw HTML | Rendered |
+|---|---|---|
+| `title` | value | value |
+| meta robots | value | value (always record a change) |
+| canonical | value | value (always record a change) |
+| H1 | count and text | count and text |
+| Visible word count | number | number |
+| Internal link count | number | number |
+| JSON-LD block count | number | number |
+
+- Report differences **as evidence**: both values, each with its level and check date. Do not
+  declare either one the "real" page
+- The rendered values need a browser host. Record which browser and when
+- The core tools (`crawl.py`, `verify.py`) read raw HTTP only. Never label rendered values as tool output
 
 robots.txt has real parsing rules: comments, case-sensitive paths, groups, longest-match, Allow
 winning ties, `*` and `$`. Do not eyeball it.

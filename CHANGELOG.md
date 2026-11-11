@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+- robots.txt 응답을 `ok`·`absent`·`unreachable`로 나눈다(RFC 9309). 429·5xx·접속 실패에서 모든 UA를 "미선언·기본 허용"으로 보고하던 오류를 고쳐 정책을 `unknown`으로 두고 `ROBOTS_UNREACHABLE`을 낸다. GEO·NEO·KEO 크롤러 판정은 내지 않고 해당 레인은 `na`다. robots.txt를 읽지 못하면 생성기는 robots.txt 초안을 만들지 않는다(원문을 모르는 초안이 서버의 차단 규칙을 지울 수 있다). robots.txt 404는 크롤 불완전 사유가 아니다. `verify diff`·`drift`는 robots를 못 읽어 사라진 findings를 해소로, `na`가 된 레인을 개선으로 세지 않는다(`diff.unverified`, 결론 보류 exit 2).
+- 크롤 중 429·503을 깨진 링크(`HTTP_ERROR`)에서 빼 `HTTP_THROTTLED`(미확인)로 보고한다.
+- 파싱에 실패한 JSON-LD 블록을 조용히 버리던 동작을 고쳐 `JSONLD_INVALID`로 보고하고, 블록이 있는 페이지를 `JSONLD_MISSING`에서 뺀다.
+- robots `User-agent`를 제품 토큰으로 대소문자 구분 없이 맞춘다(`GPTBot/1.1` → `GPTBot`; `GPTBot-Image`·`Daumoa`/`DAUM`은 구분). 비표준 표기는 `ROBOTS_NONSTANDARD_UA`.
+- Cloudflare 관리형 robots 블록(`ROBOTS_CDN_MANAGED`)과 `Content-Signal`(`CONTENT_SIGNAL_PRESENT`)을 정보로만 기록한다. 허용·차단 판정과 점수에 쓰지 않는다.
+- 보고서에 레인 평가 범위(n/7)와 미평가 레인을 싣고, 불완전한 진단을 전체 양호로 읽지 않게 표시한다.
+- `verify deploy`: JSON-LD 차이를 필드 단위(JSON pointer·패키지 값·라이브 값·가시 여부)로 싣고, 평점 척도·개수 검사(`jsonld.rating_scale`·`jsonld.rating_count`)와 선택적 사실 원장(`--facts`, `su-presence/facts/1`)을 추가한다.
+- `measure gsc`: GSC 실적 CSV를 범위 인자와 함께 엄격하게 가져와 CTR과 노출 가중 평균순위를 다시 계산한다(`su-presence/gsc/1`). AI 인용 집계와 섞지 않는다.
+- `validate.py`: 크롤러 표 확인일 검사(기본 120일 경고, `--crawler-max-age`로 오류화).
+- 문서: Google FAQ 리치 결과 종료(2026-05-07)·llms.txt가 Google 검색에 영향 없음(2026-06-15)을 반영. 크롤러 표를 공식 문서로 재확인(2026-11-12)하고 `Google-Agent`, robots를 따르지 않을 수 있는 사용자 요청형 fetcher, 벤더 IP 목록, Web Bot Auth를 추가. 서버 로그 집계에 Perplexity-User·Google-Agent·Yeti·Daumoa·DAUM과 응답 상태 분포를 추가. 근거 등급과 주장 원장, 원시 HTML·렌더 비교 항목을 `ops/evidence.md`에 추가.
+- 참고한 공개 프로젝트(MIT): AgriciDaniel/claude-seo, AgriciDaniel/chatgpt-seo, leopard627/fire-your-seo-agency, zubair-trabzada/geo-seo-claude. 코드는 복사하지 않고 아이디어를 다시 구현했다.
+
+Validation: audit.json·verify.json의 새 필드는 모두 선택 필드이며 옛 파일을 그대로 읽는다.
+
 ## [3.1.0] — 2026-11-03
 
 - Add a connected measurement cycle, durable browser-host dispatch and reconciliation, observed-source research, and copy-review provenance without deployment.

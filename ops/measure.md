@@ -44,15 +44,28 @@ HTML 보고서를 함께 만들고, 크롤 범위가 불완전하면 파일은 �
 일부 리다이렉트 경유)는 다이렉트로 잡히므로, 절대값이 아니라 **추이**로만 읽어라.
 
 ```bash
-# AI 크롤러 방문 집계 — 인용보다 먼저 움직이는 선행지표
-grep -icE 'GPTBot|OAI-SearchBot|ChatGPT-User|ClaudeBot|Claude-SearchBot|Claude-User|PerplexityBot|Perplexity-User' access.log
+# AI 봇 방문 합계 — 인용보다 먼저 움직이는 선행지표
+grep -icE 'GPTBot|OAI-SearchBot|ChatGPT-User|ClaudeBot|Claude-SearchBot|Claude-User|PerplexityBot|Perplexity-User|Google-Agent' access.log
 
-# 벤더별로 쪼개서 추이를 본다
-for ua in GPTBot OAI-SearchBot ChatGPT-User ClaudeBot Claude-SearchBot Claude-User PerplexityBot; do
-  printf '%-20s %s\n' "$ua" "$(grep -icF "$ua" access.log)"
+# 봇별로 쪼개서 추이를 본다. 토큰 경계로 센다 — 그냥 grep -iF "DAUM"이면 Daumoa 줄까지 함께 센다
+for ua in GPTBot OAI-SearchBot ChatGPT-User ClaudeBot Claude-SearchBot Claude-User \
+          PerplexityBot Perplexity-User Google-Agent Yeti Daumoa DAUM; do
+  printf '%-18s %s\n' "$ua" "$(grep -icE "(^|[^[:alnum:]-])$ua([^[:alnum:]-]|\$)" access.log)"
 done
+
+# 봇별 응답 상태 분포 — 403·429·503이 몰리면 WAF·CDN 차단이나 속도 제한을 의심한다
+# combined 로그 형식이면 상태 코드는 9번째 필드다. 로그 형식이 다르면 필드 번호를 맞춘다
+ua=GPTBot
+grep -iE "(^|[^[:alnum:]-])$ua([^[:alnum:]-]|\$)" access.log | awk '{print $9}' | sort | uniq -c | sort -rn
 ```
 로그 접근이 없으면 Cloudflare·Vercel 등 호스팅 대시보드의 봇 트래픽 분류로 대체한다.
+
+- UA 문자열은 흉내 낼 수 있다. 집계가 갑자기 튀거나 차단을 판정할 때는 벤더 IP 목록으로 대조한다
+  → [봇 신원 확인](crawlers.md#봇-신원-확인--ua가-아니라-ip-목록으로)
+- 응답 상태가 403·429·503으로 몰려도 그것만으로 차단이라 단정하지 않는다. 실제 응답과 시점을
+  근거로 남긴다 → [실패를 차단으로 부르지 않는다](evidence.md#실패를-차단으로-부르지-않는다)
+- `Google-Agent`가 로그에 보이면 Google 제품에서 사용자가 요청한 fetch가 온 것이다. Gemini
+  그라운딩·학습 지표가 아니다. Gemini·`Google-Extended`는 여전히 로그로 잴 수 없다 (아래 2번)
 
 ## 2. AI 인용 측정 프로토콜 — 엔진마다 방법이 다르다
 
@@ -268,6 +281,10 @@ python tools/drift.py timeline out/<host>/audit.json   # 날짜별 추이 표 �
 
 `measure.py report`가 내는 `MEASURE.md`의 첫 블록이 아래 AI인용 줄과 같은 형식이다.
 검색 지표(노출·클릭·색인)는 GSC·서치어드바이저에서 사람이 채워 앞에 붙인다.
+GSC 실적 CSV는 `measure gsc`로 가져오면 CTR(총클릭 ÷ 총노출)과 노출 가중 평균순위를 다시 계산하고
+범위(속성·기간·검색 유형·필터)를 함께 남긴다. 내보내기는 상위 행만 담으므로 속성 전체 합계가 아니다.
+이 수치는 검색 성과(내보내기) 근거이며 AI 인용 분모에 섞지 않는다 — 사용법은
+[tools/README.md](../tools/README.md) 「gsc」.
 
 ```
 [기준선] 8/1~8/28  노출 12,400 · 클릭 180 · 색인 340

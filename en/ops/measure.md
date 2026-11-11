@@ -45,16 +45,31 @@ that a citation turned into an actual visit.
 some redirect hops) land in Direct, so read the **trend**, never the absolute number.
 
 ```bash
-# AI crawler visits — the leading indicator that moves before citations do
-grep -icE 'GPTBot|OAI-SearchBot|ChatGPT-User|ClaudeBot|Claude-SearchBot|Claude-User|PerplexityBot|Perplexity-User' access.log
+# AI bot visits in total — the leading indicator that moves before citations do
+grep -icE 'GPTBot|OAI-SearchBot|ChatGPT-User|ClaudeBot|Claude-SearchBot|Claude-User|PerplexityBot|Perplexity-User|Google-Agent' access.log
 
-# Break it down per vendor to see the trend
-for ua in GPTBot OAI-SearchBot ChatGPT-User ClaudeBot Claude-SearchBot Claude-User PerplexityBot; do
-  printf '%-20s %s\n' "$ua" "$(grep -icF "$ua" access.log)"
+# Break it down per bot to see the trend. Count on token boundaries — a plain grep -iF "DAUM"
+# also counts the Daumoa lines
+for ua in GPTBot OAI-SearchBot ChatGPT-User ClaudeBot Claude-SearchBot Claude-User \
+          PerplexityBot Perplexity-User Google-Agent Yeti Daumoa DAUM; do
+  printf '%-18s %s\n' "$ua" "$(grep -icE "(^|[^[:alnum:]-])$ua([^[:alnum:]-]|\$)" access.log)"
 done
+
+# Response-status distribution per bot — a cluster of 403, 429 or 503 suggests a WAF/CDN block
+# or rate limit. In the combined log format the status is field 9; adjust it for other formats
+ua=GPTBot
+grep -iE "(^|[^[:alnum:]-])$ua([^[:alnum:]-]|\$)" access.log | awk '{print $9}' | sort | uniq -c | sort -rn
 ```
 
 No log access? Substitute your host's bot-traffic classification (Cloudflare, Vercel, etc.).
+
+- User-agent strings can be imitated. When a count jumps or you need to judge a block, match
+  against the vendor IP lists → [verifying bot identity](crawlers.md#verifying-bot-identity--ip-lists-not-user-agent-strings)
+- A cluster of 403, 429 or 503 is not on its own proof of a block. Keep the actual responses and
+  times as evidence → [do not call a failure a block](evidence.md#do-not-call-a-failure-a-block)
+- `Google-Agent` in the logs means a user asked a Google product to fetch the page. It is not a
+  Gemini grounding or training indicator; Gemini and `Google-Extended` still cannot be measured
+  from logs (§2)
 
 ## 2. AI citation protocol — the method differs per engine
 
@@ -224,6 +239,11 @@ snapshot and compare again.
 The first block of the `MEASURE.md` that `measure.py report` writes uses the same shape as the
 `AI cited` lines below. Search metrics (impressions, clicks, indexed) come from GSC and Search
 Advisor and a human puts them in front.
+Import a GSC performance CSV with `measure gsc`: it recomputes CTR (total clicks ÷ total
+impressions) and the impression-weighted average position and stores the scope (property, dates,
+search type, filters) you declare. Exports hold only the top rows, so totals are not the property
+total. These are search-performance (export) figures and never enter AI-citation denominators —
+see the `gsc` section of [tools/README.md](../../tools/README.md).
 
 ```
 [Baseline] 8/1–8/28  impressions 12,400 · clicks 180 · indexed 340

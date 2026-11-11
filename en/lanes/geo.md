@@ -40,8 +40,15 @@ A markdown site guide for AI at `/llms.txt`:
 - [ ] Carry trust signals: source, update cadence, what you originate
 - [ ] Serving it from an app route is fine — keeps it current
 
-⚠️ llms.txt is a **convention, not a standard**. There is no guarantee every engine reads it.
-The cost is low so do it, but do not expect citations from this alone. The body of the work is §3.
+⚠️ llms.txt is a **convention, not a standard**. Do not assume any engine reads it.
+It is cheap enough to keep as an option, but do not expect citations from this alone. The body of the work is §3.
+
+> **Google Search does not need it.** On 2026-06-15 Google stated that llms.txt files are not
+> needed for Google Search and do not affect appearance or ranking, positively or negatively.
+> Keeping one for other services is fine ([Search Central changelog](https://developers.google.com/search/updates) ·
+> [AI optimization guide](https://developers.google.com/search/docs/fundamentals/ai-optimization-guide#mythbusting),
+> checked 2026-11-12). Treat llms.txt as an **optional guide for other services**, never as a
+> Google improvement item.
 
 ## 2. Shared — crawler access
 

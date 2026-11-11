@@ -147,6 +147,8 @@ Manual and API observations are different surfaces. API errors are not non-citat
 report describes the latest measurement date; use `--cumulative` only for exploration, not a
 before/after claim. Defer comparison when the query fingerprint or cohort differs. `next_due` is a
 date record, not a scheduled run or evidence that follow-up measurement happened.
+Import a GSC performance CSV with `measure gsc <audit.json> <export.csv> --property … --start …
+--end … --search-type web`; it is search-performance evidence and never enters citation denominators.
 
 ## Completion report
 

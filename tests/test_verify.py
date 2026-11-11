@@ -267,6 +267,41 @@ class TestLlms(DeployBase):
     def test_missing(self):
         result = self.run_verify(live(**{BASE + "/llms.txt": resp("", status=404)}))
         self.assertEqual(self.status_of(result, "llms.status"), "fail")
+        # 받지 못한 파일의 형식은 판정하지 않는다 — 미측정이지 "형식 문제 없음"이 아니다
+        self.assertIsNone(self.status_of(result, "llms.format"))
+
+    def test_format_clean_is_a_reference_pass(self):
+        check = self.check_of(self.run_verify(), "llms.format")
+        self.assertEqual(check["status"], "pass")
+        self.assertEqual(check["evidence"]["notes"], [])
+        self.assertIn("순위·인용 요인이 아니다", check["message"])
+
+    def test_format_notes_warn_without_changing_exit_code(self):
+        clean = self.run_verify()
+        body = LLMS_CLEAN + "\n## 기타\n- [소개](/about)\n- [띄어쓴 괄호] (https://example.com/x)\n"
+        result = self.run_verify(live(**{BASE + "/llms.txt": resp(body, ctype="text/plain")}))
+        check = self.check_of(result, "llms.format")
+        self.assertEqual(check["status"], "warn")
+        self.assertEqual([n["code"] for n in check["evidence"]["notes"]],
+                         ["relative_links", "malformed_links"])
+        self.assertIn("순위·인용 요인이 아니다", check["message"])
+        self.assertEqual(result["exit_code"], clean["exit_code"])
+        self.assertEqual(result["completion"], clean["completion"])
+        self.assertIn("Google 검색에는 필요 없고", verify.render_md(result))
+
+    def test_html_fallback_is_noted(self):
+        body = "<!doctype html><html><head><title>앱</title></head><body>앱</body></html>"
+        result = self.run_verify(live(**{BASE + "/llms.txt": resp(body)}))
+        self.assertEqual(self.status_of(result, "llms.status"), "pass")
+        check = self.check_of(result, "llms.format")
+        self.assertEqual(check["status"], "warn")
+        self.assertEqual([n["code"] for n in check["evidence"]["notes"]], ["html_document"])
+
+    def test_unreadable_body_is_skipped_not_passed(self):
+        broken = resp("", ctype="text/plain")
+        broken["error"] = "invalid_gzip"
+        result = self.run_verify(live(**{BASE + "/llms.txt": broken}))
+        self.assertEqual(self.status_of(result, "llms.format"), "skip")
 
 
 # ─────────────────────────────────────────────────────────── JSON-LD

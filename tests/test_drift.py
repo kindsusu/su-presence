@@ -503,5 +503,128 @@ class TestOutputs(DriftCase):
             self.compare(["--from", "2020-01-01"])
 
 
+# ─────────────────────────────────────────────────────────── 페이지 제어 필드
+
+def control_page(url, canonical=None, meta_robots=None, googlebot=None, x_robots=None,
+                 hreflang=None, **extra):
+    """제어 필드를 모두 가진 요즘 audit 페이지 (합성 값)."""
+    row = page(url)
+    row.update({"final_url": url, "error": None, "canonical": canonical,
+                "meta_robots": meta_robots, "meta_googlebot": googlebot, "x_robots_tag": x_robots})
+    if hreflang is not None:
+        row["hreflang"] = hreflang
+    row.update(extra)
+    return row
+
+
+class TestControlChanges(DriftCase):
+
+    def changes(self):
+        return {(c["url"], c["field"]): c for c in self.result()["control_changes"]["changes"]}
+
+    def test_identical_controls_report_nothing(self):
+        pages = [control_page(BASE + "/", canonical="/", hreflang=[{"hreflang": "ko", "href": "/"}])]
+        self.two(audit(pages=pages), audit(pages=[dict(p) for p in pages]))
+        self.assertEqual(self.compare(), 0)
+        controls = self.result()["control_changes"]
+        self.assertEqual(controls["changes"], [])
+        self.assertEqual(controls["pages_compared"], 1)
+        self.assertEqual(controls["unknown"], {f: 0 for f in drift.CONTROL_FIELDS})
+
+    def test_new_noindex_on_indexable_page_is_regression(self):
+        before = audit(pages=[control_page(BASE + "/"), control_page(BASE + "/faq")])
+        after = audit(pages=[control_page(BASE + "/"),
+                             control_page(BASE + "/faq", x_robots="noindex")])
+        self.two(before, after)
+        self.assertEqual(self.compare(), 1)
+        self.assertIn("control_new_noindex", self.codes("regressions"))
+        result = self.result()
+        self.assertEqual(result["control_changes"]["new_noindex"], [BASE + "/faq"])
+        changes = self.changes()
+        self.assertEqual(changes[(BASE + "/faq", "noindex")]["kind"], "regression")
+        self.assertEqual(changes[(BASE + "/faq", "x_robots_tag")]["kind"], "change")
+        with open(os.path.join(self.dir, "DRIFT.md"), encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("## 페이지 제어 필드 변화", body)
+        self.assertIn("| %s/faq | noindex | 색인 가능 | noindex | ❌ 회귀 |" % BASE, body)
+
+    def test_googlebot_scoped_noindex_counts(self):
+        before = audit(pages=[control_page(BASE + "/")])
+        after = audit(pages=[control_page(BASE + "/", googlebot="noindex")])
+        self.two(before, after)
+        self.assertEqual(self.compare(), 1)
+        self.assertEqual(self.result()["control_changes"]["new_noindex"], [BASE + "/"])
+
+    def test_canonical_robots_and_hreflang_changes_are_listed_not_regressions(self):
+        before = audit(pages=[control_page(BASE + "/a", canonical="/a", meta_robots="max-snippet:50",
+                                           hreflang=[{"hreflang": "ko", "href": "/a"}])])
+        after = audit(pages=[control_page(BASE + "/a", canonical="/b", meta_robots="nosnippet",
+                                          hreflang=[{"hreflang": "ko", "href": "/a"},
+                                                    {"hreflang": "en", "href": "/en/a"}])])
+        self.two(before, after)
+        self.assertEqual(self.compare(), 0)
+        changes = self.changes()
+        self.assertEqual(changes[(BASE + "/a", "canonical")]["after"], BASE + "/b")
+        self.assertEqual(changes[(BASE + "/a", "meta_robots")]["before"], "max-snippet:50")
+        self.assertEqual(changes[(BASE + "/a", "hreflang")]["after"],
+                         ["en → %s/en/a" % BASE, "ko → %s/a" % BASE])
+        self.assertTrue(all(c["kind"] == "change" for c in changes.values()))
+        self.assertNotIn((BASE + "/a", "noindex"), changes)
+
+    def test_equivalent_spellings_are_not_changes(self):
+        before = audit(pages=[control_page(BASE + "/a", canonical="/a", meta_robots="Index, Follow",
+                                           x_robots="googlebot : nosnippet")])
+        after = audit(pages=[control_page(BASE + "/a", canonical=BASE + "/a#top",
+                                          meta_robots="follow,index", x_robots="googlebot: nosnippet")])
+        self.two(before, after)
+        self.compare()
+        self.assertEqual(self.result()["control_changes"]["changes"], [])
+
+    def test_missing_fields_in_old_audit_are_unknown_not_changes(self):
+        legacy = {"url": BASE + "/", "status": 200, "title": "예시", "meta_description": "d",
+                  "jsonld_count": 1}  # 제어 필드가 하나도 없던 옛 audit
+        after = audit(pages=[control_page(BASE + "/", canonical="/", meta_robots="noindex",
+                                          hreflang=["ko"])])
+        self.two(audit(pages=[legacy]), after)
+        self.compare()
+        controls = self.result()["control_changes"]
+        self.assertEqual(controls["changes"], [])
+        self.assertEqual(controls["new_noindex"], [])
+        self.assertNotIn("control_new_noindex", self.codes("regressions"))
+        self.assertEqual(controls["unknown"], {f: 1 for f in drift.CONTROL_FIELDS})
+        with open(os.path.join(self.dir, "DRIFT.md"), encoding="utf-8") as fh:
+            self.assertIn("미확인", fh.read())
+
+    def test_partial_robots_keys_cannot_prove_previous_indexability(self):
+        before = control_page(BASE + "/")
+        del before["meta_googlebot"]
+        self.two(audit(pages=[before]),
+                 audit(pages=[control_page(BASE + "/", googlebot="noindex")]))
+        self.compare()
+        self.assertEqual(self.result()["control_changes"]["new_noindex"], [])
+        self.assertEqual(self.result()["control_changes"]["unknown"]["noindex"], 1)
+
+    def test_failed_observation_is_unknown(self):
+        broken = control_page(BASE + "/", status=503, error="HTTP 503")
+        self.two(audit(pages=[control_page(BASE + "/")]),
+                 audit(pages=[broken]))
+        self.compare()
+        controls = self.result()["control_changes"]
+        self.assertEqual(controls["changes"], [])
+        self.assertEqual(controls["unknown"]["canonical"], 1)
+
+    def test_declared_intentional_noindex_is_change_not_regression(self):
+        self.two(audit(pages=[control_page(BASE + "/thanks")]),
+                 audit(pages=[control_page(BASE + "/thanks", meta_robots="noindex",
+                                           intended_indexable=False)]))
+        self.compare()
+        controls = self.result()["control_changes"]
+        self.assertEqual(controls["new_noindex"], [])
+        item = self.changes()[(BASE + "/thanks", "noindex")]
+        self.assertEqual(item["kind"], "change")
+        self.assertTrue(item["intended"])
+        self.assertNotIn("control_new_noindex", self.codes("regressions"))
+
+
 if __name__ == "__main__":
     unittest.main()

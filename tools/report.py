@@ -212,6 +212,13 @@ MSG_EN = {
     "ROBOTS_CDN_MANAGED": "robots.txt contains a Cloudflare managed block. Cloudflare injects it at the edge, so editing the origin file will not change it — change it in the Cloudflare dashboard.",
     "CONTENT_SIGNAL_PRESENT": "robots.txt declares Content-Signal preferences. They express preferences, not access control, and compliance is voluntary; they were not used as allow/block.",
     "DAUM_CRAWLER_UNDECLARED": "Daum crawler UAs are not declared in robots.txt — Daumoa and DAUM are separate tokens, so naming only one leaves the other to chance.",
+    # Sitemap hygiene — protocol and maintenance state, not ranking or citation factors.
+    "SITEMAP_LIMIT_EXCEEDED": "{count} sitemap files exceed the per-file limit (50,000 URLs or 50 MB uncompressed); search engines may not read them. Split them under a sitemap index. Not a ranking or citation factor.",
+    "SITEMAP_FOREIGN_HOST": "{count} sitemap <loc> entries point to another host; the protocol expects URLs from the sitemap's own host (check www/apex). Not a ranking or citation factor.",
+    "SITEMAP_DUPLICATE_URLS": "{count} duplicate URL entries inside sitemaps — check the generator. Not a ranking or citation factor.",
+    "SITEMAP_LASTMOD_INVALID": "{count} lastmod values are not W3C Datetime (for example 2026-11-12 or 2026-11-12T09:00:00+09:00) and may be ignored. Not a ranking or citation factor.",
+    "SITEMAP_LASTMOD_MISSING": "{count} of {entries} sitemap entries have no lastmod. It is optional; if present, it should be the real content change date. Not a ranking or citation factor.",
+    "SITEMAP_LASTMOD_UNIFORM": "In {count} sitemaps at least 90% of entries share one lastmod — possibly a generation timestamp rather than real change dates. Not a ranking or citation factor.",
 }
 
 # 권고 로드맵 규칙: code -> (순서, 국문 조치, 영문 조치, 서버 접근 필요)
@@ -297,6 +304,10 @@ ROADMAP.update({
                          "Resolve incomplete coverage and re-audit before replacing the sitemap.", True),
     "SNIPPET_RESTRICTED": (1, "Google 답변 노출이 목표라면 의도하지 않은 nosnippet·max-snippet:0을 수정한다.",
                            "Review unintended nosnippet/max-snippet:0 when targeting Google AI answers.", True),
+    "SITEMAP_LIMIT_EXCEEDED": (6, "한도(URL 50,000개·50 MB)를 넘는 사이트맵을 여러 파일로 나누고 sitemap index로 묶는다.",
+                               "Split oversized sitemaps (50,000 URLs / 50 MB) and list them in a sitemap index.", True),
+    "SITEMAP_FOREIGN_HOST": (7, "사이트맵의 다른 호스트 URL을 진단 대상 호스트의 canonical URL로 바꾼다 (www↔apex 확인).",
+                             "Replace other-host sitemap URLs with this host's canonical URLs (check www/apex).", True),
     "TRAINING_CRAWLER_BLOCKED": (30, "학습 제외 정책을 기록한다. 검색·열람 허용 여부는 별도로 확인한다.",
                                  "Record training opt-out separately from search/retrieval access.", False),
 })

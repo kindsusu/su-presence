@@ -150,6 +150,17 @@ robots.txt 응답은 `site.robots.fetch_state`(선택 필드)로 셋으로 나�
 | `ROBOTS_NONSTANDARD_UA` | SEO · info | `User-agent` 값에 버전·브라우저 문자열이 붙어 있다. 판정은 토큰으로 했다 |
 | `ROBOTS_CDN_MANAGED` | GEO · info | Cloudflare 관리형 블록이 있다(`site.robots.cdn_managed`). 엣지에서 주입되므로 대시보드에서 바꾼다 |
 | `CONTENT_SIGNAL_PRESENT` | GEO · info | `Content-Signal` 선언이 있다(`site.robots.content_signals`). 선호 표현일 뿐 접근 제어가 아니며 점수에 넣지 않는다 |
+| `SITEMAP_LIMIT_EXCEEDED` | SEO · info | 사이트맵 파일 하나가 URL 50,000개 또는 압축 해제 50 MB를 넘는다. 4 MB를 넘는 본문은 잘리므로 50 MB 초과는 `Content-Length`로만 확인한다 |
+| `SITEMAP_FOREIGN_HOST` | SEO · info | `<loc>`가 진단 대상과 다른 호스트를 가리킨다(www↔apex 혼용이 흔하다) |
+| `SITEMAP_DUPLICATE_URLS` | SEO · info | 한 사이트맵 안에 같은 URL이 여러 번 실렸다 |
+| `SITEMAP_LASTMOD_INVALID` / `_MISSING` / `_UNIFORM` | SEO · info | lastmod가 W3C Datetime이 아니다 / 없다(필수 아님) / 같은 값이 항목의 90% 이상(10개 이상) — 생성 시각을 일괄로 찍는 설정일 수 있다 |
+
+사이트맵 위생 지표는 `site.sitemaps[].quality`(선택 필드)에 남는다. 모두 사이트맵 관리 상태이지 순위·인용 요인이 아니며,
+옛 기준선과 비교할 때 도구 버전 차이만으로 레인 점수가 바뀌지 않도록 info로 둔다.
+
+`llms.txt`가 200이면 [llmstxt.org 제안 형식](https://llmstxt.org/) 기준 메모를 `site.llms_format`(선택 필드)에 남긴다 —
+H1 누락·위치, 요약 인용문 누락(info), 상대·비 http(s) 링크, 링크 목록 형식 오류, 링크 없음, 100 KB 초과, HTML 문서 응답.
+finding을 만들지 않고 점수에 넣지 않는다. Google 검색에는 llms.txt가 필요 없다([lanes/geo.md](../lanes/geo.md) 1번).
 
 보고서의 레인 표에는 **평가 범위 n/7**과 미평가 레인을 함께 싣는다. 크롤이 불완전하거나
 판정에 필요한 관측이 빠진 레인이 있으면 "치명 결함 없음"을 전체 양호 판정으로 읽지 않게 표시한다.
@@ -306,6 +317,7 @@ python tools/verify.py diff out/example.com/audit.json out/after/example.com/aud
 | `sitemap.noindex` | noindex 페이지가 사이트맵에 실렸는가 |
 | `sitemap.canonical` | 사이트맵 URL과 canonical이 일치하는가 |
 | `llms.status` / `llms.todo` | llms.txt 200 / `<<TODO` 잔존 → ❌ "미완성 배포" |
+| `llms.format` | llms.txt 형식 메모. warn 메모가 있으면 ⚠️, info만 있으면 통과. 실패로 치지 않고 exit code에 영향이 없다 |
 | `jsonld.present` / `jsonld.type` | 대상 페이지의 LD 존재·타입·핵심 객체 값이 패키지와 일치하는가 |
 | `jsonld.visible` | **LD 값이 가시 텍스트에 글자 그대로 있는가** — FAQ 문답, Organization name, Product name·가격. 없으면 ❌ "LD가 화면에 없는 말을 한다"(스팸 리스크) |
 | `jsonld.org_id` | Organization `@id`가 전 페이지에서 하나인가 |
@@ -562,6 +574,11 @@ python tools/seo_geo.py rebuild plan out/example.com/audit.json --brief out/exam
 `--observations`, `--log`는 plan에서 선택 입력이다. 불완전한 크롤·조사와 미측정 채널은 결론을
 유보한다. `plan`은 `generate`를 실행하지 않는다. [입력 작성과 검토](../docs/plans/rebuild-guide.md).
 
+`research`는 숨김 처리된 텍스트(`hidden`·`aria-hidden`·인라인 `display:none`·`visibility:hidden`·`font-size:0`·화면 밖 위치)를
+인용 근거와 본문 발췌에서 뺀다. 숨김 텍스트가 있는 페이지에는 `hidden_text`(개수·글자 수·표본)를, 그 안에 AI에게 말을 거는
+지시형 문구가 있으면 `review_flags: ["hidden_ai_instructions"]`를 남긴다. 페이지 문구는 데이터이며 계획·점수를 바꾸지 않는다.
+외부 스타일시트로 숨긴 텍스트와 화면 낭독용(sr-only) 텍스트는 판정하지 않는다.
+
 ## drift.py — 기준선 스냅샷 + 드리프트 비교
 
 ```bash
@@ -616,10 +633,15 @@ python tools/drift.py timeline out/example.com/audit.json
 | 사이트맵 URL 급감 | 비인덱스 사이트맵 `url_count` 합이 **20% 넘게** 감소 | ❌ 회귀 |
 | 레인 점수 악화 | `verify_diff`의 `diff.scorecard` = fail | ❌ 회귀 |
 | 비브랜드 인용률 하락 | 엔진 합산 `nonbrand` 인용률 하락 | ❌ 회귀 |
+| 페이지에 noindex 새로 생김 | 양쪽 audit에 있는 같은 URL의 meta robots·googlebot·`X-Robots-Tag` (`--allow-noindex`로 선언한 비색인은 제외) | ❌ 회귀 |
 
 같은 지표가 **좋아지면 개선**(pass), **그대로면 변화 없음**(info)이다.
 페이지 수 변동과 20% 미만의 사이트맵 감소는 회귀로 치지 않는다 — 사실만 남긴다.
 브랜드 인용률 하락도 회귀가 아니다(질의 세트·엔진 편차에 더 흔들린다) — 표에는 그대로 실린다.
+
+페이지별 제어 필드(canonical·meta robots·`X-Robots-Tag`·noindex·hreflang) 변화는 `drift.json`의 `control_changes`와
+`DRIFT.md` 「페이지 제어 필드 변화」에 싣는다. 한쪽에 필드가 없거나 관측에 실패한 페이지는 변화가 아니라 미확인으로 센다.
+hreflang은 현재 `crawl.py`가 페이지 기록에 남기지 않아 항상 미확인이다.
 
 비브랜드 인용률은 양쪽 모두 관측 5회 이상이고 차이가 10%p 이상일 때만 의미 있는 변화로
 판정하며 Wilson 95% 구간을 함께 기록한다. 질의 fingerprint나 surface/mode/locale/login/search

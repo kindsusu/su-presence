@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+- 사이트맵 위생 지표(`site.sitemaps[].quality`)와 info 진단 6종: 파일 한도 초과, 다른 호스트 URL, 중복 URL, lastmod 형식 오류·누락·일괄 동일값.
+- llms.txt 형식 메모(`site.llms_format`, verify `llms.format`). 순위·인용 요인으로 다루지 않으며 실패로 치지 않는다.
+- `rebuild research`: 숨김 텍스트를 인용 근거에서 빼고 `hidden_text`·`review_flags`로 표시한다. 숨긴 지시 문구가 계획을 바꾸지 않는다는 회귀 시험을 추가한다.
+- `drift compare`: 페이지별 제어 필드 변화(`control_changes`)와 noindex 신규 발생 회귀.
+- 문서: 에이전트용 검색 API(Exa) 메모, 한국어 윤문 선택 단계, PDF 요금표를 HTML 표로 펴는 절차.
+- 참고한 공개 프로젝트(MIT): AgriciDaniel/claude-seo, AgriciDaniel/chatgpt-seo. 코드는 복사하지 않았다.
+
 - robots.txt 응답을 `ok`·`absent`·`unreachable`로 나눈다(RFC 9309). 429·5xx·접속 실패에서 모든 UA를 "미선언·기본 허용"으로 보고하던 오류를 고쳐 정책을 `unknown`으로 두고 `ROBOTS_UNREACHABLE`을 낸다. GEO·NEO·KEO 크롤러 판정은 내지 않고 해당 레인은 `na`다. robots.txt를 읽지 못하면 생성기는 robots.txt 초안을 만들지 않는다(원문을 모르는 초안이 서버의 차단 규칙을 지울 수 있다). robots.txt 404는 크롤 불완전 사유가 아니다. `verify diff`·`drift`는 robots를 못 읽어 사라진 findings를 해소로, `na`가 된 레인을 개선으로 세지 않는다(`diff.unverified`, 결론 보류 exit 2).
 - 크롤 중 429·503을 깨진 링크(`HTTP_ERROR`)에서 빼 `HTTP_THROTTLED`(미확인)로 보고한다.
 - 파싱에 실패한 JSON-LD 블록을 조용히 버리던 동작을 고쳐 `JSONLD_INVALID`로 보고하고, 블록이 있는 페이지를 `JSONLD_MISSING`에서 뺀다.

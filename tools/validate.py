@@ -9,6 +9,7 @@ import json
 import re
 import sys
 import unicodedata
+from datetime import date
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -19,6 +20,13 @@ REFERENCE = re.compile(r"^\s*\[[^\]]+\]:\s*(<[^>]+>|\S+)")
 HEADING = re.compile(r"^ {0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$")
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 VERSION = re.compile(r"\d+\.\d+\.\d+")
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+TABLE_SEPARATOR = re.compile(r":?-{3,}:?")
+# Crawler policy tables carry one verification date per row. Stale rows only warn by default, so
+# the ordinary CI run cannot start failing merely because the calendar moved on.
+CRAWLER_TABLES = ("ops/crawlers.md", "en/ops/crawlers.md")
+CRAWLER_DATE_HEADERS = {"확인일", "verified"}
+CRAWLER_MAX_AGE_DAYS = 120
 
 
 def read(path, errors, root):
@@ -207,6 +215,80 @@ def links(root, errors):
                         errors.append(f"{relative}:{number}: missing anchor: {target}")
 
 
+def table_cells(line):
+    stripped = line.strip()
+    if not stripped.startswith("|"):
+        return None
+    inner = stripped[1:-1] if stripped.endswith("|") and len(stripped) > 1 else stripped[1:]
+    return [cell.strip() for cell in re.split(r"(?<!\\)\|", inner)]
+
+
+def tables(source):
+    """Yield (header cells, [(line number, cells), ...]) for each pipe table outside code fences."""
+    lines = list(visible_lines(source, strip_inline_code=False))
+    index = 0
+    while index + 1 < len(lines):
+        number, line = lines[index]
+        header = table_cells(line)
+        separator = table_cells(lines[index + 1][1])
+        if (header is None or separator is None or lines[index + 1][0] != number + 1
+                or len(separator) != len(header)
+                or not all(TABLE_SEPARATOR.fullmatch(cell) for cell in separator)):
+            index += 1
+            continue
+        rows = []
+        index += 2
+        while index < len(lines) and lines[index][0] == lines[index - 1][0] + 1:
+            cells = table_cells(lines[index][1])
+            if cells is None:
+                break
+            rows.append((lines[index][0], cells))
+            index += 1
+        yield header, rows
+
+
+def crawler_freshness(root, errors, warnings, today, max_age=CRAWLER_MAX_AGE_DAYS, strict=False):
+    """Check the per-row verification dates of the crawler policy tables.
+
+    A missing or malformed date is always an error. A row older than ``max_age`` days is a warning,
+    or an error when ``strict`` is true. ``today`` is injected so the result is reproducible.
+    """
+    for relative in CRAWLER_TABLES:
+        path = root / relative
+        if not path.is_file():
+            continue
+        source = read(path, errors, root)
+        if source is None:
+            continue
+        dated = []
+        for header, rows in tables(source):
+            names = [re.sub(r"[*_`]", "", cell).strip().lower() for cell in header]
+            column = next((i for i, name in enumerate(names) if name in CRAWLER_DATE_HEADERS), None)
+            if column is not None:
+                dated.append((column, rows))
+        if not dated:
+            errors.append(f"{relative}: crawler policy table with a 확인일/Verified column not found")
+            continue
+        for column, rows in dated:
+            for number, cells in rows:
+                value = cells[column] if column < len(cells) else ""
+                if not ISO_DATE.fullmatch(value):
+                    errors.append(f"{relative}:{number}: crawler table date must be YYYY-MM-DD, found {value!r}")
+                    continue
+                try:
+                    checked = date.fromisoformat(value)
+                except ValueError:
+                    errors.append(f"{relative}:{number}: crawler table date is not a calendar date: {value}")
+                    continue
+                age = (today - checked).days
+                if age < -1:
+                    warnings.append(f"{relative}:{number}: crawler table date {value} is in the future")
+                elif age > max_age:
+                    message = (f"{relative}:{number}: crawler table row verified {value} is {age} days old "
+                               f"(limit {max_age}); re-check the official docs and update the date")
+                    (errors if strict else warnings).append(message)
+
+
 def mirrors(root, errors):
     for directory in ("lanes", "ops"):
         for path in sorted((root / directory).glob("*.md")):
@@ -215,9 +297,15 @@ def mirrors(root, errors):
                 errors.append(f"en/{relative}: missing English mirror")
 
 
-def validate(root):
+def validate(root, warnings=None, today=None, crawler_max_age=None):
+    """Return the list of errors. Pass a list as ``warnings`` to collect non-fatal findings.
+
+    ``crawler_max_age`` (days) turns stale crawler-table rows into errors; without it, rows older
+    than CRAWLER_MAX_AGE_DAYS only warn.
+    """
     root = Path(root).resolve()
     errors = []
+    warnings = [] if warnings is None else warnings
     ko = frontmatter(root, "SKILL.md", errors)
     en = frontmatter(root, "en/SKILL.md", errors)
     if ko.get("name") and en.get("name") and ko["name"] != en["name"]:
@@ -225,20 +313,39 @@ def validate(root):
     metadata(root, errors, ko.get("name"))
     links(root, errors)
     mirrors(root, errors)
+    strict = crawler_max_age is not None
+    crawler_freshness(root, errors, warnings, today or date.today(),
+                      crawler_max_age if strict else CRAWLER_MAX_AGE_DAYS, strict)
     return errors
+
+
+def non_negative_days(value):
+    days = int(value)
+    if days < 0:
+        raise argparse.ArgumentTypeError("must be zero or more days")
+    return days
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1], help="repository root")
+    parser.add_argument("--crawler-max-age", type=non_negative_days, metavar="DAYS",
+                        help=f"fail when a crawler policy row is older than DAYS "
+                             f"(default: warn after {CRAWLER_MAX_AGE_DAYS} days without failing)")
+    parser.add_argument("--today", type=date.fromisoformat, metavar="YYYY-MM-DD",
+                        help="date used for crawler-table freshness (default: the local date)")
     args = parser.parse_args(argv)
-    errors = validate(args.root)
+    warnings = []
+    errors = validate(args.root, warnings, args.today, args.crawler_max_age)
+    for warning in warnings:
+        print(f"warning: {warning}", file=sys.stderr)
     for error in errors:
         print(error, file=sys.stderr)
     if errors:
         print(f"Validation failed: {len(errors)} error(s)", file=sys.stderr)
         return 1
-    print("Repository validation passed")
+    suffix = f" with {len(warnings)} warning(s)" if warnings else ""
+    print(f"Repository validation passed{suffix}")
     return 0
 
 

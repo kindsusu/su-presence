@@ -53,6 +53,9 @@ NEO_UAS = ["Yeti"]
 KEO_UAS = ["Daumoa", "DAUM"]
 ALL_UAS = AI_UAS + NEO_UAS + KEO_UAS
 
+# 요청 제한·일시 불가 — 깨진 링크가 아니라 그 시점에 응답을 못 받은 것(미확인)이다.
+THROTTLE_STATUSES = (429, 503)
+
 ASSET_EXT = (
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".svg", ".ico", ".bmp",
     ".css", ".js", ".mjs", ".map", ".json", ".xml", ".txt", ".pdf", ".zip",
@@ -70,32 +73,56 @@ LEN_DESC = {"ko": (70, 80), "en": (150, 160)}
 
 # ─────────────────────────────────────────────────────────── robots.txt
 
-def parse_robots(raw: str):
-    """robots.txt를 (agents, rules) 그룹 목록으로 쪼갠다.
+def ua_token(value: str) -> str:
+    """User-agent 값에서 제품 토큰만 뽑아 소문자로 돌려준다.
 
-    규칙이 나온 뒤 User-agent 줄이 다시 나오면 새 그룹으로 본다. 주석은
-    제거하고 User-agent만 대소문자 비구분으로 처리한다.
+    RFC 9309·Google은 제품 토큰을 대소문자 구분 없이 맞춘다 — 첫 '/'나 공백 앞까지다.
+    `GPTBot/1.1` → `gptbot`. 접두 일치가 아니므로 `GPTBot`은 `GPTBot-Image`와,
+    `Daumoa`는 `DAUM`과 서로 맞지 않는다.
+    """
+    value = (value or "").strip()
+    return re.split(r"[/\s]", value, maxsplit=1)[0].lower() if value else ""
+
+
+def _robots_groups(raw: str):
+    """robots.txt를 그룹 dict 목록으로 쪼갠다 — parse_robots·Content-Signal·관리 블록 판정이 공유한다.
+
+    규칙(Allow/Disallow)이 나온 뒤 User-agent 줄이 다시 나오면 새 그룹으로 본다. 주석은 제거한다.
+    Content-Signal 줄은 그룹에 붙지만 그룹을 나누지 않는다(규칙이 아니다).
     """
     groups = []
-    agents: list[str] = []
-    rules: list[tuple[str, bool]] = []
+    current = {"agents": [], "tokens": [], "rules": [], "signals": []}
     saw_rule = False
     for raw_line in (raw or "").split("\n"):
         line = raw_line.rstrip("\r").split("#", 1)[0].strip()
         lower = line.lower()
         if lower.startswith("user-agent:"):
             if saw_rule:
-                groups.append((agents, rules))
-                agents, rules, saw_rule = [], [], False
-            agents.append(line[len("user-agent:"):].strip().lower())
+                groups.append(current)
+                current = {"agents": [], "tokens": [], "rules": [], "signals": []}
+                saw_rule = False
+            value = line[len("user-agent:"):].strip()
+            current["agents"].append(value)
+            current["tokens"].append(ua_token(value))
         elif re.match(r"^(dis)?allow:", lower):
             saw_rule = True
             is_allow = lower.startswith("allow:")
             path = re.sub(r"^(dis)?allow:\s*", "", line, flags=re.I).strip()
-            rules.append((path, is_allow))
-    if agents or rules:
-        groups.append((agents, rules))
+            current["rules"].append((path, is_allow))
+        elif lower.startswith("content-signal:"):
+            current["signals"].append(line.split(":", 1)[1].strip())
+    if current["agents"] or current["rules"] or current["signals"]:
+        groups.append(current)
     return groups
+
+
+def parse_robots(raw: str):
+    """robots.txt를 (agents, rules) 그룹 목록으로 쪼갠다.
+
+    agents는 제품 토큰(소문자)이다 — `User-agent: GPTBot/1.1`도 `gptbot`으로 맞춘다.
+    """
+    return [(g["tokens"], g["rules"]) for g in _robots_groups(raw)
+            if g["agents"] or g["rules"]]
 
 
 def robots_policy(raw: str, ua: str) -> str:
@@ -103,8 +130,10 @@ def robots_policy(raw: str, ua: str) -> str:
 
     반환: explicit-allow|explicit-block|explicit-partial
           |star-allow|star-block|star-partial|none
+    robots.txt를 읽지 못한 경우의 `unknown`은 호출하는 쪽(probe_site)이 붙인다 —
+    이 함수는 받은 원문만 판정한다.
     """
-    target = ua.lower()
+    target = ua_token(ua)
     groups = parse_robots(raw)
     exact = [rules for agents, rules in groups if target in agents]
     selected = exact or [rules for agents, rules in groups if "*" in agents]
@@ -124,8 +153,11 @@ def robots_policy(raw: str, ua: str) -> str:
 
 
 def crawl_rules(raw: str, ua: str):
-    """우리 UA에 적용되는 Disallow/Allow 규칙 (없으면 User-agent:* 규칙)."""
-    target = ua.lower()
+    """우리 UA에 적용되는 Disallow/Allow 규칙 (없으면 User-agent:* 규칙).
+
+    정책 판정(robots_policy)과 같은 제품 토큰 일치를 쓴다.
+    """
+    target = ua_token(ua)
     exact: list[tuple[str, bool]] = []
     star: list[tuple[str, bool]] = []
     has_exact = False
@@ -136,6 +168,109 @@ def crawl_rules(raw: str, ua: str):
         if "*" in agents:
             star.extend(rules)
     return exact if has_exact else star
+
+
+def _token_as_written(value: str) -> str:
+    return re.split(r"[/\s]", (value or "").strip(), maxsplit=1)[0]
+
+
+def robots_nonstandard_agents(raw: str) -> list:
+    """제품 토큰만이 아닌 User-agent 값(버전·전체 브라우저 UA 문자열)을 모은다.
+
+    판정은 토큰으로 하므로 이 도구의 결과는 맞지만, 값을 통째로 비교하는 파서도 있다 — 정보로 남긴다.
+    """
+    out, seen = [], set()
+    for group in _robots_groups(raw):
+        for value in group["agents"]:
+            if value and re.search(r"[/\s]", value) and value not in seen:
+                seen.add(value)
+                out.append({"value": value, "token": _token_as_written(value)})
+    return out
+
+
+def _parse_content_signal(value: str) -> dict:
+    parsed = {}
+    for part in (value or "").split(","):
+        if "=" not in part:
+            continue
+        key, val = part.split("=", 1)
+        if key.strip():
+            parsed[key.strip().lower()] = val.strip().lower()
+    return parsed
+
+
+def robots_content_signals(raw: str) -> list:
+    """그룹별 Content-Signal 줄 (Cloudflare 문서 표기 `Content-signal:`, 대소문자 비구분).
+
+    선호 표현일 뿐 접근 제어가 아니다 — 허용·차단 판정에 절대 쓰지 않는다.
+    """
+    out = []
+    for group in _robots_groups(raw):
+        if not group["signals"]:
+            continue
+        values = {}
+        for line in group["signals"]:
+            values.update(_parse_content_signal(line))
+        out.append({"agents": list(group["agents"]), "signals": values,
+                    "raw": list(group["signals"])})
+    return out
+
+
+CF_MANAGED_BEGIN = re.compile(r"^[ \t]*#[ \t]*BEGIN Cloudflare Managed content\b.*$", re.I | re.M)
+CF_MANAGED_END = re.compile(r"^[ \t]*#[ \t]*END Cloudflare Managed Content\b.*$", re.I | re.M)
+
+
+def cdn_managed_span(raw: str):
+    """Cloudflare 관리 블록의 (시작, 끝, 끝표식 있음) — 없으면 None. 끝 표식이 없으면 파일 끝까지."""
+    begin = CF_MANAGED_BEGIN.search(raw or "")
+    if not begin:
+        return None
+    end = CF_MANAGED_END.search(raw, begin.end())
+    return begin.start(), (end.end() if end else len(raw)), bool(end)
+
+
+def cdn_managed_info(raw: str):
+    """Cloudflare가 엣지에서 붙인 관리 블록 정보. 없으면 None.
+
+    blocked_uas는 관리 블록 **안의** 그룹만 보고 루트(/)가 막힌 UA다 — 원본 쪽 그룹과 합친
+    실효 정책은 policies가 따로 말한다.
+    """
+    span = cdn_managed_span(raw)
+    if not span:
+        return None
+    start, end, closed = span
+    blocked = []
+    for group in _robots_groups(raw[start:end]):
+        if group["rules"] and not crawl_allowed(group["rules"], "/"):
+            for value in group["agents"]:
+                token = _token_as_written(value)
+                if token and token != "*" and token not in blocked:
+                    blocked.append(token)
+    return {"provider": "cloudflare", "blocked_uas": blocked, "end_marker": closed}
+
+
+def robots_fetch_state(res: dict) -> str:
+    """robots.txt 응답 분류 (RFC 9309 2.3.1).
+
+    ok          — 2xx 텍스트. 원문을 판정한다.
+    absent      — 404·410 등 4xx(429 제외), 또는 200으로 꾸민 HTML 오류 페이지 → 제한 없음으로 본다.
+    unreachable — 429·5xx·시간 초과·접속 실패·상태 없음·따라가지 못한 리다이렉트 → 정책 미확인.
+                  RFC 9309는 서버 오류·접속 불가일 때 전체 차단으로 간주하라고 하고,
+                  Google도 429를 5xx처럼 다룬다. 0이나 "허용"으로 바꿔 적지 않는다.
+    """
+    status = res.get("status")
+    error = res.get("error")
+    if status is None or status == 429 or status >= 500:
+        return "unreachable"
+    if 200 <= status < 300:
+        if error and error != "body_truncated":
+            return "unreachable"
+        if (res.get("body") or "").lstrip().startswith("<"):
+            return "absent"
+        return "ok"
+    if 400 <= status < 500:
+        return "absent"
+    return "unreachable"
 
 
 def crawl_allowed(rules, path: str) -> bool:
@@ -665,6 +800,8 @@ def page_record(url: str, res: dict) -> dict:
         pass
     count, types = jsonld_types(parser.jsonld_raw)
     page.update({
+        # JSON 문법 오류로 읽히지 않은 블록 수. "블록이 없다"와 "있지만 깨졌다"를 가른다.
+        "jsonld_invalid": len(parser.jsonld_raw) - count,
         "title": parser.title,
         "meta_description": parser.meta_description,
         "meta_robots": parser.meta_robots,
@@ -684,7 +821,8 @@ def page_record(url: str, res: dict) -> dict:
 
 # ─────────────────────────────────────────────────────────── 사이트 수준
 
-def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap_data=None) -> dict:
+def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap_data=None,
+               robots_state=None, robots_error=None) -> dict:
     host = host_of(base)
     declared = [
         m.strip() for m in
@@ -756,14 +894,24 @@ def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap
         else:
             alt_result = "ok"
 
+    robots = {
+        "status": robots_status,
+        "present": bool(robots_raw),
+        "raw": robots_raw or "",
+        # 읽지 못한 robots.txt는 "미설정(none)"이 아니라 "미확인(unknown)"이다.
+        "policies": {ua: ("unknown" if robots_state == "unreachable"
+                          else robots_policy(robots_raw or "", ua)) for ua in ALL_UAS},
+        "sitemap_declared": declared,
+        # 이하 선택 필드 — 옛 audit에는 없다. 키가 있으면 측정했다는 뜻이다.
+        "nonstandard_agents": robots_nonstandard_agents(robots_raw or ""),
+        "cdn_managed": cdn_managed_info(robots_raw or ""),
+        "content_signals": robots_content_signals(robots_raw or ""),
+    }
+    if robots_state:
+        robots["fetch_state"] = robots_state
+        robots["fetch_error"] = robots_error
     return {
-        "robots": {
-            "status": robots_status,
-            "present": bool(robots_raw),
-            "raw": robots_raw or "",
-            "policies": {ua: robots_policy(robots_raw or "", ua) for ua in ALL_UAS},
-            "sitemap_declared": declared,
-        },
+        "robots": robots,
         "sitemaps": sitemaps,
         "sitemap_urls": sorted(sm_set),
         "sitemap_vs_crawl": mismatch,
@@ -872,6 +1020,7 @@ def analyze(base: str, site: dict, pages: list) -> tuple:
     _check_structure(findings, ok, total)
     _check_site(findings, base, site, ok)
     _check_link_discovery(findings, base, site, ok)
+    _check_robots_file(findings, base, site)
     _check_crawler_policy(findings, site)
 
     stats = {
@@ -881,7 +1030,11 @@ def analyze(base: str, site: dict, pages: list) -> tuple:
         "pages_with_jsonld": sum(1 for p in ok if p["jsonld_count"]),
         "pages_noindex": sum(1 for p in ok if _noindex(p)),
     }
-    return findings, stats, scorecard(findings)
+    unassessed = {}
+    if robots_unknown(site):
+        for lane in ROBOTS_POLICY_LANES:
+            unassessed[lane] = ["crawler_policy"]
+    return findings, stats, scorecard(findings, unassessed)
 
 
 def _noindex(page) -> bool:
@@ -1016,7 +1169,16 @@ def _check_meta(findings, ok, total):
 
 
 def _check_structure(findings, ok, total):
-    no_ld = [p["url"] for p in ok if not p["jsonld_count"]]
+    # 깨진 블록만 있는 페이지는 "없음"이 아니라 "깨짐"이다. 필드가 없는 옛 audit은 0으로 읽는다.
+    invalid = [p for p in ok if (p.get("jsonld_invalid") or 0) > 0]
+    if invalid:
+        blocks = sum(p["jsonld_invalid"] for p in invalid)
+        add(findings, "AEO", "warn", "JSONLD_INVALID",
+            "JSON-LD 블록이 JSON 문법 오류로 읽히지 않는 페이지가 %d개다 (깨진 블록 %d개) — "
+            "검색엔진도 그 블록을 읽지 못한다. 문법부터 고친다." % (len(invalid), blocks),
+            [p["url"] for p in invalid], {"count": len(invalid), "blocks": blocks})
+    no_ld = [p["url"] for p in ok
+             if not p["jsonld_count"] and not (p.get("jsonld_invalid") or 0)]
     if no_ld:
         ratio = len(no_ld) / total
         add(findings, "AEO", "info", "JSONLD_MISSING",
@@ -1111,13 +1273,39 @@ def _check_link_discovery(findings, base, site, ok):
 
 def _check_site(findings, base, site, ok):
     pages_all_status = site.get("_all_pages_status", [])
-    broken = [u for u, s in pages_all_status if s is None or s >= 400]
+    # 429·503은 "깨진 링크"가 아니라 "그 시점에 응답을 못 받음(미확인)"이다 — 따로 센다.
+    throttled = [(u, s) for u, s in pages_all_status if s in THROTTLE_STATUSES]
+    broken = [u for u, s in pages_all_status
+              if s is None or (s >= 400 and s not in THROTTLE_STATUSES)]
     if broken:
         add(findings, "SEO", "warn", "HTTP_ERROR",
             "내부 링크를 따라간 URL 중 %d개가 오류를 냈다." % len(broken), broken,
             {"count": len(broken)})
+    if throttled:
+        statuses = Counter(str(s) for _, s in throttled)
+        add(findings, "SEO", "info", "HTTP_THROTTLED",
+            "URL %d개가 HTTP 429·503(요청 제한·일시 불가)을 냈다 (%s) — 깨진 링크가 아니라 "
+            "미확인이다. 이 페이지들은 검사하지 못했으므로 크롤 범위 불완전(http_errors)에 "
+            "포함된다. --delay를 늘려 다시 잰다."
+            % (len(throttled), ", ".join("%s×%d" % kv for kv in sorted(statuses.items()))),
+            [u for u, _ in throttled], {"count": len(throttled), "statuses": dict(statuses)})
 
-    if not site["robots"]["present"]:
+    robots = site["robots"]
+    if robots.get("fetch_state") == "unreachable":
+        status = robots.get("status")
+        detail = ", " + robots["fetch_error"] if robots.get("fetch_error") else ""
+        if status is not None and 300 <= status < 400:
+            why = "리다이렉트를 따라가지 못해 내용을 확인하지 못했다 (HTTP %s%s)." % (status, detail)
+        else:
+            why = ("응답을 받지 못했다 (HTTP %s%s). RFC 9309는 서버 오류·접속 불가일 때 크롤러가 "
+                   "사이트 전체를 차단으로 간주하라고 하고, Google도 429·5xx를 일시적으로 전체 "
+                   "차단처럼 다룬다 — 일시 장애가 아니면 검색·AI 크롤러가 사이트를 수집하지 않을 수 있다."
+                   % (status if status is not None else "없음", detail))
+        add(findings, "SEO", "warn", "ROBOTS_UNREACHABLE",
+            "robots.txt를 읽지 못했다 — " + why + " UA별 크롤러 정책은 미확인이다(허용으로 보지 않는다).",
+            ["%s/robots.txt" % base],
+            {"status": status, "error": robots.get("fetch_error")})
+    elif not robots["present"]:
         add(findings, "SEO", "warn", "ROBOTS_MISSING",
             "robots.txt가 없거나 비정상이다 (HTTP %s)." % site["robots"]["status"],
             ["%s/robots.txt" % base], {})
@@ -1204,7 +1392,62 @@ def _check_site(findings, base, site, ok):
     # (ops/coverage.md · KEO 다음 웹마스터도구).
 
 
+def robots_unknown(site) -> bool:
+    """robots.txt를 읽지 못해 UA별 정책이 미확인인가 (옛 audit에는 fetch_state가 없다)."""
+    robots = site.get("robots") or {}
+    return (robots.get("fetch_state") == "unreachable"
+            or "unknown" in (robots.get("policies") or {}).values())
+
+
+def _check_robots_file(findings, base, site):
+    """robots.txt 원문에서 읽히는 정보성 신호. 점수에 넣지 않는다(전부 info)."""
+    robots = site["robots"]
+    url = ["%s/robots.txt" % base]
+    nonstandard = robots.get("nonstandard_agents") or []
+    if nonstandard:
+        add(findings, "SEO", "info", "ROBOTS_NONSTANDARD_UA",
+            "robots.txt의 User-agent 값 %d개가 제품 토큰만이 아니다 (%s) — 표준(RFC 9309)은 "
+            "`User-agent: %s`처럼 토큰만 적는다. 이 도구는 첫 '/'·공백 앞 토큰으로 맞췄지만, "
+            "값을 통째로 비교하는 크롤러에는 안 맞을 수 있다."
+            % (len(nonstandard), ", ".join(n["value"] for n in nonstandard[:5]),
+               nonstandard[0]["token"] or "<토큰>"),
+            url, {"agents": nonstandard})
+
+    cdn = robots.get("cdn_managed")
+    if cdn:
+        blocked = cdn.get("blocked_uas") or []
+        add(findings, "GEO", "info", "ROBOTS_CDN_MANAGED",
+            "robots.txt에 Cloudflare 관리 블록(# BEGIN Cloudflare Managed content)이 있다 — "
+            "Cloudflare가 엣지에서 붙이는 부분(managed robots.txt·봇 설정)이라 원본 서버 파일을 "
+            "고쳐도 바뀌지 않는다. 바꾸려면 Cloudflare 대시보드에서 바꾼다.%s"
+            % (" 이 블록이 차단하는 UA: %s." % ", ".join(blocked) if blocked else ""),
+            url, dict(cdn))
+
+    signals = robots.get("content_signals") or []
+    if signals:
+        star_only = all("*" in [ua_token(a) for a in g.get("agents") or []] for g in signals)
+        named_ai = []
+        if star_only:
+            tokens = {ua.lower(): ua for ua in AI_UAS}
+            signalled = {ua_token(a) for g in signals for a in g.get("agents") or []}
+            for agents, _ in parse_robots(robots.get("raw") or ""):
+                for token in agents:
+                    if (token in tokens and token not in signalled
+                            and tokens[token] not in named_ai):
+                        named_ai.append(tokens[token])
+        note = (" `*` 그룹에만 있는데 AI 크롤러 이름 그룹(%s)이 따로 있다 — 이름 그룹은 `*` 그룹의 "
+                "줄을 물려받지 않으므로 그 크롤러에는 이 신호가 적용되지 않는다." % ", ".join(named_ai)
+                if named_ai else "")
+        add(findings, "GEO", "info", "CONTENT_SIGNAL_PRESENT",
+            "robots.txt에 Content-Signal 선언이 %d개 그룹에 있다 (%s) — 콘텐츠 사용 선호 표현일 뿐 "
+            "접근 제어가 아니며 준수는 크롤러 운영자 재량이다. 허용·차단 판정에는 쓰지 않았다.%s"
+            % (len(signals), "; ".join(", ".join(g.get("raw") or []) for g in signals[:3]), note),
+            url, {"groups": signals, "named_groups_without_signal": named_ai})
+
+
 def _check_crawler_policy(findings, site):
+    if robots_unknown(site):
+        return   # robots.txt 미확인 — 차단·미명시 판정을 지어내지 않는다 (ROBOTS_UNREACHABLE가 대신 말한다)
     policies = site["robots"]["policies"]
     blocked = [ua for ua in SEARCH_UAS + USER_FETCH_UAS
                if policies.get(ua, "none").endswith("block")]
@@ -1253,9 +1496,24 @@ def _check_crawler_policy(findings, site):
 
 
 LANES = ["SEO", "AEO", "GEO", "LLMO", "NEO", "KEO", "reputation"]
+# robots.txt 크롤러 정책이 판정 근거인 레인 — robots를 못 읽으면 "양호"라고 말할 수 없다.
+ROBOTS_POLICY_LANES = ("GEO", "NEO", "KEO")
+# robots.txt 원문을 읽어야만 나오는 findings — robots.txt를 못 읽은 진단에서 사라졌다고 "해소"는 아니다
+# (verify.py diff가 미확인으로 분류한다). _check_crawler_policy·_check_robots_file·_check_site와 맞춘다.
+ROBOTS_DERIVED_CODES = frozenset((
+    "AI_CRAWLER_BLOCKED", "AI_CRAWLER_PARTIAL", "AI_TRAINING_BLOCKED", "AI_CRAWLER_UNDECLARED",
+    "NAVER_CRAWLER_BLOCKED", "DAUM_CRAWLER_BLOCKED", "DAUM_CRAWLER_UNDECLARED",
+    "ROBOTS_NONSTANDARD_UA", "ROBOTS_CDN_MANAGED", "CONTENT_SIGNAL_PRESENT",
+    "ROBOTS_MISSING", "SITEMAP_NOT_DECLARED"))
+UNASSESSED_NOTE = {"crawler_policy": "robots.txt 미확인 — 크롤러 정책을 판정하지 못했다"}
 
 
-def scorecard(findings) -> dict:
+def scorecard(findings, unassessed=None) -> dict:
+    """레인 판정. unassessed={레인: [못 잰 항목]}이면 그 레인은 "양호" 대신 na(미확인)로 둔다.
+
+    이미 warn·bad 근거가 있으면 그 판정은 유지하되(최소한 그만큼 나쁘다) 미확인 항목을 남긴다.
+    """
+    unassessed = unassessed or {}
     board = {}
     for lane in LANES:
         if lane == "reputation":
@@ -1270,8 +1528,36 @@ def scorecard(findings) -> dict:
             status = "warn"
         else:
             status = "ok"
-        board[lane] = {"status": status, "evidence": [f["code"] for f in mine]}
+        cell = {"status": status, "evidence": [f["code"] for f in mine]}
+        missing = unassessed.get(lane)
+        if missing:
+            if status == "ok":
+                cell["status"] = "na"
+            cell["unassessed"] = list(missing)
+            cell["note"] = "; ".join(UNASSESSED_NOTE.get(m, m) for m in missing)
+        board[lane] = cell
     return board
+
+
+def lane_coverage(board, coverage=None) -> dict:
+    """평가 범위 — 판정한 레인 수/전체, 미평가 레인, 일부 미확인 레인.
+
+    conclusive는 크롤이 완전하고, 크롤로 잴 수 있는 레인이 전부 판정됐을 때만 참이다.
+    reputation은 설계상 사이트 밖(사람 점검)이라 목록에는 넣되 conclusive 계산에서는 뺀다.
+    옛 audit(unassessed 필드 없음)도 status만으로 계산된다.
+    """
+    board = board or {}
+    unassessed = [lane for lane in LANES
+                  if (board.get(lane) or {}).get("status", "na") not in ("ok", "warn", "bad")]
+    partial = [lane for lane in LANES
+               if lane not in unassessed and (board.get(lane) or {}).get("unassessed")]
+    crawl_complete = (coverage or {}).get("complete") is True
+    return {
+        "assessed": len(LANES) - len(unassessed), "total": len(LANES),
+        "unassessed": unassessed, "partial": partial, "crawl_complete": crawl_complete,
+        "conclusive": (crawl_complete and not partial
+                       and not [lane for lane in unassessed if lane != "reputation"]),
+    }
 
 
 # ─────────────────────────────────────────────────────────── 콘솔 요약
@@ -1314,8 +1600,10 @@ def print_summary(report: dict) -> None:
 
     print("")
     print("── 2. robots / sitemap ──")
+    state = site["robots"].get("fetch_state")
     print("   robots.txt      : %s (HTTP %s)"
-          % ("있음" if site["robots"]["present"] else "❌ 없음/비정상",
+          % ("❓ 읽지 못함 — 크롤러 정책 미확인" if state == "unreachable"
+             else "있음" if site["robots"]["present"] else "❌ 없음/비정상",
              site["robots"]["status"]))
     print("   Sitemap 선언    : %s"
           % ("✅ %d건" % len(site["robots"]["sitemap_declared"])
@@ -1352,8 +1640,20 @@ def print_summary(report: dict) -> None:
         cell = report["scorecard"].get(lane) or {"status": "na", "evidence": []}
         codes = [f["code"] for f in report["findings"]
                  if f["lane"] == lane and f["severity"] != "info"]
-        print("   %-11s %s  %s" % (lane, STATUS_MARK[cell["status"]],
-                                   ", ".join(codes[:4]) or cell.get("note", "")))
+        detail = ", ".join(codes[:4]) or cell.get("note", "")
+        if codes and cell.get("unassessed"):
+            detail += " · " + cell.get("note", "일부 미확인")
+        print("   %-11s %s  %s" % (lane, STATUS_MARK.get(cell["status"], STATUS_MARK["na"]), detail))
+    reach = lane_coverage(report["scorecard"], report.get("coverage"))
+    print("   평가 범위 %d/%d 레인%s" % (
+        reach["assessed"], reach["total"],
+        " · 미평가: " + ", ".join(reach["unassessed"]) if reach["unassessed"] else ""))
+    if reach["partial"]:
+        print("   일부 미확인 레인: %s" % ", ".join(reach["partial"]))
+    if not reach["conclusive"]:
+        print("   ※ 종합 판정 없음 — %s. 위 표를 '전체 양호'로 읽지 않는다."
+              % ("크롤 범위가 불완전하다" if not reach["crawl_complete"]
+                 else "판정하지 못한 레인이 있다"))
 
     print("")
     print("── 6. findings ──")
@@ -1382,6 +1682,7 @@ def _policy_label(policy: str, ua=None) -> str:
         "star-allow": "허용 (User-agent:* 적용)",
         "star-block": "🚫 차단 (User-agent:* 전체 차단에 걸림)",
         "star-partial": "⚠️  부분 제한 (* 규칙 적용, 수동 확인)",
+        "unknown": "❓ 미확인 — robots.txt를 읽지 못했다 (허용으로 보지 않는다)",
     }.get(policy, "미설정 → 기본 허용 (명시 권장)")
 
 
@@ -1393,10 +1694,10 @@ def build_report(target: str, max_pages: int, delay: float, allow_noindex=None) 
     host = host_of(base)
 
     robots = fetch("%s/robots.txt" % base)
-    raw = robots["body"]
-    # 404를 200처럼 꾸민 HTML 오류 페이지를 robots.txt로 오인하지 않는다
-    if robots["status"] != 200 or raw.lstrip().startswith("<"):
-        raw = ""
+    # ok만 원문을 판정한다. 404를 200처럼 꾸민 HTML 오류 페이지는 absent,
+    # 429·5xx·접속 실패는 unreachable(정책 미확인)이다 — 둘 다 원문은 비운다.
+    robots_state = robots_fetch_state(robots)
+    raw = robots["body"] if robots_state == "ok" else ""
     rules = crawl_rules(raw, UA.split("/")[0])
     declared = [m.strip() for m in re.findall(r"(?im)^\s*sitemap:\s*(\S+)", raw or "")]
     sitemap_data = read_sitemaps(base, host, declared)
@@ -1409,7 +1710,8 @@ def build_report(target: str, max_pages: int, delay: float, allow_noindex=None) 
         if urllib.parse.urlsplit(page["url"]).path in allowed_paths:
             page["intended_indexable"] = False
 
-    if robots["status"] != 200 or robots.get("error"):
+    if robots_state == "unreachable":
+        # 404·410(absent)은 RFC 9309상 "제한 없음"이라 범위를 줄이지 않는다 — 429·5xx·접속 실패만 불완전이다
         coverage["complete"] = False
         coverage["reasons"] = list(dict.fromkeys(coverage["reasons"] + ["robots_unavailable"]))
     if any(s.get("status") != 200 and
@@ -1424,7 +1726,8 @@ def build_report(target: str, max_pages: int, delay: float, allow_noindex=None) 
         coverage["complete"] = False
         coverage["reasons"] = list(dict.fromkeys(coverage["reasons"] + ["sitemap_truncated"]))
 
-    site = probe_site(base, raw, robots["status"], pages, sitemap_data=sitemap_data)
+    site = probe_site(base, raw, robots["status"], pages, sitemap_data=sitemap_data,
+                      robots_state=robots_state, robots_error=robots.get("error"))
     site["_coverage"] = coverage
     site["_all_pages_status"] = [(p["url"], p["status"]) for p in pages]
     findings, stats, board = analyze(base, site, pages)

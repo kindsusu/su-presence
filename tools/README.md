@@ -25,6 +25,8 @@ audit 결과에서 `generate` 기술 초안과 `rebuild` 콘텐츠 설계를 독
 | `measure/summary.json` | `su-presence/measure/2` (drift가 v1도 읽음) | `measure.py report` | `drift` |
 | `history/index.json` | `su-presence/history/1` (옛 `su-multi-geo/history/1` 읽기 지원) | `drift.py snapshot` | `drift` |
 | `drift.json` | `su-presence/drift/1` | `drift.py compare` | 사람 |
+| `measure/gsc/*.json` | `su-presence/gsc/1` | `measure.py gsc` | 사람 (인용 집계와 섞지 않음) |
+| `facts.json` (선택) | `su-presence/facts/1` | 사람 | `verify.py deploy --facts` |
 | `rebuild/brief.json` | `su-presence/rebuild-brief/1` | `rebuild.py init` + 사람 | `rebuild research`·`plan` |
 | `rebuild/observations.json` | `su-presence/rebuild-observations/1` | `rebuild.py init` + 사람/외부 조사 | `rebuild research`·`plan` |
 | `rebuild/run-*/research.json` | `su-presence/rebuild-research/1` | `rebuild.py research` | 선택적 `rebuild plan` |
@@ -125,6 +127,32 @@ exit 1을 반환한다. `seo_geo.py audit`도 인터럽트 시 성공 관측을 
 미러 프로브는 응답만으로 전 호스트의 색인 가능 여부를 단정하지 않는다. root의 `noindex`,
 robots 차단, robots 미차단, robots·root 확인 실패를 구분해 기록한다. 정상적인 `www`에서 apex로의
 같은 사이트 리다이렉트는 연결 실패가 아니라 `redirect` 결과다.
+
+### robots.txt 응답 분류와 관련 진단
+
+robots.txt 응답은 `site.robots.fetch_state`(선택 필드)로 셋으로 나눈다
+([RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html)). 근거·운영 지침은 [ops/crawlers.md](../ops/crawlers.md).
+
+| `fetch_state` | 응답 | 처리 |
+|---|---|---|
+| `ok` | 2xx 텍스트 | UA별 실효 정책 판정 |
+| `absent` | 429를 뺀 4xx, 200으로 꾸민 HTML 오류 페이지 | 제한 없음으로 판정, `ROBOTS_MISSING` |
+| `unreachable` | 429, 5xx, 접속 실패, 따라가지 못한 3xx | UA별 정책 `unknown`, `ROBOTS_UNREACHABLE`. GEO·NEO·KEO 크롤러 판정을 내지 않고 해당 레인은 `na`(미평가) |
+
+`User-agent` 값은 제품 토큰(첫 `/`나 공백 전까지)으로 대소문자 구분 없이 맞춘다. 접두 일치가
+아니다 — `GPTBot`과 `GPTBot-Image`, `Daumoa`와 `DAUM`은 다른 그룹이다. 우리 크롤의 규칙 선택도 같다.
+
+| 진단 코드 | 레인·등급 | 뜻 |
+|---|---|---|
+| `ROBOTS_UNREACHABLE` | SEO · warn | robots.txt를 읽지 못했다. 크롤러가 사이트 전체를 차단으로 볼 수 있고 UA별 정책은 미확인. `ROBOTS_MISSING`과 함께 나오지 않는다 |
+| `HTTP_THROTTLED` | SEO · info | 크롤 중 429·503을 받은 URL. 깨진 링크가 아니라 미확인이며 `HTTP_ERROR`에서 빠진다. 크롤 범위는 불완전으로 남는다 |
+| `JSONLD_INVALID` | AEO · warn | JSON 문법 오류로 읽히지 않는 JSON-LD 블록이 있는 페이지(`pages[].jsonld_invalid`). 이 페이지는 `JSONLD_MISSING`에서 빠진다 |
+| `ROBOTS_NONSTANDARD_UA` | SEO · info | `User-agent` 값에 버전·브라우저 문자열이 붙어 있다. 판정은 토큰으로 했다 |
+| `ROBOTS_CDN_MANAGED` | GEO · info | Cloudflare 관리형 블록이 있다(`site.robots.cdn_managed`). 엣지에서 주입되므로 대시보드에서 바꾼다 |
+| `CONTENT_SIGNAL_PRESENT` | GEO · info | `Content-Signal` 선언이 있다(`site.robots.content_signals`). 선호 표현일 뿐 접근 제어가 아니며 점수에 넣지 않는다 |
+
+보고서의 레인 표에는 **평가 범위 n/7**과 미평가 레인을 함께 싣는다. 크롤이 불완전하거나
+판정에 필요한 관측이 빠진 레인이 있으면 "치명 결함 없음"을 전체 양호 판정으로 읽지 않게 표시한다.
 
 ### audit.json — 계약
 
@@ -234,6 +262,11 @@ BreadcrumbList만은 크롤한 URL 경로와 페이지 title에서 **실측 기�
 - `User-agent: *`에 부분 제한이 걸린 사이트에서는 그 제한 규칙을 **글자 그대로 복사**해
   UA 그룹을 만든다 (현재 실효 정책과 동일 — 넓히지 않는다)
 - 전/후 unified diff를 `DEPLOY.md`에 싣는다
+- robots.txt를 읽지 못하면(`fetch_state: unreachable`) **robots.txt 초안을 만들지 않는다.** 원문을 모르는 채로
+  만든 파일을 올리면 서버에 있던 차단 규칙이 사라진다. TODO와 `DEPLOY.md`에 원본을 받아 재진단하는 순서를 남긴다
+- Cloudflare 관리형 블록은 원문 그대로 두고, 엣지에서 주입된다는 사실과 원본 서버에 올릴 때 그 구간을
+  빼라는 안내를 주석·TODO·`DEPLOY.md`에 남긴다
+- `*` 그룹에만 `Content-Signal`이 있는데 이름 그룹을 새로 만들면, 그 그룹은 `*` 줄을 물려받지 않는다는 TODO를 남긴다
 
 ### site.json — 사용자가 채우는 회사 사실
 
@@ -277,9 +310,29 @@ python tools/verify.py diff out/example.com/audit.json out/after/example.com/aud
 | `jsonld.visible` | **LD 값이 가시 텍스트에 글자 그대로 있는가** — FAQ 문답, Organization name, Product name·가격. 없으면 ❌ "LD가 화면에 없는 말을 한다"(스팸 리스크) |
 | `jsonld.org_id` | Organization `@id`가 전 페이지에서 하나인가 |
 | `meta.applied` / `meta.duplicate` | `meta-draft.json`의 검토 가능한 title/description 값과 라이브 값을 공백 정규화 후 정확히 비교 · 중복 title 잔존 |
+| `jsonld.rating_scale` / `jsonld.rating_count` | 패키지와 받은 라이브 LD의 모든 Rating·AggregateRating에서 `ratingValue`가 `worstRating`(기본 1)~`bestRating`(기본 5) 안의 숫자인지, `ratingCount`·`reviewCount`가 0 이상의 정수인지. 패키지·배포 대상 페이지의 결함은 ❌, 배포 대상 밖 기존 페이지의 결함은 ⚠️ |
+| `facts.match` / `facts.visible` | `--facts`를 줬을 때만. 사실 원장의 기대값과 라이브 LD 값이 일치하는가 / 그 값이 화면 텍스트에도 있는가 |
 
 가시 텍스트 비교는 태그를 걷어내고 **공백만 정규화**한 뒤 부분 문자열로 본다
 (가격은 `89000` ↔ `89,000` 표기를 같게 본다).
+
+`jsonld.type`·`jsonld.visible` 증적에는 필드마다 JSON pointer 경로(`path`)·패키지 값·라이브 값·가시 여부가
+실린다. 숫자는 표기 차이(`89000` ↔ `"89000.0"`)를 같게 보되 `gtin`·`sku` 같은 식별자는 글자 그대로 비교하고,
+가시 여부는 숫자 경계를 지킨다(`4.8` 안의 `4`는 보인 것으로 치지 않는다).
+
+```bash
+python tools/verify.py deploy out/example.com/audit.json --facts facts.json
+```
+
+```json
+{"schema": "su-presence/facts/1", "facts": [
+  {"url": "https://example.com/pricing", "pointer": "/offers/price", "expected": 89000,
+   "evidence": "요금표 PDF 2쪽 (합성 예시)", "type": "Product"}]}
+```
+
+사실 원장은 선택이다. 항목마다 `url`·`pointer`·`expected`·`evidence`(이 값을 어디서 확인했는가)가 반드시
+있어야 하며, 하나라도 빠지면 네트워크 요청 전에 exit 2로 멈춘다. 불일치는 ❌, LD 노드가 없거나 페이지를
+받지 못하면 미확인(exit 2)이다. 받지 못한 페이지를 일치로 세지 않는다. 결과는 `verify.json`의 `facts` 키다.
 
 ### `diff` — 전/후 진단 비교
 
@@ -290,9 +343,12 @@ python tools/verify.py diff out/example.com/audit.json out/after/example.com/aud
 | `diff.resolved` | 사라진 findings (code 기준) |
 | `diff.new` | 새로 생긴 findings — critical이 섞이면 ❌ |
 | `diff.persisting` | 그대로 남은 findings + 영향 URL 수 증감 |
-| `diff.scorecard` | 레인별 전후 (`bad→warn` 등). 악화가 있으면 ❌ |
+| `diff.scorecard` | 레인별 전후 (`bad→warn` 등). 악화가 있으면 ❌. before에 판정된 레인이 after에 `na`(미평가)이거나 일부 미확인이 새로 붙으면 개선이 아니라 결론 보류(⚠️) |
+| `diff.unverified` | after 진단이 robots.txt를 읽지 못해 사라진 크롤러 정책 findings — 해소로 세지 않는다(⚠️) |
 | `diff.stats` | 중복 title·JSON-LD 페이지·noindex 수 전후 |
 | `diff.pages` | 사라진 URL(→404 확인 필요) · 새 URL |
+
+exit code는 deploy와 같다 — 실패 1, 결론 보류 2, 그 밖 0. `drift.py`도 양쪽이 모두 판정된 레인만 개선으로 센다.
 
 ### 안전선
 
@@ -473,6 +529,23 @@ AI 출처 경계를 찾을 수 없거나 출처 조회·파싱이 실패하면 �
 - 실패한 회차는 `outcome=error`와 사유로 기록하되 **미인용으로 세거나 인용률 분모에 넣지 않는다.**
   오류율은 별도 지표이며 응답 원문은 저장하지 않는다
 
+### gsc — Search Console 실적 내보내기 가져오기
+
+```bash
+python tools/seo_geo.py measure gsc out/example.com/audit.json Queries.csv        --property sc-domain:example.com --start 2026-10-01 --end 2026-10-28        --search-type web [--dimension query] [--filters "..."]
+```
+
+GSC 실적 보고서 CSV를 엄격하게 읽어 `measure/gsc/<시작>_<끝>_<유형>_<차원>.json`(`su-presence/gsc/1`)에 남긴다.
+
+- 범위(속성·기간·검색 유형·필터)는 파일이 증명하지 않으므로 **인자로 밝힌다.** 빠지면 거부한다
+- 영어·한국어 머리글, BOM, `"1,000"` 숫자, `12.3%`·`0.123` CTR을 받는다. 모르는 열, 중복 키,
+  클릭 > 노출, 음수, 기간 밖 날짜, 속성 밖 URL이 하나라도 있으면 **파일 전체를 거부**한다
+- CTR은 총클릭 ÷ 총노출로, 평균 게재순위는 노출 가중 평균(노출 0 행 제외)으로 다시 계산한다
+- 내보내기는 상위 행만 담고 익명 검색어가 빠지므로 합계가 속성 전체보다 작을 수 있다 — `complete: false`,
+  `limitations`에 이유를 남긴다
+- 근거 등급은 내보내기(export)다. AI 인용 `log.jsonl`·`summary.json`에 섞지 않는다
+- 같은 이름에 내용이 다른 결과가 오면 기존 파일을 `measure/gsc/observations/`로 옮겨 보존한다
+
 ## rebuild.py — 근거 기반 재구축 설계
 
 ```bash
@@ -586,7 +659,12 @@ python tools/drift.py timeline out/example.com/audit.json
 bash tools/test_audit.sh           # audit.sh (bash·curl·Python 필요)
 python -m unittest discover tests  # 단위 + E2E (외부 네트워크 없음)
 python -m unittest tests.test_e2e  # E2E만
+python tools/validate.py           # 메타데이터·링크·미러 + 크롤러 표 확인일
 ```
+
+`validate.py`는 `ops/crawlers.md`(국·영) 벤더표의 확인일이 비었거나 형식이 틀리면 오류, 120일이
+지나면 경고를 낸다. 시간이 지나도 기본 CI가 실패하지 않도록 경고에 그친다. 재확인 주기를 강제하려면
+`--crawler-max-age DAYS`로 오래된 행을 오류로 바꾼다(`--today YYYY-MM-DD`는 재현용).
 
 `tests/test_e2e.py`는 `tests/fixtures/site/`(결함을 일부러 심은 8페이지)를 `http.server`로
 127.0.0.1 임시 포트에 띄우고 **전 루프를 실제 CLI로** 돌린다 —

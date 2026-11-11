@@ -559,8 +559,11 @@ def build_drift(outdir: str, host: str, index: dict, from_date: str, to_date: st
                             "lanes": (score.get("evidence") or {}).get("lanes")})
     else:
         lanes = (score.get("evidence") or {}).get("lanes") or {}
+        # 양쪽 다 판정된 레인만 비교한다. bad→na(예: robots.txt를 못 읽게 됨)는 개선이 아니라 미확인이다.
         better = ["%s %s→%s" % (k, v["before"], v["after"]) for k, v in lanes.items()
-                  if verify.SCORE_RANK.get(v["after"], -1) < verify.SCORE_RANK.get(v["before"], -1)]
+                  if v.get("before") in verify.ASSESSED and v.get("after") in verify.ASSESSED
+                  and not v.get("after_unassessed")
+                  and verify.SCORE_RANK[v["after"]] < verify.SCORE_RANK[v["before"]]]
         if better:
             improvements.append({"code": "scorecard", "label": "레인 점수",
                                  "message": "레인 점수 개선: " + ", ".join(better),
@@ -629,6 +632,7 @@ def build_drift(outdir: str, host: str, index: dict, from_date: str, to_date: st
             "resolved": (check_by_id(audit_diff, "diff.resolved").get("evidence") or {}).get("items", []),
             "new": (check_by_id(audit_diff, "diff.new").get("evidence") or {}).get("items", []),
             "persisting": (check_by_id(audit_diff, "diff.persisting").get("evidence") or {}).get("items", []),
+            "unverified": (check_by_id(audit_diff, "diff.unverified").get("evidence") or {}).get("items", []),
             "scorecard": (check_by_id(audit_diff, "diff.scorecard").get("evidence") or {}).get("lanes", {}),
             "stats": (check_by_id(audit_diff, "diff.stats").get("evidence") or {}).get("stats", {}),
             "pages": check_by_id(audit_diff, "diff.pages").get("evidence") or {},
@@ -690,6 +694,7 @@ def render_drift_md(drift: dict) -> str:
             "| 해소된 findings | %d |" % len(ad["resolved"]),
             "| 새로 생긴 findings | %d |" % len(ad["new"]),
             "| 그대로 남은 findings | %d |" % len(ad["persisting"]),
+            "| 확인 못 한 findings (after 진단이 판정 못 함) | %d |" % len(ad.get("unverified") or []),
             "| 사라진 URL | %d |" % len(ad["pages"].get("gone") or []),
             "| 새 URL | %d |" % len(ad["pages"].get("new") or []), ""]
     if ad["new"]:

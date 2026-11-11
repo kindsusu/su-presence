@@ -24,6 +24,8 @@ from string import Template
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 TEMPLATE = os.path.join(ROOT, "templates", "report.html")
+sys.path.insert(0, HERE)
+import crawl  # noqa: E402  (lane_coverage — 평가 범위 계산을 복제하지 않는다)
 GLOSSARY = os.path.join(ROOT, "templates", "glossary.json")
 
 LANES = ["SEO", "AEO", "GEO", "LLMO", "NEO", "KEO", "reputation"]
@@ -58,6 +60,14 @@ L = {
         "verdict": "%s를 크롤러의 눈으로 %d페이지 훑었다. 치명 %d건 · 주의 %d건 · 참고 %d건.",
         "verdict_first": "가장 먼저 할 일",
         "verdict_clean": "치명 결함은 발견되지 않았다.",
+        "verdict_partial": "단, 평가 범위가 완전하지 않아(%s) 이것을 전체 양호 판정으로 읽지 않는다.",
+        "reach": "평가 범위 %d/%d 레인",
+        "reach_unassessed": "미평가: %s",
+        "reach_partial": "일부 미확인: %s",
+        "reach_crawl": "크롤 불완전",
+        "reach_crawl_unknown": "범위 정보 없음",
+        "reach_lanes": "판정하지 못한 레인",
+        "policy_unknown": "미확인 — robots.txt를 읽지 못했다 (허용으로 보지 않는다)",
         "th": {
             "item": "항목", "value": "값", "sev": "심각도", "code": "코드",
             "what": "무엇이 측정됐나", "urls": "해당 URL",
@@ -113,6 +123,14 @@ L = {
         "verdict": "Crawled %s with a crawler's eye across %d pages. %d critical, %d warnings, %d notes.",
         "verdict_first": "Do this first",
         "verdict_clean": "No critical defects found.",
+        "verdict_partial": "Coverage is incomplete (%s), so do not read this as an overall clean result.",
+        "reach": "Assessed %d/%d lanes",
+        "reach_unassessed": "not assessed: %s",
+        "reach_partial": "partly unknown: %s",
+        "reach_crawl": "incomplete crawl",
+        "reach_crawl_unknown": "no coverage data",
+        "reach_lanes": "unassessed lanes",
+        "policy_unknown": "Unknown — robots.txt could not be read (not treated as allowed)",
         "th": {
             "item": "Item", "value": "Value", "sev": "Severity", "code": "Code",
             "what": "What was measured", "urls": "Affected URLs",
@@ -187,6 +205,12 @@ MSG_EN = {
     "DAUM_CRAWLER_BLOCKED": "Daum's search crawler is blocked — the whole KEO lane is shut.",
     "LINKS_NOT_IN_HTML": "The start page's raw HTML has no internal <a href> links — crawlers and agents that do not run scripts cannot get past the first page.",
     "SITEMAP_ONLY_PAGES": "{count} pages are reachable only through the sitemap, not through raw HTML links.",
+    "JSONLD_INVALID": "{count} pages carry JSON-LD blocks that fail to parse as JSON ({blocks} blocks) — search engines cannot read them either. Fix the syntax first.",
+    "HTTP_THROTTLED": "{count} URLs returned HTTP 429/503 (rate-limited or temporarily unavailable). They are unknown, not broken; re-measure with a larger --delay.",
+    "ROBOTS_UNREACHABLE": "robots.txt could not be read (HTTP {status}). Under RFC 9309 crawlers should treat a server error or unreachable robots.txt as full disallow, and Google treats 429 like 5xx. Per-UA crawler policy is unknown, not allowed.",
+    "ROBOTS_NONSTANDARD_UA": "Some User-agent values are not bare product tokens. RFC 9309 expects the token alone (for example `User-agent: GPTBot`); parsers that compare the whole value may not match.",
+    "ROBOTS_CDN_MANAGED": "robots.txt contains a Cloudflare managed block. Cloudflare injects it at the edge, so editing the origin file will not change it — change it in the Cloudflare dashboard.",
+    "CONTENT_SIGNAL_PRESENT": "robots.txt declares Content-Signal preferences. They express preferences, not access control, and compliance is voluntary; they were not used as allow/block.",
     "DAUM_CRAWLER_UNDECLARED": "Daum crawler UAs are not declared in robots.txt — Daumoa and DAUM are separate tokens, so naming only one leaves the other to chance.",
 }
 
@@ -263,6 +287,12 @@ ROADMAP = {
 }
 
 ROADMAP.update({
+    "ROBOTS_UNREACHABLE": (2, "robots.txt가 200(또는 404)으로 안정적으로 응답하게 한다 — 429·5xx가 이어지면 크롤러가 사이트 전체를 차단으로 본다. 고친 뒤 재진단한다.",
+                           "Make robots.txt answer reliably with 200 (or 404); persistent 429/5xx makes crawlers treat the whole site as disallowed. Re-audit afterwards.", True),
+    "JSONLD_INVALID": (21, "깨진 JSON-LD 블록의 문법을 고친다 (validator로 확인).",
+                       "Fix the syntax of JSON-LD blocks that fail to parse (check with a validator).", False),
+    "HTTP_THROTTLED": (8, "요청 제한(429·503)으로 못 잰 URL을 --delay를 늘려 다시 잰다. 실제 크롤러도 막히는지 서버·WAF 설정을 확인한다.",
+                       "Re-measure throttled (429/503) URLs with a larger --delay; check whether server/WAF limits also hit real crawlers.", True),
     "CRAWL_INCOMPLETE": (0, "미검사 URL과 중단 사유를 해결한 뒤 재진단한다. 기존 사이트맵을 축소 교체하지 않는다.",
                          "Resolve incomplete coverage and re-audit before replacing the sitemap.", True),
     "SNIPPET_RESTRICTED": (1, "Google 답변 노출이 목표라면 의도하지 않은 nosnippet·max-snippet:0을 수정한다.",
@@ -398,6 +428,34 @@ def finding_message(finding: dict, lang: str) -> str:
         return finding["message"]
 
 
+def _cell(report, lane):
+    """scorecard 칸. 알 수 없는 상태값은 na(미확인)로 그린다 — 양호로 보이지 않게."""
+    cell = dict((report.get("scorecard") or {}).get(lane) or {"status": "na", "evidence": []})
+    if cell.get("status") not in ("ok", "warn", "bad", "na"):
+        cell["status"] = "na"
+    cell.setdefault("evidence", [])
+    return cell
+
+
+def reach_line(report, lab):
+    """평가 범위 n/N + 미평가·일부 미확인 레인. (텍스트, 결론 가능 여부, 사유)"""
+    reach = crawl.lane_coverage(report.get("scorecard"), report.get("coverage"))
+    parts = [lab["reach"] % (reach["assessed"], reach["total"])]
+    if reach["unassessed"]:
+        parts.append(lab["reach_unassessed"] % ", ".join(reach["unassessed"]))
+    if reach["partial"]:
+        parts.append(lab["reach_partial"] % ", ".join(reach["partial"]))
+    why = []
+    if not isinstance(report.get("coverage"), dict):
+        # 옛 audit에는 coverage가 없다 — 불완전했다고 단정하지 않고 "모른다"고 쓴다
+        why.append(lab["reach_crawl_unknown"])
+    elif not reach["crawl_complete"]:
+        why.append(lab["reach_crawl"])
+    if reach["partial"] or [lane for lane in reach["unassessed"] if lane != "reputation"]:
+        why.append(lab["reach_lanes"])
+    return " · ".join(parts), reach["conclusive"], ", ".join(why)
+
+
 def section_summary(report, lab, ann, lang):
     findings = report["findings"]
     counts = Counter(f["severity"] for f in findings)
@@ -412,11 +470,15 @@ def section_summary(report, lab, ann, lang):
         tail = "<strong>%s:</strong> %s" % (escape(lab["verdict_first"]), ann(first))
     else:
         tail = escape(lab["verdict_clean"])
-    verdict = '<div class="card verdict">%s<br>%s</div>' % (escape(line), tail)
+    reach_text, conclusive, why = reach_line(report, lab)
+    if not conclusive:
+        tail += " " + escape(lab["verdict_partial"] % why)
+    verdict = '<div class="card verdict">%s<br>%s<br><span class="mono">%s</span></div>' % (
+        escape(line), tail, escape(reach_text))
 
     chips = []
     for lane in LANES:
-        cell = report["scorecard"].get(lane) or {"status": "na", "evidence": []}
+        cell = _cell(report, lane)
         n = len(cell["evidence"])
         detail = ("%d" % n) if cell["status"] != "na" else "—"
         chips.append(
@@ -476,7 +538,9 @@ def section_shape(report, lab, ann, lang):
          len(site["sitemap_vs_crawl"]["only_in_sitemap"])),
         ("Crawl-only URLs" if lang == "en" else "크롤에만 있는 URL",
          len(site["sitemap_vs_crawl"]["only_in_crawl"])),
-        ("robots.txt", "HTTP %s" % site["robots"]["status"]),
+        ("robots.txt", "HTTP %s%s" % (site["robots"]["status"],
+                                       " (%s)" % site["robots"]["fetch_state"]
+                                       if site["robots"].get("fetch_state") else "")),
         ("/llms.txt", "HTTP %s" % site["llms"].get("llms.txt")),
         ("404 probe" if lang == "en" else "404 프로브", "HTTP %s" % hygiene["probe_404"]),
         ("Home redirect hops" if lang == "en" else "홈 리다이렉트 홉", hygiene["redirect_hops"]),
@@ -521,9 +585,11 @@ def section_shape(report, lab, ann, lang):
 def section_lanes(report, lab, ann, lang):
     out = []
     for lane in LANES:
-        cell = report["scorecard"].get(lane) or {"status": "na", "evidence": []}
+        cell = _cell(report, lane)
         out.append('<h3>%s %s</h3>' % (escape(lane), pill(cell["status"], lab["status"][cell["status"]])))
         out.append('<p class="lede">%s</p>' % ann(lab["lane_note"].get(lane, lane)))
+        if cell.get("unassessed") and cell.get("note"):
+            out.append('<div class="note">%s</div>' % escape(cell["note"]))
         mine = [f for f in report["findings"] if f["lane"] == lane]
         if not mine:
             out.append('<div class="note">%s</div>' % escape(lab["no_findings"]))
@@ -538,8 +604,9 @@ def section_lanes(report, lab, ann, lang):
             ])
         out.append(table([lab["th"]["sev"], lab["th"]["code"], lab["th"]["what"]], rows))
 
-    policies = report["site"]["robots"]["policies"]
-    rows = [[td("<code>%s</code>" % escape(ua)), td(escape(policy))]
+    policies = report["site"]["robots"].get("policies") or {}
+    rows = [[td("<code>%s</code>" % escape(ua)),
+             td(escape(lab["policy_unknown"] if policy == "unknown" else str(policy)))]
             for ua, policy in policies.items()]
     out.append("<h3>robots.txt %s</h3>" % ("policy" if lang == "en" else "실효 정책"))
     out.append(table(["User-agent", lab["th"]["verdict"]], rows))

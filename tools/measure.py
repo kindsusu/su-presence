@@ -8,6 +8,8 @@
     python tools/measure.py import out/<host>/audit.json out/<host>/measure/form-2026-09-15.csv
     python tools/measure.py report out/<host>/audit.json [--since 2026-09-01]
     python tools/measure.py auto   out/<host>/audit.json --engines chatgpt,claude --runs 5
+    python tools/measure.py gsc    out/<host>/audit.json Queries.csv --property sc-domain:example.com
+                                   --start 2026-10-01 --end 2026-10-28 --search-type web
 
 출력:
     out/<host>/measure/queries.json    고정 질의 세트  (su-presence/queries/2)
@@ -15,6 +17,8 @@
     out/<host>/measure/form-<날짜>.csv 수동 입력용 (엑셀·UTF-8 BOM)
     out/<host>/measure/form-<날짜>.html 수동 입력용 오프라인 폼
     out/<host>/measure/summary.json    집계 (su-multi-geo/measure/1) + MEASURE.md
+    out/<host>/measure/gsc/<시작>_<끝>_<유형>_<차원>.json  GSC 실적 내보내기 (su-presence/gsc/1)
+                                       검색 성과 근거 — 인용 로그·요약 분모와 섞지 않는다
 
 원칙
   · 수동 입력이 기본 골격이다. 키가 하나도 없어도 측정 루프는 완전히 돈다.
@@ -30,6 +34,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
 import os
 import re
@@ -1810,6 +1815,428 @@ def cmd_auto(args) -> int:
     return 0
 
 
+# ─────────────────────────────────────────────────────────── gsc (검색 성과 내보내기)
+#
+# Google Search Console 실적 보고서 CSV를 엄격하게 읽는다. 이것은 **검색 성과(export)**
+# 근거다 — AI 인용 관측이 아니므로 log.jsonl·summary.json 분모에 절대 섞지 않는다.
+# 내보내기 파일은 기간·속성·검색 유형·필터를 믿을 만하게 담지 않으므로, 범위는 운영자가
+# 인자로 밝히고 결과에 그대로 남긴다. 행을 조용히 버리지 않는다 — 하나라도 어긋나면 거부한다.
+
+SCHEMA_GSC = "su-presence/gsc/1"
+GSC_SEARCH_TYPES = ("web", "image", "video", "news")
+GSC_DIMENSIONS = ("query", "page", "date", "country", "device")
+GSC_ERROR_SHOW = 10
+# 행 CTR이 클릭/노출과 이만큼(절대값) 넘게 다르면 quality에 표시만 한다 (반올림 여유).
+GSC_CTR_TOLERANCE = 0.005
+
+# 공백을 모두 지우고 casefold 한 머리글 → 정식 열 이름. 영어·한국어 UI 라벨을 받는다.
+_GSC_HEADER_ALIASES = {
+    "query": ("top queries", "query", "queries", "인기 검색어", "검색어", "쿼리", "인기 쿼리"),
+    "page": ("top pages", "page", "pages", "인기 페이지", "페이지"),
+    "date": ("date", "dates", "날짜"),
+    "country": ("country", "countries", "국가"),
+    "device": ("device", "devices", "기기"),
+    "clicks": ("clicks", "클릭수", "클릭 수", "클릭"),
+    "impressions": ("impressions", "노출수", "노출 수", "노출"),
+    "ctr": ("ctr", "클릭률"),
+    "position": ("position", "average position", "avg. position", "게재순위", "게재 순위",
+                 "평균 게재순위", "평균 게재 순위", "순위"),
+}
+
+
+def _gsc_header_key(value) -> str:
+    return re.sub(r"\s+", "", str(value or "").replace("﻿", "")).casefold()
+
+
+GSC_HEADERS = {_gsc_header_key(alias): column
+               for column, aliases in _GSC_HEADER_ALIASES.items() for alias in aliases}
+GSC_METRICS = ("clicks", "impressions", "ctr", "position")
+
+GSC_LIMITATIONS = {
+    "export_truncated": "GSC 내보내기는 상위 행만 담는다. 합계는 속성 전체 값보다 작을 수 있으며 완전한 값이 아니다.",
+    "anonymized_queries_omitted": "개인정보 보호로 익명 처리된 검색어는 행에서 빠진다. 검색어 합계는 속성 합계보다 작다.",
+    "page_aggregation": "페이지 차원은 페이지별로 집계된다. 속성 단위 합계와 클릭·노출·순위가 다를 수 있다.",
+    "date_rows_may_be_partial": "최근 1~2일 데이터는 확정 전일 수 있다. 같은 기간을 나중에 다시 내보내면 값이 바뀔 수 있다.",
+    "scope_declared_by_operator": "속성·기간·검색 유형·필터는 운영자가 입력한 값이며 파일이 증명하지 않는다.",
+    "not_ai_citation": "검색 성과(노출·클릭) 근거다. AI 인용 관측이 아니며 인용률 분모에 넣지 않는다.",
+}
+
+
+class GscImportError(ValueError):
+    """GSC 내보내기를 받아들이지 않는 이유. 메시지는 사람이 바로 고칠 수 있게 쓴다."""
+
+
+def _gsc_int(raw: str, label: str):
+    token = (raw or "").strip()
+    if re.fullmatch(r"-\s*\d[\d,]*(\.\d+)?", token):
+        return None, "%s 음수: %r" % (label, raw)
+    if re.fullmatch(r"\d+", token):
+        return int(token), None
+    if re.fullmatch(r"\d{1,3}(,\d{3})+", token):
+        return int(token.replace(",", "")), None
+    return None, "%s 정수가 아니다: %r" % (label, raw)
+
+
+def _gsc_ctr(raw: str):
+    """'12.3%' → 0.123, '0.123' → 0.123. 빈칸은 None."""
+    token = (raw or "").strip()
+    if not token:
+        return None, None
+    if token.startswith("-"):
+        return None, "CTR 음수: %r" % raw
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*%", token)
+    if match:
+        value = float(match.group(1)) / 100.0
+    elif re.fullmatch(r"\d+(?:\.\d+)?", token):
+        value = float(token)
+    else:
+        return None, "CTR 형식이 아니다 ('12.3%%' 또는 '0.123'): %r" % raw
+    if value > 1.0:
+        return None, "CTR이 100%%를 넘는다 (비율이면 0~1, 백분율이면 %%를 붙인다): %r" % raw
+    return value, None
+
+
+def _gsc_position(raw: str):
+    token = (raw or "").strip()
+    if not token:
+        return None, None
+    if token.startswith("-"):
+        return None, "게재순위 음수: %r" % raw
+    if not re.fullmatch(r"\d+(?:\.\d+)?", token):
+        return None, "게재순위가 숫자가 아니다: %r" % raw
+    return float(token), None
+
+
+def gsc_property(value: str) -> dict:
+    """sc-domain:<도메인> 또는 http(s):// URL 접두어 속성만 받는다."""
+    prop = (value or "").strip()
+    if prop.lower().startswith("sc-domain:"):
+        domain = prop.split(":", 1)[1].strip().lower().rstrip(".")
+        if not _HOSTNAME.match(domain) or "/" in domain:
+            raise GscImportError("--property 도메인 속성 형식이 아니다: %r (예: sc-domain:example.com)" % value)
+        return {"property": prop, "type": "domain", "host": domain, "prefix": None}
+    parts = urllib.parse.urlsplit(prop)
+    try:
+        hostname = (parts.hostname or "").lower()
+    except ValueError:
+        hostname = ""
+    if parts.scheme.lower() not in ("http", "https") or not _HOSTNAME.match(hostname):
+        raise GscImportError("--property는 sc-domain:<도메인> 또는 http(s)://로 시작하는 URL 접두어여야 한다: %r"
+                             % value)
+    return {"property": prop, "type": "url_prefix", "host": hostname, "prefix": prop}
+
+
+def _related_host(a: str, b: str) -> bool:
+    a, b = bare(a), bare(b)
+    return bool(a) and bool(b) and (a == b or a.endswith("." + b) or b.endswith("." + a))
+
+
+def _page_in_property(url: str, prop: dict) -> bool:
+    if prop["type"] == "domain":
+        try:
+            host = (urllib.parse.urlsplit(url.strip()).hostname or "").rstrip(".")
+        except ValueError:
+            return False
+        return bool(host) and (host == prop["host"] or host.endswith("." + prop["host"]))
+    prefix = urllib.parse.urlsplit(prop["prefix"])
+    page = urllib.parse.urlsplit(url.strip())
+    try:
+        same_origin = (page.scheme.lower() == prefix.scheme.lower()
+                       and (page.hostname or "") == (prefix.hostname or "")
+                       and page.port == prefix.port)
+    except ValueError:
+        return False
+    return same_origin and (page.path or "/").startswith(prefix.path or "/")
+
+
+def gsc_scope(property_value, start, end, search_type, dimension=None, filters=None) -> dict:
+    """운영자가 밝힌 범위를 검증한다. 하나라도 비면 거부 — 파일에서 추측하지 않는다."""
+    missing = [flag for flag, value in (("--property", property_value), ("--start", start),
+                                        ("--end", end), ("--search-type", search_type))
+               if not (value or "").strip()]
+    if missing:
+        raise GscImportError("범위 인자가 없다: %s. GSC 내보내기 파일은 기간·속성·검색 유형을 "
+                             "믿을 만하게 담지 않으므로 직접 밝혀야 한다." % ", ".join(missing))
+    prop = gsc_property(property_value)
+    first, last = parse_date(start), parse_date(end)
+    if first is None or last is None:
+        raise GscImportError("--start/--end는 YYYY-MM-DD여야 한다: %r ~ %r" % (start, end))
+    if first > last:
+        raise GscImportError("--start(%s)가 --end(%s)보다 늦다" % (start, end))
+    kind = search_type.strip().lower()
+    if kind not in GSC_SEARCH_TYPES:
+        raise GscImportError("--search-type은 %s 중 하나다: %r" % ("/".join(GSC_SEARCH_TYPES), search_type))
+    if dimension is not None and dimension not in GSC_DIMENSIONS:
+        raise GscImportError("--dimension은 %s 중 하나다: %r" % ("/".join(GSC_DIMENSIONS), dimension))
+    return {"property": prop["property"], "property_type": prop["type"],
+            "start": first.isoformat(), "end": last.isoformat(),
+            "days": (last - first).days + 1, "search_type": kind,
+            "dimension": dimension, "filters": filters, "declared_by": "operator",
+            "_property": prop}
+
+
+def _gsc_columns(header: list, dimension=None) -> dict:
+    columns, unknown, repeated = {}, [], []
+    for index, name in enumerate(header):
+        column = GSC_HEADERS.get(_gsc_header_key(name))
+        if column is None:
+            unknown.append(name)
+        elif column in columns:
+            repeated.append(name)
+        else:
+            columns[column] = index
+    dims = [c for c in columns if c in GSC_DIMENSIONS]
+    problems = []
+    if unknown:
+        problems.append("알 수 없는 열: %s (비교 모드·검색 노출 등은 지원하지 않는다)"
+                        % ", ".join(repr(x) for x in unknown))
+    if repeated:
+        problems.append("같은 열이 두 번 있다: %s" % ", ".join(repr(x) for x in repeated))
+    if len(dims) != 1:
+        problems.append("차원 열(인기 검색어/페이지/날짜/국가/기기)이 정확히 하나여야 한다: %s"
+                        % (", ".join(dims) or "없음"))
+    absent = [m for m in GSC_METRICS if m not in columns]
+    if absent:
+        problems.append("필수 지표 열이 없다: %s" % ", ".join(absent))
+    if not problems and dimension is not None and dims[0] != dimension:
+        problems.append("--dimension %s 인데 파일의 차원 열은 %s다" % (dimension, dims[0]))
+    if problems:
+        raise GscImportError("머리글을 받아들일 수 없다 %r — %s" % (header, "; ".join(problems)))
+    return {"dimension": dims[0], "index": columns}
+
+
+def _gsc_header_language(header: list) -> str:
+    korean = any(re.search(r"[가-힣]", name or "") for name in header)
+    latin = any(re.search(r"[A-Za-z]", name or "") and _gsc_header_key(name) != "ctr" for name in header)
+    return "mixed" if korean and latin else ("ko" if korean else "en")
+
+
+def parse_gsc_export(raw: bytes, scope: dict) -> dict:
+    """바이트 → {columns, rows, ...}. 문제가 하나라도 있으면 GscImportError."""
+    bom = raw.startswith(b"\xef\xbb\xbf")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise GscImportError("UTF-8 파일이 아니다 (바이트 %d). 엑셀에서 다시 저장했다면 'CSV UTF-8'로 "
+                             "저장하거나 GSC에서 다시 내보낸다." % exc.start) from None
+    # str.splitlines()는 \x0b·\x0c·\x1c~\x1e·\x85·\u2028·\u2029에서도 줄을 끊는다 — 검색어 안의
+    # 그런 문자가 행을 쪼갠다. csv 모듈에 newline=""로 넘겨 CSV 행 구분(\r\n·\n·\r)만 쓴다.
+    reader = csv.reader(io.StringIO(text, newline=""))
+    header = next(reader, None)
+    while header is not None and not any(cell.strip() for cell in header):
+        header = next(reader, None)
+    if header is None:
+        raise GscImportError("빈 파일이다")
+    header = [cell.strip() for cell in header]
+    layout = _gsc_columns(header, scope.get("dimension"))
+    dimension, index = layout["dimension"], layout["index"]
+    first, last = parse_date(scope["start"]), parse_date(scope["end"])
+    prop = scope["_property"]
+
+    rows, problems, seen, blank_lines, ctr_mismatch = [], [], {}, 0, 0
+    for cells in reader:
+        line = reader.line_num
+        if not any(cell.strip() for cell in cells):
+            blank_lines += 1
+            continue
+        if len(cells) != len(header):
+            problems.append("%d행: 열 개수 %d (머리글 %d)" % (line, len(cells), len(header)))
+            continue
+        key = cells[index[dimension]].strip()
+        issues = []
+        if not key:
+            issues.append("차원 값이 비었다")
+        elif key in seen:
+            issues.append("중복 키 %r (%d행과 같음)" % (key, seen[key]))
+        else:
+            seen[key] = line
+        if dimension == "date" and key:
+            day = parse_date(key)
+            if day is None:
+                issues.append("날짜 형식이 아니다 (YYYY-MM-DD): %r" % key)
+            elif not first <= day <= last:
+                issues.append("날짜 %s: --start~--end(%s~%s) 밖이다" % (key, scope["start"], scope["end"]))
+        if dimension == "page" and key and not _page_in_property(key, prop):
+            issues.append("페이지가 속성 범위 밖이다: %r" % key)
+        clicks, err = _gsc_int(cells[index["clicks"]], "클릭수")
+        if err:
+            issues.append(err)
+        impressions, err = _gsc_int(cells[index["impressions"]], "노출수")
+        if err:
+            issues.append(err)
+        ctr, ctr_err = _gsc_ctr(cells[index["ctr"]])
+        if ctr_err:
+            issues.append(ctr_err)
+        position, position_err = _gsc_position(cells[index["position"]])
+        if position_err:
+            issues.append(position_err)
+        if clicks is not None and impressions is not None:
+            if clicks > impressions:
+                issues.append("클릭수(%d)가 노출수(%d)보다 크다" % (clicks, impressions))
+            if impressions > 0 and position is None and not position_err:
+                issues.append("노출이 있는데 게재순위가 비었다")
+            if impressions > 0 and position is not None and position < 1:
+                issues.append("노출이 있는데 게재순위가 1보다 작다: %r" % cells[index["position"]])
+            if impressions > 0 and ctr is None and not ctr_err:
+                issues.append("노출이 있는데 CTR이 비었다")
+        if issues:
+            problems.append("%d행: %s" % (line, "; ".join(issues)))
+            continue
+        if impressions and ctr is not None and abs(ctr - clicks / impressions) > GSC_CTR_TOLERANCE:
+            ctr_mismatch += 1
+        rows.append({"key": key, "clicks": clicks, "impressions": impressions,
+                     "ctr_reported": ctr, "position": position})
+    if problems:
+        shown = problems[:GSC_ERROR_SHOW]
+        more = len(problems) - len(shown)
+        raise GscImportError("문제 행 %d개 — 하나도 가져오지 않았다:\n  - %s%s"
+                             % (len(problems), "\n  - ".join(shown),
+                                "\n  … 외 %d건" % more if more > 0 else ""))
+    if not rows:
+        raise GscImportError("데이터 행이 없다 (머리글만 있다)")
+    return {"header": header, "columns": {name: header[i] for name, i in index.items()},
+            "dimension": dimension, "rows": rows, "bom": bom, "blank_lines": blank_lines,
+            "ctr_mismatch_rows": ctr_mismatch, "header_language": _gsc_header_language(header)}
+
+
+def gsc_totals(rows: list) -> dict:
+    """CTR은 총클릭/총노출로 다시 계산한다 — 행 CTR의 평균이 아니다.
+    평균 게재순위는 노출 가중 평균이며, 노출 0인 행은 가중치가 0이라 제외된다."""
+    clicks = sum(r["clicks"] for r in rows)
+    impressions = sum(r["impressions"] for r in rows)
+    weighted = [r for r in rows if r["impressions"] > 0 and r["position"] is not None]
+    weight = sum(r["impressions"] for r in weighted)
+    position = (sum(r["position"] * r["impressions"] for r in weighted) / weight) if weight else None
+    return {"rows": len(rows), "clicks": clicks, "impressions": impressions,
+            "ctr": round(clicks / impressions, 6) if impressions else None,
+            "ctr_method": "total_clicks / total_impressions (행 CTR 평균 아님)",
+            "position": round(position, 4) if position is not None else None,
+            "position_method": "노출 가중 평균 sum(position*impressions)/sum(impressions); 노출 0 행 제외",
+            "position_weight_impressions": weight,
+            "zero_impression_rows": sum(1 for r in rows if r["impressions"] == 0)}
+
+
+def build_gsc_result(raw: bytes, file_name: str, scope: dict, host: str) -> dict:
+    parsed = parse_gsc_export(raw, scope)
+    public_scope = {k: v for k, v in scope.items() if not k.startswith("_")}
+    public_scope["dimension"] = parsed["dimension"]
+    codes = ["export_truncated"]
+    if parsed["dimension"] == "query":
+        codes.append("anonymized_queries_omitted")
+    if parsed["dimension"] == "page":
+        codes.append("page_aggregation")
+    codes += ["date_rows_may_be_partial", "scope_declared_by_operator", "not_ai_citation"]
+    result = OrderedDict([
+        ("schema", SCHEMA_GSC),
+        ("generated_at", datetime.now(timezone.utc).replace(microsecond=0).isoformat()),
+        ("evidence_level", "export"),
+        ("evidence_kind", "search_performance"),
+        ("complete", False),
+        ("target", {"host": host}),
+        ("scope", public_scope),
+        ("source", {"product": "Google Search Console", "report": "performance",
+                    "file_name": os.path.basename(file_name),
+                    "sha256": hashlib.sha256(raw).hexdigest(), "bom": parsed["bom"],
+                    "header": parsed["header"], "columns": parsed["columns"],
+                    "header_language": parsed["header_language"]}),
+        ("totals", gsc_totals(parsed["rows"])),
+        ("quality", {"blank_lines": parsed["blank_lines"],
+                     "ctr_mismatch_rows": parsed["ctr_mismatch_rows"],
+                     "ctr_mismatch_tolerance": GSC_CTR_TOLERANCE}),
+        ("limitations", [{"code": code, "note": GSC_LIMITATIONS[code]} for code in codes]),
+        ("rows", parsed["rows"]),
+    ])
+    if parsed["dimension"] == "date":
+        first = parse_date(scope["start"])
+        present = {r["key"] for r in parsed["rows"]}
+        expected = [(first + timedelta(days=i)).isoformat() for i in range(scope["days"])]
+        missing = [d for d in expected if d not in present]
+        result["date_coverage"] = {"expected_days": len(expected), "present_days": len(present),
+                                   "missing_days": len(missing), "missing": missing[:62]}
+    return result
+
+
+def gsc_output_path(mdir: str, scope: dict) -> str:
+    name = "%s_%s_%s_%s.json" % (scope["start"], scope["end"], scope["search_type"], scope["dimension"])
+    return os.path.join(mdir, "gsc", name)
+
+
+def write_gsc_result(path: str, result: dict) -> str:
+    """원자적으로 쓴다. 같은 이름에 다른 내보내기가 있으면 지우지 않고 observations/로 옮겨 둔다."""
+    from pathlib import Path
+    import seo_geo  # atomic_json: 임시 파일 + os.replace, Windows 공유 위반 재시도
+
+    backup = None
+    if os.path.exists(path):
+        try:
+            old = load_json(path)
+        except (OSError, ValueError):
+            old = None
+        same = (isinstance(old, dict) and (old.get("source") or {}).get("sha256") == result["source"]["sha256"]
+                and old.get("scope") == result["scope"])
+        if not same:
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            stem = os.path.splitext(os.path.basename(path))[0]
+            backup = os.path.join(os.path.dirname(path), "observations", "%s-%s.json" % (stem, stamp))
+            os.makedirs(os.path.dirname(backup), exist_ok=True)
+            with open(path, "rb") as src, open(backup, "xb") as dst:
+                dst.write(src.read())
+    seo_geo.atomic_json(Path(path), result)
+    return backup
+
+
+def _fmt_int(value) -> str:
+    return "{:,}".format(value)
+
+
+def print_gsc_summary(result: dict, path: str, backup=None) -> None:
+    scope, totals = result["scope"], result["totals"]
+    ctr = "—" if totals["ctr"] is None else "%.2f%%" % (totals["ctr"] * 100)
+    position = "—" if totals["position"] is None else "%.1f" % totals["position"]
+    print("GSC 실적 내보내기 — 검색 성과 근거(export), AI 인용 관측 아님")
+    print("  속성: %s · 기간 %s~%s (%d일) · 유형 %s · 차원 %s"
+          % (scope["property"], scope["start"], scope["end"], scope["days"],
+             scope["search_type"], scope["dimension"]))
+    print("  필터: %s" % (scope["filters"] if scope["filters"] else "입력 안 함 (필터가 없었다는 증거는 아니다)"))
+    print("  행 %d · 클릭 %s · 노출 %s · CTR %s (총클릭/총노출) · 평균 게재순위 %s (노출 가중)"
+          % (totals["rows"], _fmt_int(totals["clicks"]), _fmt_int(totals["impressions"]), ctr, position))
+    if totals["zero_impression_rows"]:
+        print("  노출 0 행 %d개는 평균 게재순위 가중에서 빠졌다." % totals["zero_impression_rows"])
+    coverage = result.get("date_coverage")
+    if coverage and coverage["missing_days"]:
+        print("  날짜 누락 %d일 (기간 %d일 중 %d일만 있음)"
+              % (coverage["missing_days"], coverage["expected_days"], coverage["present_days"]))
+    if result["quality"]["ctr_mismatch_rows"]:
+        print("  행 CTR이 클릭/노출과 어긋난 행 %d개 — 합계 CTR은 다시 계산했다."
+              % result["quality"]["ctr_mismatch_rows"])
+    print("  한계: 상위 행만 내보내지고%s 합계가 속성 전체보다 작을 수 있다. 완전한 값이 아니다."
+          % (" 익명 검색어는 빠지므로" if result["scope"]["dimension"] == "query" else ""))
+    if backup:
+        print("  이전 파일 보존: %s" % backup)
+    print("저장: %s" % path)
+
+
+def cmd_gsc(args) -> int:
+    audit = load_json(args.audit)
+    _, host = target_of(audit)
+    try:
+        scope = gsc_scope(args.property, args.start, args.end, args.search_type,
+                          args.dimension, args.filters)
+        if not _related_host(scope["_property"]["host"], host):
+            raise GscImportError("속성 %s는 이 진단의 호스트 %s와 다른 사이트다"
+                                 % (scope["property"], host))
+        with open(args.csv, "rb") as fh:
+            raw = fh.read()
+        result = build_gsc_result(raw, args.csv, scope, host)
+    except GscImportError as exc:
+        sys.stderr.write("GSC 내보내기를 거부했다: %s\n" % exc)
+        return 2
+    path = gsc_output_path(measure_dir(args.audit), result["scope"])
+    backup = write_gsc_result(path, result)
+    print_gsc_summary(result, path, backup)
+    return 0
+
+
 # ─────────────────────────────────────────────────────────── CLI
 
 def main(argv=None) -> int:
@@ -1842,6 +2269,18 @@ def main(argv=None) -> int:
                    help="선택 기간 전체 누적 (기본: 기간 내 최신 측정일만 집계, 추이는 보존)")
     p.add_argument("--out", default=None, help="summary.json 경로")
 
+    p = sub.add_parser("gsc", help="GSC 실적 CSV 내보내기를 엄격 검증해 measure/gsc/에 저장 (인용 로그와 분리)")
+    p.add_argument("audit")
+    p.add_argument("csv", help="GSC 실적 보고서에서 내보낸 CSV 한 개 (Queries.csv·Pages.csv 등)")
+    p.add_argument("--property", default=None,
+                   help="필수. sc-domain:example.com 또는 https://www.example.com/")
+    p.add_argument("--start", default=None, help="필수. 내보낸 기간 시작 YYYY-MM-DD")
+    p.add_argument("--end", default=None, help="필수. 내보낸 기간 끝 YYYY-MM-DD")
+    p.add_argument("--search-type", default=None, help="필수. %s" % "/".join(GSC_SEARCH_TYPES))
+    p.add_argument("--dimension", default=None, choices=GSC_DIMENSIONS,
+                   help="파일 머리글과 맞는지 확인 (생략하면 머리글에서 읽는다)")
+    p.add_argument("--filters", default=None, help="내보낼 때 건 필터를 적힌 그대로 기록")
+
     p = sub.add_parser("auto", help="선택 자동화 — 환경변수에 키가 있을 때만")
     p.add_argument("audit")
     p.add_argument("--engines", default=None,
@@ -1864,7 +2303,7 @@ def main(argv=None) -> int:
 
     try:
         return {"init": cmd_init, "form": cmd_form, "import": cmd_import,
-                "report": cmd_report, "auto": cmd_auto}[args.cmd](args)
+                "report": cmd_report, "auto": cmd_auto, "gsc": cmd_gsc}[args.cmd](args)
     except (OSError, ValueError) as exc:
         sys.stderr.write("측정 파일을 읽을 수 없다: %s\n" % exc)
         return 2

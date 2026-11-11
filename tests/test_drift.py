@@ -283,6 +283,21 @@ class TestImprovements(DriftCase):
         self.assertEqual(self.compare(), 0)
         self.assertIn("scorecard", self.codes("improvements"))
 
+    def test_lane_lost_to_unassessed_is_not_an_improvement(self):
+        """bad→na (예: after 진단이 robots.txt를 못 읽음)는 개선이 아니다 — 판정을 못 한 것이다."""
+        before = audit(scorecard={"GEO": {"status": "bad", "note": ""}},
+                       findings=[finding("AI_CRAWLER_BLOCKED", severity="critical")])
+        after = audit(scorecard={"GEO": {"status": "na", "note": "robots 미확인",
+                                         "unassessed": ["crawler_policy"]}})
+        after["site"]["robots"] = {"status": 503, "fetch_state": "unreachable",
+                                   "policies": {}}
+        self.two(before, after)
+        self.compare()
+        self.assertNotIn("scorecard", self.codes("improvements"))
+        ad = self.result()["audit_diff"]
+        self.assertEqual([f["code"] for f in ad["resolved"]], [])
+        self.assertEqual([f["code"] for f in ad["unverified"]], ["AI_CRAWLER_BLOCKED"])
+
     def test_nonbrand_rate_up_is_improvement(self):
         self.two(audit(), audit(),
                  b_measure=summary(nonbrand=(1, 10)), a_measure=summary(nonbrand=(6, 10)))

@@ -4,6 +4,8 @@
 실행: python -m unittest discover tests
 """
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -395,6 +397,424 @@ def finding(code, lane="SEO", severity="critical", urls=1):
             "urls": ["%s/%d" % (BASE, n) for n in range(urls)], "data": {}}
 
 
+# ─────────────────────────────────────────────────────────── 필드 단위 · 평점 · 사실 원장
+
+def product_ld(price="89000", **extra):
+    obj = {"@context": "https://schema.org", "@type": "Product", "name": "표준 요금제",
+           "url": FAQ, "offers": {"@type": "Offer", "price": price, "priceCurrency": "KRW"}}
+    obj.update(extra)
+    return obj
+
+
+class ProductBase(DeployBase):
+    """FAQ 자리에 Product LD 한 건을 배포한 사이트."""
+
+    def setUp(self):
+        super().setUp()
+        os.remove(os.path.join(self.dir, "jsonld", "faq.faq.json"))
+        self.package = product_ld()
+        self.write("jsonld/faq.product.json", json.dumps(self.package, ensure_ascii=False))
+
+    def serve(self, ld, body="표준 요금제 89,000원"):
+        blocks = ld if isinstance(ld, list) else [ld]
+        served = html(title="요금", body=body,
+                      head="".join(ld_script(x) for x in blocks), canonical=FAQ)
+        return live(**{FAQ: resp(served)})
+
+
+class TestFieldLevel(ProductBase):
+
+    def test_price_mismatch_reports_pointer_values_and_visibility(self):
+        result = self.run_verify(self.serve(product_ld(price="99000"), body="표준 요금제 99,000원"))
+        check = self.check_of(result, "jsonld.type")
+        self.assertEqual(check["status"], "fail")  # 기존 판정 그대로
+        item = check["evidence"]["items"][0]
+        self.assertIn("핵심 필드", item["reason"])  # 기존 키 유지
+        fields = {f["path"]: f for f in item["fields"]}
+        self.assertEqual(list(fields), ["/offers/price"])
+        price = fields["/offers/price"]
+        self.assertEqual((price["node"], price["package"], price["live"]),
+                         ("Product", "89000", "99000"))
+        self.assertTrue(price["live_present"])
+        self.assertFalse(price["visible"])
+        self.assertTrue(price["live_visible"])
+
+    def test_missing_live_field_is_reported_as_absent(self):
+        live_obj = product_ld()
+        del live_obj["offers"]
+        result = self.run_verify(self.serve(live_obj))
+        fields = self.check_of(result, "jsonld.type")["evidence"]["items"][0]["fields"]
+        price = [f for f in fields if f["path"] == "/offers/price"][0]
+        self.assertFalse(price["live_present"])
+        self.assertIsNone(price["live"])
+        self.assertTrue(price["visible"])  # 89,000은 화면에 있다
+
+    def test_number_and_string_price_are_the_same_fact(self):
+        result = self.run_verify(self.serve(product_ld(price=89000)))
+        self.assertEqual(self.status_of(result, "jsonld.type"), "pass")
+        self.assertNotIn("field_drift", self.check_of(result, "jsonld.type")["evidence"])
+
+    def test_non_identity_drift_is_evidence_only(self):
+        self.package = product_ld(description="패키지 설명")
+        self.write("jsonld/faq.product.json", json.dumps(self.package, ensure_ascii=False))
+        result = self.run_verify(self.serve(product_ld(description="다른 설명")))
+        check = self.check_of(result, "jsonld.type")
+        self.assertEqual(check["status"], "pass")
+        drift = check["evidence"]["field_drift"]
+        self.assertEqual([(d["path"], d["package"], d["live"]) for d in drift],
+                         [("/description", "패키지 설명", "다른 설명")])
+
+    def test_invisible_field_has_pointer(self):
+        result = self.run_verify(self.serve(product_ld(), body="표준 요금제"))
+        check = self.check_of(result, "jsonld.visible")
+        self.assertEqual(check["status"], "fail")
+        page_item = check["evidence"]["pages"][0]
+        self.assertEqual(page_item["missing"], ["price: 89000"])  # 기존 형식 유지
+        self.assertEqual([(f["path"], f["package"], f["live"], f["visible"])
+                          for f in page_item["fields"]],
+                         [("/offers/price", "89000", "89000", False)])
+
+    def test_faq_answer_pointer(self):
+        os.remove(os.path.join(self.dir, "jsonld", "faq.product.json"))
+        self.write("jsonld/faq.faq.json", json.dumps(FAQ_LD, ensure_ascii=False))
+        served = html(title="자주 묻는 질문", body="배송은 얼마나 걸리나요?",
+                      head=ld_script(FAQ_LD), canonical=FAQ)
+        result = self.run_verify(live(**{FAQ: resp(served)}))
+        fields = self.check_of(result, "jsonld.visible")["evidence"]["pages"][0]["fields"]
+        self.assertEqual([f["path"] for f in fields], ["/mainEntity/0/acceptedAnswer/text"])
+        self.assertEqual(fields[0]["node"], "FAQPage")
+
+
+class TestPointerAndValueHelpers(unittest.TestCase):
+
+    def test_resolve_pointer_rfc6901(self):
+        obj = {"a/b": {"m~n": [10, 20]}}
+        self.assertEqual(verify.resolve_pointer(obj, "/a~1b/m~0n/1"), 20)
+        self.assertIs(verify.resolve_pointer(obj, "/a~1b/m~0n/01"), verify._MISSING)
+        self.assertIs(verify.resolve_pointer(obj, "/a~1b/m~0n/2"), verify._MISSING)
+
+    def test_identifiers_are_not_compared_as_numbers(self):
+        self.assertFalse(verify.same_value("0123456", "123456", "gtin13"))
+        self.assertTrue(verify.same_value(89000, "89000.0", "price"))
+
+    def test_number_visibility_respects_digit_boundaries(self):
+        self.assertTrue(verify.value_visible("리뷰 1,204건", 1204, "reviewCount"))
+        self.assertFalse(verify.value_visible("2024년 출시", 202, "reviewCount"))
+        self.assertFalse(verify.value_visible("평점 4.8점", 4, "ratingValue"))
+        self.assertTrue(verify.value_visible("평점 4.8점", "4.80", "ratingValue"))
+        self.assertIsNone(verify.value_visible("아무 글", FAQ, "url"))
+
+    def test_zero_is_not_the_empty_string(self):
+        """0과 ""(빈 값)는 다른 사실이다 — 수 키든 아니든 같은 값으로 접지 않는다."""
+        self.assertEqual(verify.norm_text(0), "0")
+        self.assertEqual(verify.norm_text(None), "")
+        self.assertFalse(verify.same_value(0, "", "price"))
+        self.assertFalse(verify.same_value("", 0, "price"))
+        self.assertFalse(verify.same_value(0, "", "name"))
+        self.assertFalse(verify.same_value(0, None, "price"))
+        self.assertTrue(verify.same_value(0, "0", "price"))
+        self.assertTrue(verify.same_value(0, "0.00", "price"))
+        self.assertTrue(verify.value_visible("무료 0원", 0, "price"))
+
+    def test_property_value_identifier_keeps_leading_zeros(self):
+        pkg = {"@type": "Product", "name": "x",
+               "identifier": {"@type": "PropertyValue", "propertyID": "사내코드", "value": "007"}}
+        live_obj = json.loads(json.dumps(pkg))
+        live_obj["identifier"]["value"] = "7"
+        diffs = verify.ld_field_diffs(pkg, live_obj, "")
+        self.assertEqual([d["path"] for d in diffs], ["/identifier/value"])
+        self.assertFalse(verify.same_value("007", "7", "value", ["PropertyValue"]))
+        self.assertFalse(verify.same_value("007", 7, "value", ["PropertyValue"]))
+        self.assertFalse(verify.same_value("007", "7", "value"))
+
+    def test_quantitative_value_is_still_numeric(self):
+        pkg = {"@type": "Product", "weight": {"@type": "QuantitativeValue", "value": "1.50",
+                                              "unitCode": "KGM"},
+               "offers": {"@type": "Offer", "priceSpecification": {
+                   "@type": "MonetaryAmount", "value": 89000, "currency": "KRW"}}}
+        live_obj = json.loads(json.dumps(pkg))
+        live_obj["weight"]["value"] = 1.5
+        live_obj["offers"]["priceSpecification"]["value"] = "89000.0"
+        self.assertEqual(verify.ld_field_diffs(pkg, live_obj, ""), [])
+        self.assertTrue(verify.same_value("1.50", "1.5", "value", ["QuantitativeValue"]))
+        self.assertEqual(verify.container_types(pkg, "/weight/value"), ["QuantitativeValue"])
+
+
+def rated(rating, **product):
+    obj = product_ld(**product)
+    obj["aggregateRating"] = dict({"@type": "AggregateRating"}, **rating)
+    return obj
+
+
+class TestRatingIntegrity(ProductBase):
+
+    def deploy_ld(self, obj):
+        self.write("jsonld/faq.product.json", json.dumps(obj, ensure_ascii=False))
+        return self.run_verify(self.serve(obj))
+
+    def test_no_rating_nodes_no_check(self):
+        result = self.run_verify(self.serve(self.package))
+        self.assertIsNone(self.status_of(result, "jsonld.rating_scale"))
+        self.assertIsNone(self.status_of(result, "jsonld.rating_count"))
+
+    def test_valid_rating_passes(self):
+        result = self.deploy_ld(rated({"ratingValue": "4.5", "ratingCount": "12",
+                                       "reviewCount": 7}))
+        self.assertEqual(self.status_of(result, "jsonld.rating_scale"), "pass")
+        self.assertEqual(self.status_of(result, "jsonld.rating_count"), "pass")
+        self.assertEqual(result["exit_code"], 0, result["checks"])
+
+    def test_rating_above_declared_best_fails(self):
+        result = self.deploy_ld(rated({"ratingValue": 4.8, "bestRating": 4}))
+        check = self.check_of(result, "jsonld.rating_scale")
+        self.assertEqual(check["status"], "fail")
+        self.assertIn("척도", check["message"])
+        sources = {i["source"] for i in check["evidence"]["items"]}
+        self.assertEqual(sources, {"package", "live"})
+        live_item = [i for i in check["evidence"]["items"] if i["source"] == "live"][0]
+        self.assertEqual((live_item["url"], live_item["path"], live_item["node"]),
+                         (FAQ, "/aggregateRating", "AggregateRating"))
+        self.assertEqual(result["exit_code"], 1)
+        self.assertIn("척도", verify.NEXT["jsonld.rating_scale"])
+
+    def test_default_scale_is_one_to_five(self):
+        result = self.deploy_ld(rated({"ratingValue": "0.5"}))
+        self.assertEqual(self.status_of(result, "jsonld.rating_scale"), "fail")
+
+    def test_percentage_and_fraction_rating_values_are_accepted(self):
+        """Google 리뷰 스니펫 문서는 4·"60%"·"6 / 10"을 모두 받는다 — 척도는 형식이 함축한다."""
+        def issues(**node):
+            return verify.rating_issues(dict({"@type": "AggregateRating"}, **node))[1]
+        for value in ("60%", " 60 % ", "0%", "100%", "6 / 10", "6/10", "8.5/10"):
+            self.assertEqual(issues(ratingValue=value), [], value)
+        # 선언한 척도는 함축보다 우선한다
+        self.assertEqual(issues(ratingValue="6 / 10", bestRating=10), [])
+        self.assertEqual(issues(ratingValue="60%", worstRating=0, bestRating=100), [])
+        for value, needle in (("110%", "척도"), ("11 / 10", "척도"), ("-5%", "척도")):
+            self.assertIn(needle, issues(ratingValue=value)[0]["reason"], value)
+        # 분모와 다른 bestRating은 모순이다
+        clash = issues(ratingValue="6 / 10", bestRating=5)
+        self.assertIn("분모", clash[0]["reason"])
+        # 해석할 수 없는 글자는 그대로 실패
+        for value in ("열", "6/", "/10", "60 percent", "6 of 10"):
+            self.assertIn("숫자가 아니다", issues(ratingValue=value)[0]["reason"], value)
+
+    def test_percentage_rating_passes_end_to_end(self):
+        result = self.deploy_ld(rated({"ratingValue": "60%", "ratingCount": 12}))
+        self.assertEqual(self.status_of(result, "jsonld.rating_scale"), "pass")
+
+    def test_nested_in_graph_with_type_list(self):
+        graph = {"@context": "https://schema.org", "@graph": [
+            {"@type": ["LocalBusiness", "Store"], "name": "예시 매장",
+             "review": [{"@type": "Review",
+                         "reviewRating": {"@type": "Rating", "ratingValue": "열",
+                                          "bestRating": "10"}}]}]}
+        total, scale, _counts = verify.rating_issues(graph)
+        self.assertEqual(total, 1)
+        self.assertEqual(scale[0]["path"], "/@graph/0/review/0/reviewRating")
+        self.assertIn("숫자가 아니다", scale[0]["reason"])
+
+    def test_inverted_scale_fails(self):
+        _t, scale, _c = verify.rating_issues(
+            {"@type": "AggregateRating", "ratingValue": 3, "worstRating": 5, "bestRating": 1})
+        self.assertIn("작지 않다", scale[0]["reason"])
+
+    def test_non_integer_counts_fail(self):
+        result = self.deploy_ld(rated({"ratingValue": 4, "ratingCount": "12.5",
+                                       "reviewCount": "-1"}))
+        check = self.check_of(result, "jsonld.rating_count")
+        self.assertEqual(check["status"], "fail")
+        fields = sorted({(i["field"], i["value"]) for i in check["evidence"]["items"]})
+        self.assertEqual(fields, [("ratingCount", "12.5"), ("reviewCount", "-1")])
+        self.assertEqual(self.status_of(result, "jsonld.rating_scale"), "pass")
+
+    def test_existing_page_outside_deploy_targets_warns_not_fails(self):
+        """배포 대상이 아닌 기존 페이지의 잘못된 평점은 원래 있던 마크업이다 — warn."""
+        bad = rated({"ratingValue": 4.8, "bestRating": 4})
+
+        class FakeSession:
+            cache = {"https://example.com/old": {
+                "status": 200, "html": "<html></html>", "url": "https://example.com/old",
+                "ld_objs": [bad]}}
+
+        checks = []
+        verify.check_ratings(checks, FakeSession(), {"jsonld": {}},
+                             target_urls=["https://example.com/deployed"])
+        check = [c for c in checks if c["id"] == "jsonld.rating_scale"][0]
+        self.assertEqual(check["status"], "warn")
+        self.assertEqual(check["evidence"]["items"][0]["scope"], "existing")
+        self.assertIn("기존 페이지", check["message"])
+
+        checks = []
+        verify.check_ratings(checks, FakeSession(), {"jsonld": {}},
+                             target_urls=["https://example.com/old"])
+        self.assertEqual([c["status"] for c in checks if c["id"] == "jsonld.rating_scale"],
+                         ["fail"])
+
+    def test_count_rules_unit(self):
+        for good in (0, 12, "12", " 7 ", 3.0):
+            _t, _s, counts = verify.rating_issues(
+                {"@type": "AggregateRating", "ratingValue": 4, "ratingCount": good})
+            self.assertEqual(counts, [], good)
+        for bad in (-1, 12.5, "12.5", "-1", "", True, None, "1e2"):
+            _t, _s, counts = verify.rating_issues(
+                {"@type": "AggregateRating", "ratingValue": 4, "ratingCount": bad})
+            self.assertEqual(len(counts), 1, bad)
+
+
+def fact(**kw):
+    base = {"url": FAQ, "pointer": "/offers/price", "expected": 89000,
+            "evidence": "요금표 PDF 2쪽 (합성 예시)"}
+    base.update(kw)
+    return base
+
+
+class TestFactsLedger(ProductBase):
+
+    def verify_facts(self, facts, fetch=None):
+        return self.run_verify(fetch or self.serve(self.package),
+                               facts=verify.validate_facts(facts), facts_source="facts.json")
+
+    def test_without_facts_no_key_and_no_check(self):
+        result = self.run_verify(self.serve(self.package))
+        self.assertNotIn("facts", result)
+        self.assertIsNone(self.status_of(result, "facts.match"))
+
+    def test_agree(self):
+        result = self.verify_facts([fact(), fact(pointer="/name", expected="표준 요금제",
+                                                 type="Product")])
+        self.assertEqual(self.status_of(result, "facts.match"), "pass")
+        self.assertEqual(self.status_of(result, "facts.visible"), "pass")
+        ledger = result["facts"]
+        self.assertEqual(ledger["schema"], verify.FACTS_SCHEMA)
+        self.assertEqual(dict(ledger["summary"]),
+                         {"agree": 2, "mismatch": 0, "missing": 0, "unverified": 0})
+        first = ledger["results"][0]
+        self.assertEqual(first["live_values"], [{"node": "Product", "value": "89000"}])
+        self.assertTrue(first["visible"])
+        self.assertTrue(first["package_claimed"])
+        self.assertEqual(result["exit_code"], 0)
+
+    def test_mismatch_fails(self):
+        result = self.verify_facts([fact(expected=79000)])
+        check = self.check_of(result, "facts.match")
+        self.assertEqual(check["status"], "fail")
+        self.assertEqual(result["facts"]["results"][0]["status"], "mismatch")
+        self.assertFalse(result["facts"]["results"][0]["visible"])
+        self.assertEqual(result["exit_code"], 1)
+
+    def test_expected_zero_against_empty_live_value_is_mismatch(self):
+        result = self.verify_facts([fact(expected=0)], fetch=self.serve(product_ld(price="")))
+        item = result["facts"]["results"][0]
+        self.assertEqual((item["status"], item["outcome"]), ("mismatch", "fail"))
+        self.assertEqual(result["exit_code"], 1)
+
+    def test_identifier_value_with_leading_zeros_is_compared_as_text(self):
+        live_obj = product_ld(identifier={"@type": "PropertyValue", "propertyID": "사내코드",
+                                          "value": "7"})
+        result = self.verify_facts([fact(pointer="/identifier/value", expected="007",
+                                         type="Product")], fetch=self.serve(live_obj))
+        item = result["facts"]["results"][0]
+        self.assertEqual(item["status"], "mismatch")
+        self.assertEqual(item["live_values"], [{"node": "Product", "value": "7"}])
+        live_obj["identifier"]["value"] = "007"
+        result = self.verify_facts([fact(pointer="/identifier/value", expected="007",
+                                         type="Product")], fetch=self.serve(live_obj))
+        self.assertEqual(result["facts"]["results"][0]["status"], "agree")
+
+    def test_missing_unclaimed_is_unverified_not_pass_or_fail(self):
+        result = self.verify_facts([fact(pointer="/aggregateRating/ratingValue", expected=4.5)])
+        check = self.check_of(result, "facts.match")
+        self.assertEqual(check["status"], "warn")
+        item = result["facts"]["results"][0]
+        self.assertEqual((item["status"], item["outcome"], item["package_claimed"]),
+                         ("missing", "unverified", False))
+        self.assertEqual(result["exit_code"], 2)
+        self.assertFalse(result["completion"]["complete"])
+
+    def test_missing_but_package_claimed_fails(self):
+        live_obj = product_ld()
+        del live_obj["offers"]
+        result = self.verify_facts([fact()], fetch=self.serve(live_obj))
+        item = result["facts"]["results"][0]
+        self.assertEqual((item["status"], item["outcome"]), ("missing", "fail"))
+        self.assertEqual(self.status_of(result, "facts.match"), "fail")
+
+    def test_unfetched_page_is_never_verified(self):
+        result = self.verify_facts([fact()], fetch=live(**{FAQ: resp("", status=503)}))
+        item = result["facts"]["results"][0]
+        self.assertEqual((item["status"], item["outcome"]), ("unverified", "unverified"))
+        self.assertIsNone(item["visible"])
+        self.assertEqual(result["facts"]["summary"]["agree"], 0)
+        self.assertNotEqual(self.status_of(result, "facts.match"), "pass")
+
+    def test_agree_but_not_on_screen_warns(self):
+        result = self.verify_facts([fact()], fetch=self.serve(self.package, body="표준 요금제"))
+        self.assertEqual(self.status_of(result, "facts.match"), "pass")
+        self.assertEqual(self.status_of(result, "facts.visible"), "warn")
+
+    def test_markdown_lists_non_agreeing_facts(self):
+        result = self.verify_facts([fact(expected=79000)])
+        md = verify.render_md(result)
+        self.assertIn("## 사실 원장", md)
+        self.assertIn("요금표 PDF 2쪽", md)
+
+
+class TestFactsValidation(unittest.TestCase):
+
+    def assertRejected(self, data, needle):
+        with self.assertRaises(verify.FactsError) as ctx:
+            verify.validate_facts(data)
+        self.assertIn(needle, str(ctx.exception))
+
+    def test_entry_without_evidence_rejected(self):
+        bad = fact()
+        del bad["evidence"]
+        self.assertRejected([fact(), bad], "facts[1]")
+        self.assertRejected([fact(evidence="   ")], "evidence")
+
+    def test_entry_without_expected_rejected(self):
+        bad = fact()
+        del bad["expected"]
+        self.assertRejected([bad], "expected")
+        self.assertRejected([fact(expected="")], "expected")
+        self.assertRejected([fact(expected=None)], "expected")
+
+    def test_bad_pointer_url_and_shape_rejected(self):
+        self.assertRejected([fact(pointer="offers/price")], "pointer")
+        self.assertRejected([fact(url="example.com/faq")], "url")
+        self.assertRejected([], "하나도")
+        self.assertRejected({"schema": "other/1", "facts": [fact()]}, "스키마")
+
+    def test_wrapped_form_accepted(self):
+        facts = verify.validate_facts({"schema": verify.FACTS_SCHEMA, "facts": [fact()]})
+        self.assertEqual(facts[0]["pointer"], "/offers/price")
+
+    def test_cli_rejects_ledger_without_evidence(self):
+        tmp = tempfile.mkdtemp(prefix="su-facts-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        os.makedirs(os.path.join(tmp, "deploy"))
+        audit_path = os.path.join(tmp, "audit.json")
+        facts_path = os.path.join(tmp, "facts.json")
+        with open(audit_path, "w", encoding="utf-8") as fh:
+            json.dump(audit(), fh, ensure_ascii=False)
+        bad = fact()
+        bad["evidence"] = ""
+        with open(facts_path, "w", encoding="utf-8-sig") as fh:  # BOM이 있어도 읽는다
+            json.dump([bad], fh, ensure_ascii=False)
+        original = verify.crawl.fetch
+        verify.crawl.fetch = lambda url: self.fail("원장이 잘못되면 네트워크 전에 멈춰야 한다")
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = verify.main(["deploy", audit_path, "--facts", facts_path])
+        finally:
+            verify.crawl.fetch = original
+        self.assertEqual(code, 2)
+        self.assertIn("evidence", err.getvalue())
+        self.assertFalse(os.path.exists(os.path.join(tmp, "verify.json")))
+
+
 class TestDiff(unittest.TestCase):
 
     def setUp(self):
@@ -451,6 +871,78 @@ class TestDiff(unittest.TestCase):
         result = verify.verify_diff(self.before, self.after)
         check = [c for c in result["checks"] if c["id"] == "diff.scorecard"][0]
         self.assertEqual(check["status"], "pass")
+
+    def robots_blind_pair(self):
+        """before: robots를 읽고 GEO 차단을 판정. after: robots.txt 503 → GEO·NEO 미확인."""
+        before = audit(findings=[finding("AI_CRAWLER_BLOCKED", lane="GEO"),
+                                 finding("TITLE_DUPLICATE", severity="warn")])
+        before["scorecard"]["GEO"] = {"status": "bad", "evidence": ["AI_CRAWLER_BLOCKED"]}
+        before["scorecard"]["SEO"] = {"status": "warn", "evidence": ["TITLE_DUPLICATE"]}
+        after = audit(generated_at="2026-09-15T00:00:00+00:00",
+                      findings=[finding("ROBOTS_UNREACHABLE", severity="warn")])
+        after["site"]["robots"] = {"status": 503, "present": False, "raw": "",
+                                   "fetch_state": "unreachable",
+                                   "policies": {ua: "unknown" for ua in crawl.ALL_UAS},
+                                   "sitemap_declared": []}
+        after["scorecard"]["SEO"] = {"status": "warn", "evidence": ["ROBOTS_UNREACHABLE"]}
+        for lane in ("GEO", "NEO"):
+            after["scorecard"][lane] = {"status": "na", "evidence": [],
+                                        "unassessed": ["crawler_policy"]}
+        return before, after
+
+    def test_lane_lost_to_unreadable_robots_is_not_concluded(self):
+        before, after = self.robots_blind_pair()
+        result = verify.verify_diff(before, after)
+        _, resolved = self.codes(result, "diff.resolved")
+        self.assertEqual(resolved, ["TITLE_DUPLICATE"])  # 실제로 고친 것만 해소
+        check, unverified = self.codes(result, "diff.unverified")
+        self.assertEqual(unverified, ["AI_CRAWLER_BLOCKED"])
+        self.assertEqual(check["status"], "warn")
+        score = [c for c in result["checks"] if c["id"] == "diff.scorecard"][0]
+        self.assertEqual(score["status"], "warn")
+        self.assertIn("GEO bad→na", score["message"])
+        self.assertIn("NEO ok→na", score["message"])
+        self.assertFalse(result["completion"]["complete"])
+        self.assertEqual(result["exit_code"], 2)
+        self.assertIn("결론 보류", verify.render_md(result))
+
+    def test_lane_ok_to_na_without_findings_is_not_a_pass(self):
+        self.after["scorecard"]["AEO"] = {"status": "ok", "evidence": []}
+        self.after["scorecard"]["LLMO"] = {"status": "na", "evidence": []}
+        result = verify.verify_diff(self.before, self.after)
+        score = [c for c in result["checks"] if c["id"] == "diff.scorecard"][0]
+        self.assertEqual(score["status"], "warn")
+        self.assertIn("LLMO ok→na", score["message"])
+        self.assertEqual(result["exit_code"], 2)
+
+    def test_partly_unassessed_after_does_not_count_as_improvement(self):
+        self.after["scorecard"]["AEO"] = {"status": "ok", "evidence": []}
+        self.before["scorecard"]["GEO"] = {"status": "bad", "evidence": []}
+        self.after["scorecard"]["GEO"] = {"status": "warn", "evidence": [],
+                                          "unassessed": ["crawler_policy"]}
+        result = verify.verify_diff(self.before, self.after)
+        score = [c for c in result["checks"] if c["id"] == "diff.scorecard"][0]
+        self.assertEqual(score["status"], "warn")
+        self.assertIn("GEO bad→warn(일부 미확인)", score["message"])
+
+    def test_newly_assessed_lane_is_not_a_regression(self):
+        self.after["scorecard"]["AEO"] = {"status": "ok", "evidence": []}
+        self.before["scorecard"]["GEO"] = {"status": "na", "evidence": [],
+                                           "unassessed": ["crawler_policy"]}
+        result = verify.verify_diff(self.before, self.after)
+        score = [c for c in result["checks"] if c["id"] == "diff.scorecard"][0]
+        self.assertEqual(score["status"], "pass")
+        self.assertEqual(result["exit_code"], 0)
+
+    def test_fixed_robots_findings_still_resolve_when_robots_was_read(self):
+        before, after = self.robots_blind_pair()
+        after["site"]["robots"] = dict(before["site"]["robots"], fetch_state="ok")
+        after["scorecard"]["GEO"] = after["scorecard"]["NEO"] = {"status": "ok", "evidence": []}
+        result = verify.verify_diff(before, after)
+        _, resolved = self.codes(result, "diff.resolved")
+        self.assertEqual(sorted(resolved), ["AI_CRAWLER_BLOCKED", "TITLE_DUPLICATE"])
+        self.assertFalse([c for c in result["checks"] if c["id"] == "diff.unverified"])
+        self.assertTrue(result["completion"]["complete"])
 
     def test_stats_before_after(self):
         self.after["stats"]["unique_titles"] = 7

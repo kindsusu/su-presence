@@ -370,7 +370,10 @@ def robots_plan(raw: str, policies: dict) -> tuple:
     for _, uas in groups:
         for ua in uas:
             policy = policies.get(ua, "none")
-            if policy in ("explicit-block", "star-block"):
+            if policy == "unknown":
+                # robots.txt를 읽지 못했다 — "미설정"으로 보고 Allow를 얹으면 실제 차단을 덮을 수 있다
+                keep.append((ua, policy, "정책 미확인(robots.txt를 읽지 못함) — 추가하지 않았다"))
+            elif policy in ("explicit-block", "star-block"):
                 keep.append((ua, policy, "차단 유지 — 의도 확인 필요"))
             elif policy in ("explicit-allow", "explicit-partial"):
                 keep.append((ua, policy, "이미 robots.txt에 명시돼 있다 — 그대로 둔다"))
@@ -383,16 +386,46 @@ def robots_plan(raw: str, policies: dict) -> tuple:
     return add, keep
 
 
+def _sitemap_declarations(ctx: Ctx, robots: dict) -> list:
+    """robots.txt에 새로 선언할 사이트맵 URL (이미 선언된 것·하위 파일은 뺀다)."""
+    declared = [d for d in (robots.get("sitemap_declared") or [])]
+    sitemap_files = (ctx.notes.get("sitemap_files")
+                     if "sitemap_files" in ctx.notes else ["sitemap.xml"])
+    out = []
+    for name in sitemap_files:
+        if name.startswith("sitemap-"):
+            continue  # 인덱스만 선언한다
+        url = "%s/%s" % (ctx.base, name)
+        if url not in declared:
+            out.append(url)
+    return out
+
+
 def gen_robots(ctx: Ctx) -> None:
     robots = (ctx.audit.get("site") or {}).get("robots") or {}
     before = robots.get("raw") or ""
     policies = robots.get("policies") or {}
+    if robots.get("fetch_state") == "unreachable" or "unknown" in policies.values():
+        # 원문을 모른다. 여기서 만든 파일을 올리면 서버에 있는(읽지 못한) Disallow가 전부 지워지고,
+        # 배포 전 원문이 없어 verify의 robots.preserved도 비교할 수 없다 — 초안을 만들지 않는다.
+        status = robots.get("status")
+        ctx.notes["robots_unread"] = {"status": status, "error": robots.get("fetch_error"),
+                                      "sitemaps": _sitemap_declarations(ctx, robots)}
+        ctx.todo("진단 때 robots.txt를 읽지 못했다(HTTP %s — 429·5xx·접속 실패 등) — 서버의 실제 "
+                 "원문을 몰라 robots.txt 초안을 만들지 않았다(덮어쓰면 기존 Disallow가 지워진다). "
+                 "robots.txt가 정상 응답하게 고치거나 실제 파일을 받은 뒤 재진단하고 다시 생성하라."
+                 % ("없음" if status is None else status))
+        return
     add, keep = robots_plan(before, policies)
 
     lines = []
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     lines.append("# ── su-presence: AI·검색 크롤러 명시 (%s 생성) ──" % stamp)
     lines.append("# 위쪽 기존 규칙은 한 줄도 건드리지 않았다. 아래는 추가분이다.")
+    managed = crawl.cdn_managed_span(before)
+    if managed:
+        lines.append("# 위쪽 'BEGIN/END Cloudflare Managed content' 구간은 Cloudflare가 엣지에서 붙인다 —")
+        lines.append("# 원본 서버 파일에 올릴 때는 그 구간을 빼고 올린다 (DEPLOY.md 2절).")
     for label, uas in UA_GROUPS:
         block = [ua for ua in uas if ua in add]
         if not block:
@@ -416,16 +449,7 @@ def gen_robots(ctx: Ctx) -> None:
             lines.append("")
         lines.pop()
 
-    declared = [d for d in (robots.get("sitemap_declared") or [])]
-    sitemap_files = (ctx.notes.get("sitemap_files")
-                     if "sitemap_files" in ctx.notes else ["sitemap.xml"])
-    new_declarations = []
-    for name in sitemap_files:
-        if name.startswith("sitemap-"):
-            continue  # 인덱스만 선언한다
-        url = "%s/%s" % (ctx.base, name)
-        if url not in declared:
-            new_declarations.append(url)
+    new_declarations = _sitemap_declarations(ctx, robots)
     if new_declarations:
         lines.append("")
         for url in new_declarations:
@@ -445,6 +469,20 @@ def gen_robots(ctx: Ctx) -> None:
     if not before.strip():
         ctx.todo("기존 robots.txt를 읽지 못했다(없음 또는 비정상) — 배포 전에 서버의 실제 "
                  "robots.txt를 직접 확인하고, 있으면 그 원문 위에 이 블록을 얹어라.")
+    if managed:
+        info = crawl.cdn_managed_info(before) or {}
+        ctx.notes["robots_cdn_managed"] = info
+        ctx.todo("robots.txt의 Cloudflare 관리 블록(# BEGIN Cloudflare Managed content ~ # END)은 "
+                 "엣지에서 주입된다 — 원본 파일에 그대로 복사하지 말고 그 구간을 뺀 나머지만 "
+                 "올려라. 그 블록의 규칙%s을 바꾸려면 Cloudflare 대시보드에서 바꾼다."
+                 % (" (차단 UA: %s)" % ", ".join(info.get("blocked_uas") or [])
+                    if info.get("blocked_uas") else ""))
+    star_signal = [g for g in crawl.robots_content_signals(before)
+                   if "*" in [crawl.ua_token(a) for a in g["agents"]]]
+    if star_signal and add:
+        ctx.todo("기존 `User-agent: *` 그룹의 Content-Signal은 새로 추가한 이름 그룹(%s)에 "
+                 "물려지지 않는다 — 같은 선호를 그 크롤러에도 표시하려면 각 그룹에 같은 줄을 "
+                 "넣을지 사람이 정한다(선호 표현일 뿐 접근 제어가 아니다)." % ", ".join(add))
     for ua, policy, reason in keep:
         if reason.startswith("차단 유지"):
             ctx.todo("robots.txt에서 %s가 차단(%s) 상태다 — 의도한 차단인지 확인하라. "
@@ -666,7 +704,9 @@ def gen_jsonld(ctx: Ctx) -> None:
         made.append("FAQPage %d페이지" % len(faqs))
     else:
         ctx.todo("FAQPage를 만들지 않았다 — site.json의 faqs가 비었거나 page_url이 "
-                 "크롤 결과에 없다. 문답은 lanes/aeo.md 기준으로 실제 문의에서 뽑아 채운다.")
+                 "크롤 결과에 없다. 필수가 아니다: 그 페이지에 FAQ가 실제로 보이고 계속 관리할 "
+                 "때만 실제 문의에서 뽑아 채운다(lanes/aeo.md). Google 검색은 2026-05-07부터 FAQ "
+                 "리치 결과를 보여 주지 않으며, AI 인용도 보장되지 않는다.")
 
     products, product_skipped = build_products(ctx)
     for url, objs in products.items():
@@ -873,9 +913,36 @@ def gen_deploy(ctx: Ctx) -> None:
             out.append("없음 — 또는 기존 사이트맵을 읽지 못했다(`audit.json`의 `sitemap_vs_crawl` 확인).")
         out.append("")
 
+    unread = n.get("robots_unread")
+    if unread is not None:
+        status = unread.get("status")
+        out += ["## 2. robots.txt", "",
+                "**robots.txt 초안을 만들지 않았다.** 진단 때 robots.txt를 읽지 못했다 (HTTP %s%s — "
+                "429·5xx·접속 실패 등). 서버에 있는 실제 원문을 모르는 상태에서 만든 파일을 올리면 "
+                "지금 서버에 있는 Disallow 규칙을 덮어 지운다. UA별 정책도 미확인이라 명시 허용을 "
+                "판단할 수 없다."
+                % ("없음" if status is None else status,
+                   ", " + unread["error"] if unread.get("error") else ""), "",
+                "다음 순서로 진행한다: (1) robots.txt가 200으로 응답하게 고치거나 서버의 실제 파일을 "
+                "직접 받는다 → (2) 재진단한다 → (3) 생성기를 다시 돌린다.", ""]
+        if unread.get("sitemaps"):
+            out += ["사이트맵 선언이 필요하면 받은 원문 **끝에** 다음 줄만 덧붙인다 "
+                    "(다른 줄은 건드리지 않는다):", "", "```"]
+            out += ["Sitemap: %s" % url for url in unread["sitemaps"]] + ["```", ""]
     if "robots_after" in n:
         out += ["## 2. robots.txt", "",
                 "**기존 원문은 한 줄도 지우거나 완화하지 않았다.** 아래 블록을 뒤에 덧붙인 형태다.", ""]
+        cdn = n.get("robots_cdn_managed")
+        if cdn is not None:
+            blocked = cdn.get("blocked_uas") or []
+            out += ["**Cloudflare 관리 블록이 있다.** 진단한 robots.txt의 `# BEGIN Cloudflare Managed "
+                    "content` ~ `# END Cloudflare Managed Content` 구간은 Cloudflare(managed "
+                    "robots.txt·봇 설정)가 엣지에서 원본 파일 앞에 붙인 것이다. 초안은 실효 정책을 "
+                    "보존하려고 그 구간을 **지우지 않고 그대로 둔 채** 뒤에 덧붙였다 — 따라서 그 구간의 "
+                    "차단%s은 초안의 판정에 그대로 반영돼 있다. 원본 서버에 올릴 때는 그 구간을 **빼고** "
+                    "올린다: 원본에 복사하면 같은 규칙이 두 번 나오고, 나중에 대시보드에서 설정을 바꿔도 "
+                    "원본 사본이 남아 바뀌지 않는다. 그 구간을 바꾸려면 Cloudflare 대시보드에서 바꾼다."
+                    % (" (%s)" % ", ".join("`%s`" % u for u in blocked) if blocked else ""), ""]
         keep = n.get("robots_keep") or []
         if keep:
             out += ["| User-agent | 현재 정책 | 처리 |", "|---|---|---|"]
@@ -896,7 +963,11 @@ def gen_deploy(ctx: Ctx) -> None:
         out += ["",
                 "**검증 의무 — FAQPage.** LD에 넣은 질문·답변은 해당 페이지 화면에 "
                 "**글자 그대로** 있어야 한다. 화면에 없는 문답을 LD에만 넣으면 스팸으로 분류된다. "
-                "배포 전에 페이지를 열어 한 문장씩 대조하라.", ""]
+                "배포 전에 페이지를 열어 한 문장씩 대조하라.", "",
+                "**기대치 — FAQPage.** 페이지에 그 FAQ가 실제로 보이고 계속 관리될 때만 넣는다. "
+                "Google 검색은 2026-05-07부터 FAQ 리치 결과를 보여 주지 않는다(Search Central "
+                "2026-05-08 공지) — 검색결과 모양이 바뀌는 효과는 없다. AI 답변에 인용된다는 "
+                "보장도 없다.", ""]
         if n.get("faq_pages"):
             out += ["FAQ LD가 붙는 페이지:", ""] + ["- `%s`" % u for u in n["faq_pages"]] + [""]
         skipped = n.get("jsonld_skipped") or []
@@ -928,7 +999,8 @@ def gen_deploy(ctx: Ctx) -> None:
             "curl -sL https://%s/ | grep -oiE '<meta[^>]*robots[^>]*>'     # noindex 재확인" % ctx.host,
             "curl -sI https://%s/__no_such_page__ | head -1                # 404여야 한다" % ctx.host,
             "```", "",
-            "구조화 데이터는 Google Rich Results Test 또는 schema.org validator로 **배포 후** 한 번 더 본다.",
+            "구조화 데이터는 schema.org validator(문법)로, 리치 결과 대상 유형은 Google Rich Results "
+            "Test로도 **배포 후** 한 번 더 본다. FAQPage는 더 이상 Google 리치 결과 대상이 아니다.",
             "", "## 7. 롤백", "",
             "- 배포 전에 기존 `robots.txt`·`sitemap.xml`·수정할 템플릿을 그대로 복사해 둔다 "
             "(예: `robots.txt.bak-YYYYMMDD`).",

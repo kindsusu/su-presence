@@ -134,6 +134,8 @@ python <skill-root>/tools/seo_geo.py drift snapshot <audit.json> --measure <summ
 질의는 실제 고객 질문에서 고른다. 수동 결과는 직접 관측한 것만 입력한다. API와 제품 웹 UI는 다른 표면이다.
 키가 없으면 수동 폼을 사용한다. 유료 실행은 예상 호출 수를 알리고 승인된 범위에서만 한다.
 키는 환경변수에 두고 로그에 기록하지 않는다.
+GSC 실적 CSV는 `measure gsc <audit.json> <export.csv> --property … --start … --end … --search-type web`로
+범위와 함께 가져온다. 검색 성과 근거이며 인용 분모에 섞지 않는다.
 
 **못 잰 것을 0으로 적지 않는다.** 로그의 `outcome`이 `observed`/`unmeasured`/`error`를 구분하고
 집계는 `observed`만 분모에 넣는다. 표에는 `0/0` 대신 `미측정(n)`이 찍힌다 — 한번 0으로 보고된

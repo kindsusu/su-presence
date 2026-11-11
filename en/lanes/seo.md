@@ -13,7 +13,9 @@ indexing and snippet eligibility, so check Googlebot access and indexing as sepa
       and gate the rest
 - [ ] Does the HTML from `curl -sL <url>` contain the core body? For SPA/CSR apps, consider
       SSR/SSG/prerendering. Google can render JavaScript, so sparse raw HTML alone does not prove
-      that indexing is impossible; inspect the rendered result and Search Console too
+      that indexing is impossible; inspect the rendered result and Search Console too. For the
+      fields to compare and how to report them, see
+      [render comparison](../ops/evidence.md#javascript-render-comparison--raw-next-to-rendered)
 - [ ] ⚠️ **The CSR bailout trap**: even on an SSR framework, certain hooks or APIs can drop
       a whole page to client rendering (e.g. `useSearchParams` without Suspense in Next.js).
       **Re-check representative pages with curl on every deploy** — a sudden drop in body

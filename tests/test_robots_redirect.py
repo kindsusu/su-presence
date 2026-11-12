@@ -60,6 +60,13 @@ class SiteHandler(BaseHTTPRequestHandler):
         path = self.path
         self.hits.append((host, path))
         scenario = self.scenario
+        if host == "apex.test" and path == "/robots.txt" and scenario.startswith("same"):
+            return self._send(302, location="/same/1")
+        if host == "apex.test" and path.startswith("/same/"):
+            hop, limit = int(path.rsplit("/", 1)[1]), int(scenario[len("same"):])
+            if hop < limit:
+                return self._send(302, location="/same/%d" % (hop + 1))
+            return self._send(200, ROBOTS)
         if host == "apex.test" and path == "/robots.txt":
             target = {
                 "www": "http://www.apex.test:%d/robots.txt" % port,
@@ -229,6 +236,34 @@ class TooManyRedirects(_RedirectCase):
         self.assertEqual(crawl.robots_fetch_state(res), "ok")
         self.assertEqual(res["redirects"], 5)
         self.assertEqual(res["final_url"], "http://www.apex.test:%d/hop/5" % self.port)
+
+
+class SameHostRedirectChain(_RedirectCase):
+    """같은 호스트 안의 robots.txt 체인도 5홉에서 멈춘다 (fetch() 기본 10홉을 쓰지 않는다)."""
+    scenario = "same6"
+
+    def test_six_same_host_hops_stay_unreachable(self):
+        res = crawl.fetch_robots(self.base)
+        self.assertEqual(crawl.robots_fetch_state(res), "unreachable")
+        self.assertEqual(res["error"], "too_many_redirects")
+        self.assertEqual(res["redirect_reason"], "too_many_redirects")
+        self.assertEqual(res["redirect_hosts"], 0)
+        self.assertNotIn(("apex.test", "/same/6"), self.handler.hits)
+        audit = self.build()
+        robots = audit["site"]["robots"]
+        self.assertEqual(robots["fetch_state"], "unreachable")
+        self.assertEqual(robots["fetch_error"], "too_many_redirects")
+        self.assertEqual(set(robots["policies"].values()), {"unknown"})
+        self.assertIn("robots_unavailable", audit["coverage"]["reasons"])
+
+    def test_exactly_five_same_host_hops_is_followed(self):
+        self.handler.scenario = "same5"
+        self.addCleanup(setattr, self.handler, "scenario", self.scenario)
+        res = crawl.fetch_robots(self.base)
+        self.assertEqual(crawl.robots_fetch_state(res), "ok")
+        self.assertEqual(res["redirects"], 5)
+        self.assertIsNone(res["redirect_reason"])
+        self.assertEqual(res["final_url"], "%s/same/5" % self.base)
 
 
 class RedirectToLoopbackAddress(_RedirectCase):

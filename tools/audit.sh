@@ -19,8 +19,8 @@ BASE="${URL%/}"
 UA='Mozilla/5.0 (compatible; su-presence-audit/2.1)'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-C()     { curl -sL  --max-time 20 -A "$UA" -- "$@"; }
-CODE()  { curl -sL -o /dev/null -w '%{http_code}' --max-time 15 -A "$UA" -- "$1"; }
+NL='
+'
 COUNT() { grep -oi "$1" | wc -l | tr -d ' '; }
 NCHAR() { wc -m | tr -d ' '; }
 
@@ -82,12 +82,115 @@ RB_STATE() {
   echo unreachable
 }
 
+# URL → 비교용 호스트[:포트] (crawl._host_key와 같은 규칙: 소문자, 스킴 기본 포트는 뗀다).
+# http(s)가 아니거나 호스트를 읽을 수 없으면 실패. '@'·'\'가 든 authority는 해석이 도구마다
+# 갈리므로(userinfo·역슬래시) 읽지 않는다 — 그런 리다이렉트는 따라가지 않는다.
+HOST_KEY() {
+  local u="$1" scheme auth host port def
+  case "$u" in *://*) ;; *) return 1 ;; esac
+  scheme=$(printf '%s' "${u%%://*}" | tr 'A-Z' 'a-z')
+  case "$scheme" in http) def=80 ;; https) def=443 ;; *) return 1 ;; esac
+  auth="${u#*://}"; auth="${auth%%[/?#]*}"
+  auth=$(printf '%s' "$auth" | tr 'A-Z' 'a-z')
+  case "$auth" in *@*|*\\*|*[[:space:][:cntrl:]]*) return 1 ;; esac
+  case "$auth" in
+    \[*\]|\[*\]:*) host="${auth%%]*}]"; port="${auth#"$host"}"; port="${port#:}" ;;
+    *:*)           host="${auth%%:*}";  port="${auth#*:}" ;;
+    *)             host="$auth";        port="" ;;
+  esac
+  [ -n "$host" ] && [ "$host" != "[]" ] || return 1
+  case "$port" in *[!0-9]*) return 1 ;; esac
+  if [ -n "$port" ]; then
+    [ "${#port}" -le 5 ] || return 1
+    port=$((10#$port))
+    [ "$port" -le 65535 ] || return 1
+    [ "$port" = "$def" ] && port=""
+  fi
+  printf '%s%s' "$host" "${port:+:$port}"
+}
+
+# 호스트 키의 www↔apex 변형 (crawl.alt_host_of와 같은 규칙). IP·localhost에는 변형이 없다 → 실패.
+ALT_HOST() {
+  local key="$1" host port=""
+  case "$key" in ''|\[*) return 1 ;; esac
+  host="${key%%:*}"; [ "$host" = "$key" ] || port=":${key#*:}"
+  case "$host" in
+    ''|www.|localhost) return 1 ;;
+    www.*) printf '%s%s' "${host#www.}" "$port" ;;
+    *[!0-9.]*) printf 'www.%s%s' "$host" "$port" ;;
+    *) return 1 ;;
+  esac
+}
+
+# 리다이렉트 목적지를 따라가도 되는가: $1=진단 대상 호스트 키, $2=목적지 URL.
+# http(s)이고 호스트가 대상 그대로이거나 그 www↔apex 변형일 때만 허용 (crawl.fetch_robots와 같은 범위).
+HOST_ALLOWED() {
+  local k
+  [ -n "$1" ] || return 1
+  k=$(HOST_KEY "$2") || return 1
+  [ "$k" = "$1" ] && return 0
+  [ "$k" = "$(ALT_HOST "$1")" ]
+}
+
+# 한 URL을 받는다. curl -L은 어느 도메인으로든 따라가므로 쓰지 않고, 리다이렉트를 한 홉씩 직접 따라간다.
+#   $1=URL $2=최대 홉 수 $3=홉당 시간 제한(초) $4=0이면 본문을 버린다(기본 1)
+# 결과(전역): F_CODE(마지막 응답 코드, 접속 실패 000) F_RC(curl 종료 코드) F_BODY F_URL(마지막 요청 주소)
+#   F_HOPS(따라간 홉 수) F_NEXT(따라가지 않은 목적지) F_MAX(=$2)
+#   F_REASON — 따라가지 않은 이유: other_host(대상·www↔apex 밖, http(s) 아님) · too_many_redirects · 빈 값
+# 본문과 상태 코드를 한 요청으로 받는다 (두 번 요청하면 두 응답이 다를 수 있다).
+FETCH() {
+  local out meta
+  F_URL="$1"; F_MAX="$2"; F_HOPS=0; F_REASON=""; F_NEXT=""; F_BODY=""
+  while :; do
+    if [ "${4:-1}" = 0 ]; then
+      out="$(curl -s -o /dev/null --max-time "$3" -A "$UA" -w "${NL}%{http_code} %{redirect_url}" -- "$F_URL")"
+    else
+      out="$(curl -s --max-time "$3" -A "$UA" -w "${NL}%{http_code} %{redirect_url}" -- "$F_URL")"
+    fi
+    F_RC=$?
+    meta="${out##*"$NL"}"; F_BODY="${out%"$NL"*}"
+    F_CODE="${meta%% *}"; F_NEXT="${meta#* }"
+    [ "$F_RC" = 0 ] || break
+    case "$F_CODE" in 301|302|303|307|308) ;; *) F_NEXT=""; break ;; esac
+    [ -n "$F_NEXT" ] || break                  # Location 없는 3xx — 호출 쪽이 3xx로 다룬다
+    if ! HOST_ALLOWED "$ORIGIN_KEY" "$F_NEXT"; then F_REASON=other_host; break; fi
+    if [ "$F_HOPS" -ge "$F_MAX" ]; then F_REASON=too_many_redirects; break; fi
+    F_HOPS=$((F_HOPS + 1)); F_URL="$F_NEXT"
+  done
+}
+
+# FETCH가 리다이렉트를 따라가지 않은 이유 한 문장 (F_REASON이 비면 아무것도 출력하지 않는다)
+BLOCKED_NOTE() {
+  local k
+  case "$F_REASON" in
+    other_host)
+      if k=$(HOST_KEY "$F_NEXT"); then printf '다른 도메인(%s)으로 리다이렉트된다' "$k"
+      else printf 'http(s)가 아니거나 읽을 수 없는 주소로 리다이렉트된다'; fi ;;
+    too_many_redirects) printf '리다이렉트가 연속 %s번을 넘는다' "$F_MAX" ;;
+  esac
+}
+
+# 상태 코드만 (본문은 버린다). 따라가지 않은 리다이렉트는 이유를 덧붙인다.
+CODE() {
+  FETCH "$1" 10 15 0
+  printf '%s' "$F_CODE"
+  [ -z "$F_REASON" ] || printf ' (%s — 따라가지 않음)' "$(BLOCKED_NOTE)"
+}
+
 echo "════════════════════════════════════════════"
 echo " Phase 0 진단 — $BASE"
 echo " $(date '+%Y-%m-%d %H:%M')"
 echo "════════════════════════════════════════════"
 
-HTML="$(C "$BASE")"
+ORIGIN_KEY=$(HOST_KEY "$BASE") || ORIGIN_KEY=""
+# 홈도 진단 대상과 www↔apex 변형 안에서만 따라간다 — 다른 도메인의 HTML을 이 사이트 것으로 적지 않는다.
+FETCH "$BASE" 10 20
+HTML="$F_BODY"; HOME_URL="$F_URL"; HOME_HOPS="$F_HOPS"
+if [ -n "$F_REASON" ]; then
+  echo "❌ 홈을 확인하지 못함 (HTTP $F_CODE) — $(BLOCKED_NOTE). 따라가지 않았다"
+  echo "   └ 의도한 이전이면 도착 주소로 다시 진단하라"
+  exit 1
+fi
 if [ -z "$HTML" ]; then
   echo "❌ 응답 없음 — 도메인·네트워크를 확인하라"
   exit 1
@@ -96,7 +199,7 @@ fi
 echo ""
 echo "── 0. noindex 사고 점검 (최우선) ──"
 META_ROBOTS="$(printf '%s' "$HTML" | grep -oiE '<meta[^>]*robots[^>]*>' | head -3)"
-XROBOTS="$(curl -sIL --max-time 20 -A "$UA" "$BASE" | grep -i 'x-robots-tag' || true)"
+XROBOTS="$(curl -sI --max-time 20 -A "$UA" -- "$HOME_URL" | grep -i 'x-robots-tag' || true)"
 if printf '%s%s' "$META_ROBOTS" "$XROBOTS" | grep -Eqi 'noindex|content=[^>]*none'; then
   echo "🚨 noindex 발견 — 다른 모든 최적화가 무효다. 이것부터 고쳐라"
   [ -n "$META_ROBOTS" ] && echo "   meta   : $META_ROBOTS"
@@ -129,29 +232,41 @@ echo "   네이버 소유확인: $([ -n "$NAVER_V" ] && echo '✅ naver-site-ver
 
 echo ""
 echo "── 2. robots / sitemap ──"
-# 본문과 상태 코드를 한 요청으로 받는다 (두 번 요청하면 두 응답이 다를 수 있다).
-# 리다이렉트는 RFC 9309 최소치이자 crawl.py와 같은 5홉까지 — 넘으면 3xx로 끝나 '미확인'이 된다.
-NL='
-'
-RB_OUT="$(curl -sL --max-redirs 5 --max-time 20 -A "$UA" -w "${NL}%{http_code}" -- "$BASE/robots.txt")"
-RB_RC=$?
-RB_CODE="${RB_OUT##*"$NL"}"
-RB="${RB_OUT%"$NL"*}"
+# 리다이렉트는 crawl.fetch_robots와 같은 범위만 따라간다: 진단 대상 호스트와 www↔apex 변형 사이,
+# RFC 9309 최소치이자 Google과 같은 5홉까지. 다른 도메인·5홉 초과는 3xx로 끝나 '미확인'이 된다.
+FETCH "$BASE/robots.txt" 5 20
+RB_RC=$F_RC; RB_CODE=$F_CODE; RB="$F_BODY"
+RB_URL="$F_URL"; RB_HOPS=$F_HOPS; RB_REASON="$F_REASON"; RB_NOTE="$(BLOCKED_NOTE)"
 RB_ST=$(RB_STATE "$RB_CODE" "$RB_RC" "$RB")
+[ -z "$RB_REASON" ] || RB_ST=unreachable
+[ "$RB_HOPS" -gt 0 ] && [ -z "$RB_REASON" ] && RB_FOLLOWED="   └ 리다이렉트 ${RB_HOPS}홉을 따라감 → $RB_URL" || RB_FOLLOWED=""
 case "$RB_ST" in
-  ok) echo "   robots.txt     : 있음 (HTTP $RB_CODE)" ;;
+  ok)
+    echo "   robots.txt     : 있음 (HTTP $RB_CODE)"
+    [ -z "$RB_FOLLOWED" ] || echo "$RB_FOLLOWED" ;;
   # 404를 200처럼 꾸민 HTML 오류 페이지도 여기 — robots.txt로 오인하지 않는다
   absent)
     echo "   robots.txt     : ❌ 없음 또는 비정상 (HTTP $RB_CODE) — 크롤러는 제한 없음으로 본다"
+    [ -z "$RB_FOLLOWED" ] || echo "$RB_FOLLOWED"
     RB="" ;;
   *)
-    if [ "$RB_CODE" = "000" ] || [ "$RB_RC" != 0 ]; then
-      RB_WHY="접속 실패·시간 초과 (HTTP $RB_CODE, curl $RB_RC)"
+    if [ "$RB_REASON" = other_host ]; then
+      echo "   robots.txt     : ❓ 미확인 — HTTP $RB_CODE, $RB_NOTE — 서버 장애가 아니다"
+      echo "   └ 진단 대상과 www↔apex 변형 밖의 호스트는 따라가지 않아 그쪽 내용은 확인하지 않았다."
+      echo "     크롤러는 리다이렉트를 따라가 도착한 파일을 적용할 수 있으니 의도한 설정인지 확인하라"
+    elif [ "$RB_REASON" = too_many_redirects ]; then
+      echo "   robots.txt     : ❓ 미확인 — HTTP $RB_CODE, $RB_NOTE"
+      echo "   └ RFC 9309와 Google은 5홉까지만 따라가므로 크롤러도 이 파일을 읽지 못할 수 있다."
+      echo "     robots.txt를 한 번에 최종 주소로 보내라"
     else
-      RB_WHY="HTTP $RB_CODE"
+      if [ "$RB_CODE" = "000" ] || [ "$RB_RC" != 0 ]; then
+        RB_WHY="접속 실패·시간 초과 (HTTP $RB_CODE, curl $RB_RC)"
+      else
+        RB_WHY="HTTP $RB_CODE"
+      fi
+      echo "   robots.txt     : ❓ 미확인 — $RB_WHY"
+      echo "   └ 429·5xx·접속 실패는 '없음'이 아니다. 크롤러가 사이트 전체를 차단으로 볼 수 있다"
     fi
-    echo "   robots.txt     : ❓ 미확인 — $RB_WHY"
-    echo "   └ 429·5xx·접속 실패는 '없음'이 아니다. 크롤러가 사이트 전체를 차단으로 볼 수 있다"
     RB="" ;;
 esac
 # 후보: robots.txt의 Sitemap: 선언(최대 3) + 표준 경로 2종
@@ -170,11 +285,15 @@ for u in $SM_DECL "$BASE/sitemap.xml" "$BASE/sitemap_index.xml"; do
     http://*|https://*) echo "   ${u}  ⚠️ 외부 도메인 선언 — 자동 접속 안 함, 수동 확인"; continue ;;
     *) echo "   (무시된 Sitemap 값: $u — URL 형식 아님)"; continue ;;
   esac
-  SM_CODE=$(CODE "$u")
+  # 선언 주소를 걸러도 리다이렉트로 밖에 나갈 수 있다 — 홈·robots와 같은 범위 안에서만 따라간다
+  FETCH "$u" 10 20
+  SM_CODE="$F_CODE"
   printf '   %-40s HTTP %s' "${u#"$BASE"}" "$SM_CODE"
-  if [ "$SM_CODE" = "200" ]; then
+  if [ -n "$F_REASON" ]; then
+    echo "  ⚠️ $(BLOCKED_NOTE) — 따라가지 않음, 수동 확인"
+  elif [ "$SM_CODE" = "200" ]; then
     SM_FOUND=1
-    BODY="$(C "$u")"
+    BODY="$F_BODY"
     LOCS=$(printf '%s' "$BODY" | grep -o '<loc>' | wc -l | tr -d ' ')
     if printf '%s' "$BODY" | grep -qi '<sitemapindex'; then
       echo "  (인덱스 · 하위 사이트맵 ${LOCS}개)"
@@ -215,7 +334,13 @@ for ua in GPTBot OAI-SearchBot ChatGPT-User Googlebot Bingbot \
   esac
   printf '   %-18s %s\n' "$ua" "$STATE"
 done
-[ "$RB_ST" = "unreachable" ] && echo "   ※ robots.txt가 429·5xx·접속 실패라 UA별 허용/차단을 판정하지 않았다 — 잠시 뒤 다시 확인하라"
+if [ "$RB_ST" = "unreachable" ]; then
+  if [ -n "$RB_REASON" ]; then
+    echo "   ※ robots.txt 리다이렉트를 따라가지 않아 UA별 허용/차단을 판정하지 않았다 — 2절의 사유를 확인하라"
+  else
+    echo "   ※ robots.txt가 429·5xx·접속 실패라 UA별 허용/차단을 판정하지 않았다 — 잠시 뒤 다시 확인하라"
+  fi
+fi
 [ "$POLICY_FAILED" = "1" ] && echo "   ※ 판정기를 실행하지 못했다 — Python 3.10+(python 또는 python3)와 tools/crawl.py가 필요하다"
 echo "   ※ Google-Extended는 UA가 아니라 robots 토큰이다 — 서버 로그에 안 잡힌다"
 echo "   ※ Yeti는 네이버 검색 크롤러다 — 차단이면 NEO 레인 전체가 닫힌다"
@@ -229,7 +354,7 @@ done
 echo ""
 echo "── 5. 응답 위생 ──"
 echo "   404 동작       : HTTP $(CODE "$BASE/__multi_geo_404_probe__")  (404여야 정상)"
-echo "   리다이렉트 홉  : $(curl -sIL -o /dev/null -w '%{num_redirects}' --max-time 20 -A "$UA" "$BASE")"
+echo "   리다이렉트 홉  : $HOME_HOPS"
 echo "   응답 시간      : $(curl -s -o /dev/null -w '%{time_total}' --max-time 20 -A "$UA" "$BASE")s"
 case "$HOST" in www.*) ALT="${HOST#www.}" ;; *) ALT="www.$HOST" ;; esac
 ALT_RES=$(curl -sI --max-time 15 -A "$UA" -o /dev/null -w '%{http_code} → %{redirect_url}' "https://$ALT" 2>/dev/null) \

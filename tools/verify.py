@@ -1411,9 +1411,19 @@ def check_noindex(session: Session, audit: dict, max_urls: int) -> dict:
 
 def verify_deploy(audit: dict, deploy_dir: str, fetch=None, delay: float = 0.5,
                   max_urls: int = 500, facts=None, facts_source=None) -> dict:
-    """facts: validate_facts()를 통과한 사실 원장 (선택). 주면 verify.json에 `facts` 키가 생긴다."""
+    """facts: validate_facts()를 통과한 사실 원장 (선택). 주면 verify.json에 `facts` 키가 생긴다.
+
+    모든 요청은 진단 대상 하나의 주소 범위(crawl.target_scope) 안에서 나간다 — 검증 도중 대상
+    이름이 사설·루프백 주소로 바뀌어 풀려도(DNS 재바인딩) 접속하지 않고 nonpublic_address로 남긴다.
+    """
     base = ((audit.get("target") or {}).get("base") or "").rstrip("/")
     host = (audit.get("target") or {}).get("host") or crawl.host_of(base)
+    with crawl.target_scope(base or "https://%s" % host):
+        return _verify_deploy(audit, deploy_dir, fetch, delay, max_urls, facts, facts_source,
+                              base, host)
+
+
+def _verify_deploy(audit, deploy_dir, fetch, delay, max_urls, facts, facts_source, base, host):
     pkg = load_package(deploy_dir)
     session = Session(host, fetch=fetch, delay=delay)
     checks: list = []

@@ -237,7 +237,9 @@ run_audit() { # $1=시나리오 → $out (같은 시나리오는 한 번만 실�
 }
 e2e() { # $1=설명 $2=시나리오 $3=줄 첫 칸(UA·robots.txt 등) $4=기대 문구 $5=있으면 안 되는 문구(선택)
   run_audit "$2"
-  line=$(printf '%s\n' "$out" | awk -v u="$3" '$1 == u { print; exit }')
+  # LC_ALL=C: macOS awk 는 문자열을 strcoll 로 비교한다. UTF-8 로캘에서는 ※·❌·═ 같은 기호가
+  # 같은 정렬 값으로 취급돼 엉뚱한 줄이 걸렸다(PR #17 macOS CI). 바이트 단위로 비교한다.
+  line=$(printf '%s\n' "$out" | LC_ALL=C awk -v u="$3" '$1 == u { print; exit }')
   if printf '%s' "$line" | grep -qF -- "$4" \
      && { [ -z "${5:-}" ] || ! printf '%s' "$line" | grep -qF -- "$5"; }; then
     echo "PASS e2e $1"; return 0

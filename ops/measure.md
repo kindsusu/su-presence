@@ -78,8 +78,8 @@ grep -iE "(^|[^[:alnum:]-])$ua([^[:alnum:]-]|\$)" access.log | awk '{print $9}' 
 | **Gemini** | ❌ **불가** | **직접 질의만이 유일한 방법** |
 | Claude | ✅ UA 3종 | 웹 검색 켜고 질의 → 인용 O/X |
 | Perplexity | ✅ UA 2종 | 질의 → 출처 카드 O/X |
-| 네이버 AI 브리핑 | ❌ | 네이버 앱에서 검색 → 출처 칩 O/X |
-| Google AI Overviews | ❌ | 구글 검색 → 답변 박스 출처 O/X |
+| 네이버 AI 브리핑 | ❌ | `collect.py` 무인 수집(발동 블록·출처 칩), 앱 화면 확인은 보조 — 경로는 [measure-playbook](measure-playbook.md) 「AI 브리핑」 |
+| Google AI Overviews | ❌ | `collect.py` 무인 수집(답변 박스의 명시 출처만) 또는 구글 검색 → 답변 박스 출처 O/X |
 
 > **⚠️ Gemini는 선행지표가 없다.**
 > `Google-Extended`는 user-agent가 아니라 robots.txt 토큰이라 서버 로그에 **절대 나타나지
@@ -215,8 +215,9 @@ python tools/measure.py report out/<host>/audit.json --since 2026-09-01 --until 
   조건이 다른 **별도 cohort**로 집계된다. ChatGPT 웹 UI와 OpenAI API 모델 결과를 합쳐
   하나의 ChatGPT 성과로 해석하지 않는다
 - ⚠️ **API 응답은 비로그인 웹 UI와 다른 표면이다.** 자동 측정은 수동 측정을 대체하지 않는다 —
-  추세를 싸게 자주 보는 보조 수단이다. Gemini·Perplexity·Google AI Overviews·네이버·
-  다음·Copilot은 자동화 대상이 아니다(수동 폼으로만 잰다)
+  추세를 싸게 자주 보는 보조 수단이다. `auto`의 API 대상은 ChatGPT·Claude뿐이다. 네이버·다음·Google AI
+  Overviews는 API가 아니라 `collect.py`가 검색 페이지를 무인 수집하고, Gemini·Perplexity·Copilot은
+  브라우저 관측(`collect --browser` → `--record`)이나 수동 폼으로 잰다
 - 비용은 전부 사용자 부담이다. `auto`는 실행 전에 예상 호출 수를 세어 확인을 받는다
 - API 오류는 `outcome=error`로 기록하며 **미인용으로 세지 않고 인용률 분모에서도 뺀다.**
   오류율은 별도로 보고하고, 오류가 있는 회차는 회귀 확정에 쓰지 않는다. 응답 원문은 저장하지 않는다

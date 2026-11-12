@@ -193,6 +193,7 @@ MSG_EN = {
     "REDIRECT_HOPS": "The home page takes {hops} redirect hops — cut it to one.",
     "ALT_HOST_UNREACHABLE": "The www/apex variant {host} is unreachable ({result}) — visitors and crawlers arriving there are lost.",
     "ALT_HOST_NONPUBLIC": "The www/apex variant {host} resolves to a non-public address ({address_class}), so it was not requested — whether it responds is unknown. Outside visitors and crawlers cannot reach it; check that the DNS record is intended.",
+    "PROXY_ADDRESS_UNVERIFIED": "Requests went through an HTTP(S) proxy, which resolved the target addresses itself. The non-public address guard checked local DNS only and could not confirm the address actually reached. Re-run with --direct to bypass the proxy so the guard covers the real connection.",
     "MIRROR_NONPUBLIC_DNS": "{count} development/staging candidate names resolve to non-public addresses in public DNS and were not requested (SSRF guard). They are not reachable from outside, but internal host names and addressing are exposed in public DNS; check that the records are intended.",
     "MIRROR_PUBLIC": "The root page at {host} is public with no observed indexing restriction (HTTP {status}). Other paths and actual index state require separate checks.",
     "MIRROR_NOINDEX": "The root page at {host} is public but has a noindex directive. This does not establish the indexing state of other paths.",

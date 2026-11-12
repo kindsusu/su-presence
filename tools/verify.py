@@ -1410,15 +1410,18 @@ def check_noindex(session: Session, audit: dict, max_urls: int) -> dict:
 
 
 def verify_deploy(audit: dict, deploy_dir: str, fetch=None, delay: float = 0.5,
-                  max_urls: int = 500, facts=None, facts_source=None) -> dict:
+                  max_urls: int = 500, facts=None, facts_source=None,
+                  direct: bool = False) -> dict:
     """facts: validate_facts()를 통과한 사실 원장 (선택). 주면 verify.json에 `facts` 키가 생긴다.
 
     모든 요청은 진단 대상 하나의 주소 범위(crawl.target_scope) 안에서 나간다 — 검증 도중 대상
     이름이 사설·루프백 주소로 바뀌어 풀려도(DNS 재바인딩) 접속하지 않고 nonpublic_address로 남긴다.
+    direct=True(--direct)면 프록시 환경 변수를 무시하고 직접 연결한다. 프록시를 거쳤으면
+    target.network에 그 사실(주소 검사가 로컬 DNS뿐)을 남긴다 — 프록시 주소는 적지 않는다.
     """
     base = ((audit.get("target") or {}).get("base") or "").rstrip("/")
     host = (audit.get("target") or {}).get("host") or crawl.host_of(base)
-    with crawl.target_scope(base or "https://%s" % host):
+    with crawl.direct_connection(direct), crawl.target_scope(base or "https://%s" % host):
         return _verify_deploy(audit, deploy_dir, fetch, delay, max_urls, facts, facts_source,
                               base, host)
 
@@ -1456,6 +1459,12 @@ def _verify_deploy(audit, deploy_dir, fetch, delay, max_urls, facts, facts_sourc
     }
     if ledger is not None:
         result["facts"] = ledger
+    network = crawl.network_record()
+    if network is not None:
+        # 선택 필드 — 프록시를 거쳤거나 --direct였을 때만. audit.json의 PROXY_ADDRESS_UNVERIFIED와 같은 메모다.
+        if network.get("proxy"):
+            network = dict(network, code="PROXY_ADDRESS_UNVERIFIED", note=crawl.PROXY_NOTE_KO)
+        result["target"]["network"] = network
     return result
 
 
@@ -1625,6 +1634,10 @@ def render_md(result: dict) -> str:
         else:
             out += ["**검사 범위 불완전:** 확인하지 못한 URL·사이트맵이 남아 있어 성공으로 "
                     "종료하지 않았다(exit 2). 상세 범위는 `verify.json`의 `completion`에 있다.", ""]
+    network = target.get("network") if isinstance(target.get("network"), dict) else {}
+    if network.get("proxy"):
+        out += ["**네트워크:** %s (`PROXY_ADDRESS_UNVERIFIED`)"
+                % (network.get("note") or crawl.PROXY_NOTE_KO), ""]
 
     for status, title in (("fail", "❌ 실패 — 이것부터 고친다"),
                           ("warn", "⚠️ 경고"),
@@ -1677,6 +1690,8 @@ def print_summary(result: dict) -> None:
         print(" 실패가 있다 — 배포는 아직 끝나지 않았다.")
     elif not (result.get("completion") or {}).get("complete", True):
         print(" 검사 범위가 불완전하다 — 확인하지 못한 항목이 남아 있다 (exit 2).")
+    if ((result.get("target") or {}).get("network") or {}).get("proxy"):
+        print(" ℹ️ %s" % crawl.PROXY_NOTE_KO)
 
 
 def load_json(path: str) -> dict:
@@ -1701,6 +1716,8 @@ def main(argv=None) -> int:
     d.add_argument("--facts", default=None,
                    help="사실 원장 JSON (항목마다 url·pointer·expected·evidence 필수). "
                         "선택 — 주면 라이브 LD 값과 항목별로 대조한다")
+    d.add_argument("--direct", action="store_true",
+                   help="프록시 환경 변수를 무시하고 직접 연결한다 — 비공개 주소 차단이 실제 연결을 덮는다")
 
     f = sub.add_parser("diff", help="배포 전/후 audit.json 비교")
     f.add_argument("before")
@@ -1728,7 +1745,7 @@ def main(argv=None) -> int:
                 return 2
         result = verify_deploy(audit, deploy_dir, delay=args.delay,
                                max_urls=args.max_urls, facts=facts,
-                               facts_source=args.facts)
+                               facts_source=args.facts, direct=args.direct)
         default_out = os.path.join(here, "verify.json")
     else:
         before, after = load_json(args.before), load_json(args.after)

@@ -108,6 +108,7 @@ python tools/crawl.py https://example.com --max-pages 500 --delay 1.0 --out repo
 | `--max-pages` | 300 | 크롤할 최대 페이지 수 |
 | `--delay` | 0.5 | 요청 사이 대기(초). 남의 서버다, 줄이지 마라 |
 | `--out` | `out` | 출력 루트. 실제 경로는 `<out>/<host>/audit.json` |
+| `--direct` | 끔 | 프록시 환경 변수(`http_proxy`·`https_proxy` 등)를 무시하고 직접 연결한다. 비공개 주소 차단이 실제 연결 주소를 덮는다. `seo_geo.py audit`·`verify.py deploy`에도 있다 |
 
 홈과 같은 호스트의 sitemap 시드에서 시작해 내부 링크를 BFS로 따라간다. URL에서는
 프래그먼트만 제거하고 쿼리스트링은 보존하므로, 쿼리가 다른 URL은 별도 후보가 될 수 있다.
@@ -166,11 +167,24 @@ link-local·CGNAT·멀티캐스트·예약, IPv4-mapped·6to4·NAT64 포함) 요
   주소로 풀리면 `hygiene.mirrors.nonpublic`과 `MIRROR_NONPUBLIC_DNS`(info) — 내부 호스트 이름이 공개 DNS에 드러난 것이다
 - 진단 대상 자체가 IP 리터럴·localhost·비공개 주소로 풀리는 이름이면(로컬 시험·사내 점검) **그 대상이 속한 분류만**
   추가로 허용한다. 루프백 대상이면 루프백만, 사내망 대상이면 사설 주소만이다. 공개 대상에서 비공개 주소로 넘어가는 것은 막는다
-- 한계: 프록시를 쓰면 대상 주소는 프록시가 푼다. 로컬 DNS로 검사만 하므로 두 결과가 다르면 막지 못한다
+- DNS 조회는 요청 시간 제한(15초) 안에서만 기다린다. 넘기면 `error: "dns_timeout"`이며 `dns_fail`처럼 미관측이다 —
+  페이지는 깨진 링크(`HTTP_ERROR`)가 아니라 크롤 범위 불완전(`dns_timeout`), www↔apex 변형은 `alt_host.result:
+  "dns_timeout"`(접속 불가 진단 없음), robots.txt는 `ROBOTS_UNREACHABLE`(정책 미확인)이다. 허용으로 보지 않는다
+- HTTP(S) 프록시를 거치면(urllib가 따르는 `*_proxy` 환경 변수, `NO_PROXY`로 빠지지 않은 호스트) 대상 주소는 프록시가
+  푼다. 로컬 DNS로 검사는 하지만 실제로 닿은 주소는 증명하지 못한다. 그래서 `coverage.network:
+  {"proxy": true, "address_check": "local_dns_only"}`(선택 필드)와 `PROXY_ADDRESS_UNVERIFIED`(info)를 남기고,
+  `verify.json`에는 `target.network`에 같은 메모를 싣는다. 프록시 주소·자격 증명은 기록하지 않는다
+- `--direct`(`crawl.py`·`seo_geo.py audit`·`verify.py deploy`)는 프록시 환경 변수를 무시하고 직접 연결한다. 검사한 주소로
+  고정해 연결하므로 차단이 실제 연결을 덮는다. 이때 `network`는 `{"proxy": false, "direct": true,
+  "address_check": "connected_address"}`다. 프록시 없이는 밖으로 나갈 수 없는 망이면 `--direct` 요청은 `dns_fail`·
+  연결 실패로 끝난다(미관측)
+- 남은 한계: 프록시를 쓰는 실행에서는 여전히 로컬 DNS 검사뿐이다(위 메모가 그 사실을 밝힌다). 시간을 넘긴 조회
+  스레드는 끝날 때까지 남는다(데몬 스레드, 동시 16개까지 — 그 이상 밀리면 새 조회도 `dns_timeout`)
 
 | 진단 코드 | 레인·등급 | 뜻 |
 |---|---|---|
 | `ROBOTS_UNREACHABLE` | SEO · warn | robots.txt를 읽지 못했다. 크롤러가 사이트 전체를 차단으로 볼 수 있고 UA별 정책은 미확인. `ROBOTS_MISSING`과 함께 나오지 않는다 |
+| `PROXY_ADDRESS_UNVERIFIED` | SEO · info | HTTP(S) 프록시를 거쳐 비공개 주소 차단이 로컬 DNS 검사에 그쳤다. 점수에 넣지 않는다. `--direct`로 다시 재면 사라진다 |
 | `HTTP_THROTTLED` | SEO · info | 크롤 중 429·503을 받은 URL. 깨진 링크가 아니라 미확인이며 `HTTP_ERROR`에서 빠진다. 크롤 범위는 불완전으로 남는다 |
 | `JSONLD_INVALID` | AEO · warn | JSON 문법 오류로 읽히지 않는 JSON-LD 블록이 있는 페이지(`pages[].jsonld_invalid`). 이 페이지는 `JSONLD_MISSING`에서 빠진다 |
 | `ROBOTS_NONSTANDARD_UA` | SEO · info | `User-agent` 값에 버전·브라우저 문자열이 붙어 있다. 판정은 토큰으로 했다 |
@@ -205,7 +219,7 @@ finding을 만들지 않고 점수에 넣지 않는다. Google 검색에는 llms
          "sitemap_vs_crawl":{"only_in_sitemap":[],"only_in_crawl":[]},
          "llms":{"llms.txt":404,"llms-full.txt":404},
          "hygiene":{"probe_404":404,"redirect_hops":0,"home_response_ms":0,
-                    "alt_host":{"host":"www.x","result":"ok|redirect|tls_fail|dns_fail|error|na",
+                    "alt_host":{"host":"www.x","result":"ok|redirect|tls_fail|dns_fail|dns_timeout|nonpublic_address|error|na",
                                 "status":null,"location":null}}},
  "pages":[{"url":"...","status":200,"final_url":"...","title":null,"meta_description":null,
            "meta_robots":null,"x_robots_tag":null,"canonical":null,"h1":[],

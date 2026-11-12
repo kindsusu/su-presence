@@ -83,6 +83,14 @@ class FetchTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "nonpublic"):
                 evidence._resolve_host("example.com", 80)
 
+    def test_dns_rejects_multicast(self):
+        """Older Pythons report some multicast addresses as is_global; refuse them anyway."""
+        for address in ("224.0.0.251", "239.255.255.250", "ff0e::1"):
+            rows = [(None, None, None, None, (address, 80))]
+            with patch.object(evidence.socket, "getaddrinfo", return_value=rows):
+                with self.assertRaisesRegex(ValueError, "nonpublic", msg=address):
+                    evidence._resolve_host("example.com", 80)
+
     def test_dns_delay_respects_request_deadline(self):
         release = threading.Event()
         entered = threading.Event()

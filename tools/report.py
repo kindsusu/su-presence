@@ -192,6 +192,8 @@ MSG_EN = {
     "SOFT_404": "A missing address returns HTTP {status} instead of 404 — soft 404s burn crawl budget.",
     "REDIRECT_HOPS": "The home page takes {hops} redirect hops — cut it to one.",
     "ALT_HOST_UNREACHABLE": "The www/apex variant {host} is unreachable ({result}) — visitors and crawlers arriving there are lost.",
+    "ALT_HOST_NONPUBLIC": "The www/apex variant {host} resolves to a non-public address ({address_class}), so it was not requested — whether it responds is unknown. Outside visitors and crawlers cannot reach it; check that the DNS record is intended.",
+    "MIRROR_NONPUBLIC_DNS": "{count} development/staging candidate names resolve to non-public addresses in public DNS and were not requested (SSRF guard). They are not reachable from outside, but internal host names and addressing are exposed in public DNS; check that the records are intended.",
     "MIRROR_PUBLIC": "The root page at {host} is public with no observed indexing restriction (HTTP {status}). Other paths and actual index state require separate checks.",
     "MIRROR_NOINDEX": "The root page at {host} is public but has a noindex directive. This does not establish the indexing state of other paths.",
     "MIRROR_INDEXABILITY_UNKNOWN": "The mirror at {host} responds (HTTP {status}), but its root page's indexing restrictions are unknown. Check the response and robots.txt.",
@@ -432,6 +434,10 @@ MSG_EN_BY_ERROR = {
         "the audit follows robots.txt redirects only within the audited host and its www/apex variant, "
         "so the target file was not read. Crawlers such as Google may follow the redirect and apply "
         "that file — confirm it is intended. Per-UA crawler policy is unknown, not allowed.",
+    ("ROBOTS_UNREACHABLE", "nonpublic_address"):
+        "robots.txt was not requested because its host resolves to a non-public address. This is not "
+        "a server failure verdict: the audit refuses non-public addresses for a public target. "
+        "Per-UA crawler policy is unknown, not allowed.",
     ("ROBOTS_UNREACHABLE", "too_many_redirects"):
         "robots.txt redirects more than five times in a row (HTTP {status}). RFC 9309 and Google follow "
         "about five hops, so crawlers may not read it either — redirect straight to the final URL. "

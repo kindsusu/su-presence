@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+- `crawl.py`·`verify.py`: 공인 주소가 아닌 곳(루프백·사설·link-local·CGNAT·멀티캐스트·예약)으로 풀리는 호스트에는 연결하지 않는다. 검사한 주소로 바로 연결해 DNS 재바인딩 틈을 막는다. 진단 대상 자체가 로컬·사내 주소면 그 분류만 허용한다. 새 오류값 `nonpublic_address`, info 진단 `ALT_HOST_NONPUBLIC`·`MIRROR_NONPUBLIC_DNS`, 선택 필드 `hygiene.mirrors.nonpublic`.
+- robots.txt 리다이렉트는 같은 호스트 홉을 포함해 전체 5홉으로 제한한다.
+- `audit.sh`: 홈·robots.txt·사이트맵·llms.txt 리다이렉트를 curl `-L`에 맡기지 않고, 진단 대상 호스트와 www↔apex 변형 안에서만 따라간다(robots 5홉, 그 밖 10홉). 다른 도메인으로 가는 robots.txt는 사유와 함께 미확인, 홈이 다른 도메인으로 가면 진단을 멈춘다.
+- `rebuild` 조사: 멀티캐스트 주소를 비공개 주소로 거부한다(옛 Python의 `is_global` 판정 보완).
+
 - 페이지별 hreflang 기록(`pages[].hreflang`). `drift compare`가 hreflang 변화를 실제로 비교한다.
 - `audit.sh`: robots.txt가 429·5xx·접속 실패이거나 Python 3.10+이 없어 판정하지 못하면 "기본 허용" 대신 "미확인"을 찍는다. robots.txt를 한 번만 요청하고 리다이렉트를 5홉으로 제한한다.
 - robots.txt가 www↔apex 사이에서 리다이렉트되면 5홉까지 따라가 판정한다(`site.robots.final_url`·`redirects`). 다른 도메인으로 가는 리다이렉트는 서버 장애가 아니라 리다이렉트라고 밝히고, 5홉 초과는 `too_many_redirects`로 남긴다.

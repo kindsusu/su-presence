@@ -19,8 +19,13 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import contextvars
+import functools
 import gzip
+import http.client
 import io
+import ipaddress
 import json
 import os
 import re
@@ -292,6 +297,209 @@ def crawl_allowed(rules, path: str) -> bool:
 
 # ─────────────────────────────────────────────────────────── HTTP
 
+# ── 주소 범위 보호 (SSRF·DNS 재바인딩) ───────────────────────────────────
+#
+# fetch()는 연결 직전에 호스트를 풀고, 풀린 주소가 하나라도 "허용 범위" 밖이면 접속하지 않는다
+# (error=nonpublic_address — HTTP 상태가 아니라 미관측이다). 통과하면 검사한 그 주소로 직접
+# 연결한다(pin) — Host 헤더와 TLS SNI·인증서 검사는 원래 호스트 이름을 그대로 쓴다. 그래서
+# "검사할 때는 공개 주소, 연결할 때는 내부 주소"로 바꿔 치는 DNS 재바인딩이 끼어들 틈이 없다.
+#
+# 허용 범위는 진단 대상(target_scope)이 정한다. 공개 주소는 늘 허용이다. 진단 대상 자신이
+# 비공개 주소(127.0.0.1 테스트 서버·사내망 이름)면 그 대상이 속한 분류(loopback·private …)만
+# 추가로 허용한다 — 공개 대상에서 사설·루프백 주소로 넘어가는 요청은 늘 거부된다.
+
+_SHARED_NET = ipaddress.ip_network("100.64.0.0/10")        # CGNAT (RFC 6598)
+_NAT64_NET = ipaddress.ip_network("64:ff9b::/96")          # NAT64 well-known prefix (RFC 6052)
+_PRIVATE_NETS = tuple(ipaddress.ip_network(n) for n in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"))
+_SCHEME_PORTS = {"http": 80, "https": 443}
+
+
+def address_class(address) -> str:
+    """주소 분류: public · loopback · private · link_local · shared · multicast · unspecified ·
+    reserved. IP가 아니면 invalid. IPv4-mapped(::ffff:a.b.c.d)·6to4·NAT64는 안에 든 IPv4로 판정한다.
+    """
+    try:
+        ip = ipaddress.ip_address(str(address).split("%", 1)[0].strip("[]"))
+    except ValueError:
+        return "invalid"
+    if ip.version == 6:
+        embedded = ip.ipv4_mapped or ip.sixtofour
+        if embedded is None and ip in _NAT64_NET:
+            embedded = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+        if embedded is not None:
+            return address_class(embedded)
+    if ip.is_unspecified:
+        return "unspecified"
+    if ip.is_loopback:
+        return "loopback"
+    if ip.is_link_local:
+        return "link_local"
+    if ip.is_multicast:
+        return "multicast"
+    if ip.version == 4 and ip in _SHARED_NET:
+        return "shared"
+    if any(ip in net for net in _PRIVATE_NETS if net.version == ip.version):
+        return "private"
+    if ip.is_reserved or ip.is_private or not ip.is_global:
+        return "reserved"
+    return "public"
+
+
+class NonPublicAddress(OSError):
+    """허용 범위 밖 주소로 풀렸다 — 접속하지 않았다."""
+
+    def __init__(self, host, klass):
+        super().__init__("%s resolves to a %s address outside the audit scope" % (host, klass))
+        self.host = host
+        self.address_class = klass
+
+
+def _resolve(host: str, port: int) -> list:
+    rows = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    if not rows:
+        raise socket.gaierror(socket.EAI_NONAME, "no address for %s" % host)
+    return rows
+
+
+class _TargetScope:
+    """진단 대상이 허용하는 주소 분류. DNS 조회는 실제 연결이 처음 필요할 때 한 번만 한다."""
+
+    def __init__(self, url: str):
+        try:
+            parts = urllib.parse.urlsplit(url if "//" in url else "//" + url)
+            self.host = (parts.hostname or "").rstrip(".").lower()
+            self.port = parts.port or _SCHEME_PORTS.get(parts.scheme.lower(), 443)
+        except ValueError:
+            self.host, self.port = "", 443
+        self._allowed = None
+
+    def allowed(self) -> frozenset:
+        if self._allowed is None:
+            classes = {"public"}
+            literal = address_class(self.host)
+            if literal != "invalid":
+                classes.add(literal)
+            elif self.host:
+                if self.host == "localhost" or self.host.endswith(".localhost"):
+                    classes.add("loopback")
+                try:
+                    classes.update(address_class(row[4][0]) for row in _resolve(self.host, self.port))
+                except (OSError, UnicodeError):
+                    pass   # 대상이 안 풀리면 공개 주소만 허용한다
+            classes.discard("invalid")
+            self._allowed = frozenset(classes)
+        return self._allowed
+
+
+_SCOPE: contextvars.ContextVar = contextvars.ContextVar("su_presence_target_scope", default=None)
+
+
+@contextlib.contextmanager
+def target_scope(url: str):
+    """이 블록 안의 fetch()는 url의 호스트를 진단 대상으로 보고 주소 범위를 정한다.
+
+    이미 범위가 잡혀 있으면(바깥 build_report 등) 그 범위를 그대로 쓴다 — 미러·www↔apex 변형이
+    스스로 범위를 넓히지 못하게 한다.
+    """
+    current = _SCOPE.get()
+    if current is not None:
+        yield current
+        return
+    scope = _TargetScope(url)
+    token = _SCOPE.set(scope)
+    try:
+        yield scope
+    finally:
+        _SCOPE.reset(token)
+
+
+def _scoped(url_of):
+    """함수 전체를 진단 대상(url_of가 인자에서 고른다)의 target_scope 안에서 실행한다."""
+    def decorate(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            with target_scope(url_of(*args, **kwargs)):
+                return fn(*args, **kwargs)
+        return wrapper
+    return decorate
+
+
+def _checked_rows(host: str, port: int) -> list:
+    """host를 풀고, 주소가 하나라도 허용 범위 밖이면 NonPublicAddress. 통과한 행을 돌려준다."""
+    rows = _resolve(host, port)
+    scope = _SCOPE.get() or _TargetScope("//%s:%d" % ("[%s]" % host if ":" in host else host, port))
+    allowed = scope.allowed()
+    for row in rows:
+        klass = address_class(row[4][0])
+        if klass not in allowed:
+            raise NonPublicAddress(host, klass)
+    return rows
+
+
+def _connect_rows(rows, timeout, source_address):
+    """검사를 통과한 주소로만 연결한다 (socket.create_connection과 같은 순서·예외)."""
+    error = None
+    for family, socktype, proto, _canon, sockaddr in rows:
+        sock = None
+        try:
+            sock = socket.socket(family, socktype, proto)
+            if timeout is None or isinstance(timeout, (int, float)):
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(sockaddr)
+            return sock
+        except OSError as exc:
+            error = exc
+            if sock is not None:
+                sock.close()
+    raise error if error is not None else OSError("no address to connect")
+
+
+def _guarded_connection(base_cls, req):
+    """http.client 연결 클래스를 감싼다 — 연결 직전에 대상 주소를 검사하고 고정한다.
+
+    http.client는 Host 헤더·SNI에 원래 호스트 이름을 쓰고, 소켓만 _create_connection으로 만든다.
+    그 자리에 검사한 주소로 연결하는 함수를 넣는다. urllib의 리다이렉트도 홉마다 새 연결이라
+    같은 검사를 다시 거친다.
+
+    프록시를 거치면 실제 대상 주소는 프록시가 푼다. 그때는 로컬 DNS로 대상 이름을 검사만 하고
+    (로컬에서 안 풀리면 검사할 수 없으니 통과) 프록시에 연결한다.
+    """
+    target = urllib.parse.urlsplit(req.full_url)
+    target_host = target.hostname or ""
+    target_port = target.port or _SCHEME_PORTS.get(target.scheme.lower(), 80)
+    via_proxy = req.has_proxy() or bool(getattr(req, "_tunnel_host", None))
+
+    def make(host, **kwargs):
+        conn = base_cls(host, **kwargs)
+
+        def create(address, timeout=None, source_address=None):
+            if via_proxy:
+                try:
+                    _checked_rows(target_host, target_port)
+                except socket.gaierror:
+                    pass
+                return socket.create_connection(address, timeout, source_address)
+            return _connect_rows(_checked_rows(address[0], address[1]), timeout, source_address)
+
+        conn._create_connection = create
+        return conn
+    return make
+
+
+class _GuardedHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_guarded_connection(http.client.HTTPConnection, req), req)
+
+
+class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_guarded_connection(http.client.HTTPSConnection, req), req,
+                            context=self._context)
+
+
 class _CountingRedirect(urllib.request.HTTPRedirectHandler):
     def __init__(self, origin_host, rules=None, max_redirects=10):
         self.count = 0
@@ -341,7 +549,7 @@ def fetch(url: str, method: str = "GET", rules=None, max_redirects: int = 10):
         "ms": 0, "redirects": 0, "error": None, "content_type": "",
     }
     redirector = _CountingRedirect(host_of(url), rules, max_redirects)
-    opener = urllib.request.build_opener(redirector)
+    opener = urllib.request.build_opener(redirector, _GuardedHTTPHandler(), _GuardedHTTPSHandler())
     req = urllib.request.Request(url, method=method, headers={
         "User-Agent": UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -349,7 +557,7 @@ def fetch(url: str, method: str = "GET", rules=None, max_redirects: int = 10):
     })
     started = time.monotonic()
     try:
-        with opener.open(req, timeout=TIMEOUT) as resp:
+        with target_scope(url), opener.open(req, timeout=TIMEOUT) as resp:
             body = resp.read(MAX_BODY + 1)
             out["status"] = resp.status
             out["final_url"] = resp.geturl()
@@ -377,6 +585,10 @@ def fetch(url: str, method: str = "GET", rules=None, max_redirects: int = 10):
     except (urllib.error.URLError, socket.timeout, ssl.SSLError, OSError) as exc:
         out["ms"] = int((time.monotonic() - started) * 1000)
         out["error"] = _classify_error(exc)
+        refused = getattr(exc, "reason", exc)
+        if isinstance(refused, NonPublicAddress):
+            # 선택 필드 — 접속하지 않은 주소의 분류만 남긴다(내부 IP 자체는 적지 않는다).
+            out["address_class"] = refused.address_class
         return out
     out["ms"] = int((time.monotonic() - started) * 1000)
     out["redirects"] = redirector.count
@@ -423,13 +635,14 @@ def _host_key(url: str):
     return host
 
 
+@_scoped(lambda base, *_a, **_k: base)
 def fetch_robots(base: str) -> dict:
     """robots.txt를 받는다. 진단 대상 호스트와 그 www↔apex 변형 사이의 리다이렉트만 따라간다.
 
     fetch()는 다른 호스트로 가는 리다이렉트를 따라가지 않는다(SSRF 방지). robots.txt만 예외로,
     http(s)이고 대상 호스트 또는 www↔apex 변형(probe_site가 이미 직접 요청하는 호스트)일 때만
     한 홉씩 다시 fetch()로 받는다 — 각 홉은 fetch()의 같은 보호를 그대로 거친다.
-    www↔apex가 섞인 체인은 전체 ROBOTS_MAX_REDIRECTS홉까지다.
+    같은 호스트 안의 홉과 www↔apex 홉을 합친 체인 전체가 ROBOTS_MAX_REDIRECTS홉까지다.
 
     돌려주는 dict는 fetch()와 같고, 다음 키가 붙는다.
       robots_url        — 처음 요청한 robots.txt 주소
@@ -440,7 +653,9 @@ def fetch_robots(base: str) -> dict:
     origin = _host_key(url)
     alt = alt_host_of(origin) if origin else None
     allowed = {h for h in (origin, alt) if h}
-    res = fetch(url)
+    # 같은 호스트 안의 리다이렉트도 체인 전체 한도(5홉)에 넣는다 — fetch() 기본값(10)을 쓰면
+    # 6~10홉 체인을 따라가 판정해 버린다(크롤러와 audit.sh는 5홉에서 멈춘다).
+    res = fetch(url, max_redirects=ROBOTS_MAX_REDIRECTS)
     total = res.get("redirects") or 0
     crossed = 0
     reason = None
@@ -456,9 +671,9 @@ def fetch_robots(base: str) -> dict:
         crossed += 1
         res = fetch(target, max_redirects=ROBOTS_MAX_REDIRECTS - total)
         total += res.get("redirects") or 0
-    if reason is None and crossed and (
+    if reason is None and (crossed or total > ROBOTS_MAX_REDIRECTS) and (
             total > ROBOTS_MAX_REDIRECTS or res.get("status") in REDIRECT_STATUSES):
-        # 남은 홉 수를 다 쓰고도 3xx가 남았다 — 연속 5홉을 넘겼다.
+        # 남은 홉 수를 다 쓰고도 3xx가 남았다 — 같은 호스트 안이든 www↔apex를 섞었든 연속 5홉을 넘겼다.
         reason = "too_many_redirects"
     if reason == "too_many_redirects":
         res["error"] = "too_many_redirects"
@@ -478,6 +693,8 @@ def _bounded_gunzip(body: bytes, limit: int) -> tuple[bytes, bool]:
 
 def _classify_error(exc) -> str:
     reason = getattr(exc, "reason", exc)
+    if isinstance(reason, NonPublicAddress) or isinstance(exc, NonPublicAddress):
+        return "nonpublic_address"
     if isinstance(reason, ssl.SSLError) or isinstance(exc, ssl.SSLError):
         return "tls_fail"
     if isinstance(reason, socket.gaierror):
@@ -699,11 +916,15 @@ def alt_host_of(host: str):
 MIRROR_PREFIXES = ("dev", "staging", "stage", "test", "beta", "preview", "new", "old")
 
 
+@_scoped(lambda host, *_a, **_k: "https://%s/" % host)
 def probe_mirrors(host: str) -> dict:
     """공개된 개발·스테이징 미러를 찾는다. 존재만 확인하고 크롤하지 않는다.
 
     본 도메인만 훑어서는 절대 보이지 않는 표면이다 — 실측에서 생성엔진이 우리 개발서버를
     "회사 홈페이지"라며 인용한 일이 있었고, 크롤 쪽은 그 호스트를 볼 일이 없어 놓쳤다.
+
+    후보 이름이 진단 대상의 주소 범위 밖(공개 대상인데 사설·루프백 등)으로 풀리면 접속하지 않고
+    nonpublic에 {"host", "address_class"}로 남긴다 — 공개 DNS에 내부 주소가 실린 것 자체가 메모거리다.
     """
     bare = host[4:] if host.startswith("www.") else host
     bare = bare.split(":")[0]
@@ -712,13 +933,16 @@ def probe_mirrors(host: str) -> dict:
     if all(c.isdigit() or c == "." for c in bare):
         return {"checked": [], "found": [], "wildcard_suspect": False}
 
-    checked, found = [], []
+    checked, found, nonpublic = [], [], []
     for prefix in MIRROR_PREFIXES:
         cand = "%s.%s" % (prefix, bare)
         if cand == host:
             continue
         checked.append(cand)
         res = fetch("https://%s/" % cand)
+        if res["error"] == "nonpublic_address":
+            nonpublic.append({"host": cand, "address_class": res.get("address_class") or "unknown"})
+            continue
         if res["error"] in ("dns_fail", "tls_fail") or not res["status"]:
             continue
         if res["status"] >= 400:
@@ -749,9 +973,13 @@ def probe_mirrors(host: str) -> dict:
                       "indexability": indexability, "robots_directives": directives,
                       "checked_url": "https://%s/" % cand})
     # 와일드카드 DNS면 아무 접두나 응답한다. 전부 떴다면 발견이 아니라 설정이다.
-    wildcard = len(found) >= max(4, len(checked) - 1)
-    return {"checked": checked, "found": [] if wildcard else found,
-            "wildcard_suspect": wildcard}
+    # 내부 주소로 풀린 후보도 이름이 풀린 것이므로 같이 센다.
+    wildcard = len(found) + len(nonpublic) >= max(4, len(checked) - 1)
+    out = {"checked": checked, "found": [] if wildcard else found,
+           "wildcard_suspect": wildcard}
+    if nonpublic and not wildcard:
+        out["nonpublic"] = nonpublic   # 선택 필드 — 옛 audit에는 없다
+    return out
 
 
 def script_of(text: str) -> str:
@@ -763,6 +991,7 @@ def script_of(text: str) -> str:
 
 # ─────────────────────────────────────────────────────────── 크롤
 
+@_scoped(lambda base, *_a, **_k: base)
 def crawl_site(base: str, max_pages: int, delay: float, rules, seeds=None, coverage=None) -> list:
     host = host_of(base)
     seen = set()
@@ -849,6 +1078,9 @@ def crawl_site(base: str, max_pages: int, delay: float, rules, seeds=None, cover
             reasons.append("seed_blocked_by_robots")
         if network_errors:
             reasons.append("network_errors")
+        if any(p.get("error") == "nonpublic_address" for p in pages):
+            # 대상 범위 밖 주소로 풀려 받지 않은 페이지 — 깨진 링크가 아니라 미관측이다.
+            reasons.append("nonpublic_address")
         if http_errors:
             reasons.append("http_errors")
         if not pages:
@@ -1058,6 +1290,7 @@ def llms_format_record(res: dict):
 
 # ─────────────────────────────────────────────────────────── 사이트 수준
 
+@_scoped(lambda base, *_a, **_k: base)
 def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap_data=None,
                robots_state=None, robots_error=None, robots_final_url=None, robots_redirects=None) -> dict:
     host = host_of(base)
@@ -1128,6 +1361,9 @@ def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap
             # fetch deliberately does not follow cross-host redirects. A redirect
             # from www/apex to the audited host is still an observed valid handoff.
             alt_result = "redirect"
+        elif alt["error"] == "nonpublic_address":
+            # 진단 대상 범위 밖 주소로 풀려 접속하지 않았다 — 접속 불가가 아니라 미관측이다.
+            alt_result = "nonpublic_address"
         elif alt["error"]:
             alt_result = alt["error"] if alt["error"] in ("tls_fail", "dns_fail") else "error"
         elif alt["redirects"]:
@@ -1171,6 +1407,8 @@ def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap
                 "result": alt_result,
                 "status": alt["status"],
                 "location": alt["final_url"] if alt_result == "redirect" else None,
+                **({"address_class": alt.get("address_class") or "unknown"}
+                   if alt_result == "nonpublic_address" else {}),
             },
         },
     }
@@ -1287,6 +1525,7 @@ def sitemap_quality(root, body: str, host: str, declared_size=None) -> dict:
     }
 
 
+@_scoped(lambda base, *_a, **_k: base)
 def read_sitemaps(base: str, host: str, declared: list):
     """선언된 사이트맵 + 표준 경로 2종을 읽는다."""
     candidates = sitemap_candidates(base, host, declared)
@@ -1666,6 +1905,10 @@ def _check_site(findings, base, site, ok):
                 why += (" 리다이렉트가 연속 %d번을 넘는다 — RFC 9309와 Google은 5홉까지만 따라가므로 "
                         "크롤러도 이 파일을 읽지 못할 수 있다. robots.txt를 한 번에 최종 주소로 보내라."
                         % ROBOTS_MAX_REDIRECTS)
+        elif robots.get("fetch_error") == "nonpublic_address":
+            why = ("주소가 진단 대상의 주소 범위 밖(사설·루프백 등 비공개 주소)으로 풀려 접속하지 않았다 — "
+                   "SSRF 방지를 위한 것이며 서버 장애로 판정하지 않는다. 외부 크롤러도 그 주소에는 닿지 "
+                   "못하므로 robots.txt(또는 www↔apex 변형)의 DNS 기록을 확인하라.")
         else:
             why = ("응답을 받지 못했다 (HTTP %s%s). RFC 9309는 서버 오류·접속 불가일 때 크롤러가 "
                    "사이트 전체를 차단으로 간주하라고 하고, Google도 429·5xx를 일시적으로 전체 "
@@ -1723,6 +1966,12 @@ def _check_site(findings, base, site, ok):
         add(findings, "SEO", "warn", "ALT_HOST_UNREACHABLE",
             "www↔apex 변형 주소 %s에 접속되지 않는다 (%s) — 그쪽으로 온 사용자·크롤러를 잃는다."
             % (alt["host"], alt["result"]), ["https://%s/" % alt["host"]], alt)
+    elif alt["result"] == "nonpublic_address":
+        add(findings, "SEO", "info", "ALT_HOST_NONPUBLIC",
+            "www↔apex 변형 주소 %s가 비공개 주소(%s)로 풀려 접속하지 않았다 — 응답 여부는 미확인이다. "
+            "공개 사이트의 변형 이름이 내부 주소를 가리키면 외부 사용자·크롤러는 닿지 못한다. "
+            "DNS 기록이 의도한 것인지 확인하라."
+            % (alt["host"], alt.get("address_class") or "unknown"), ["https://%s/" % alt["host"]], alt)
 
     mirrors = hygiene.get("mirrors") or {}
     for m in mirrors.get("found") or []:
@@ -1747,6 +1996,15 @@ def _check_site(findings, base, site, ok):
                 "미러 %s가 응답하지만 루트 페이지의 색인 제한 여부는 미확인이다 "
                 "(HTTP %s). 응답 본문·헤더와 robots.txt를 확인한다."
                 % (m["host"], m["status"]), ["https://%s/" % m["host"]], m)
+    hidden = mirrors.get("nonpublic") or []
+    if hidden:
+        add(findings, "SEO", "info", "MIRROR_NONPUBLIC_DNS",
+            "개발·스테이징 후보 이름 %d개가 공개 DNS에서 비공개 주소로 풀린다 (%s) — 접속하지 않았다"
+            "(SSRF 방지). 외부에서는 열리지 않겠지만 내부 호스트 이름과 주소 체계가 공개 DNS로 드러난다. "
+            "의도한 기록인지 확인하라."
+            % (len(hidden), ", ".join("%s→%s" % (m["host"], m.get("address_class") or "unknown")
+                                       for m in hidden[:5])),
+            ["https://%s/" % m["host"] for m in hidden], {"count": len(hidden), "hosts": hidden})
     if mirrors.get("wildcard_suspect"):
         add(findings, "SEO", "info", "MIRROR_WILDCARD_DNS",
             "하위 도메인이 무엇이든 응답한다 — 와일드카드 DNS로 보인다. "
@@ -2159,6 +2417,8 @@ def _policy_label(policy: str, ua=None) -> str:
 
 # ─────────────────────────────────────────────────────────── main
 
+@_scoped(lambda target, *_a, **_k: target if target.startswith(("http://", "https://"))
+         else "https://%s" % target)
 def build_report(target: str, max_pages: int, delay: float, allow_noindex=None) -> dict:
     base = target if target.startswith(("http://", "https://")) else "https://%s" % target
     base = base.rstrip("/")
@@ -2202,7 +2462,9 @@ def build_report(target: str, max_pages: int, delay: float, allow_noindex=None) 
                       robots_state=robots_state, robots_error=robots.get("error"),
                       robots_final_url=robots.get("final_url"), robots_redirects=robots.get("redirects"))
     site["_coverage"] = coverage
-    site["_all_pages_status"] = [(p["url"], p["status"]) for p in pages]
+    # 범위 밖 주소로 풀려 받지 않은 페이지는 깨진 링크가 아니다 — coverage(nonpublic_address)가 말한다.
+    site["_all_pages_status"] = [(p["url"], p["status"]) for p in pages
+                                 if p.get("error") != "nonpublic_address"]
     findings, stats, board = analyze(base, site, pages)
     site.pop("_all_pages_status", None)
     site.pop("_coverage", None)

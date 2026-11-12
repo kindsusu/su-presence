@@ -91,7 +91,10 @@ bash tools/audit.sh example.com
 
 robots 정책 판정은 `crawl.py`의 판정기를 그대로 불러 쓰므로 Python 3.10+(`python` 또는 `python3`)가 필요하다.
 robots.txt가 429·5xx·접속 실패이거나 Python이 없어 판정하지 못하면 UA별로 "❓ 미확인"을 찍고 허용으로 보지 않는다.
-리다이렉트는 5홉까지 따라간다(curl은 다른 도메인으로 가는 리다이렉트도 따라가므로 `crawl.py`와 결과가 다를 수 있다).
+리다이렉트는 curl에 맡기지 않고 한 홉씩 직접 따라간다. 목적지가 진단 대상 호스트나 www↔apex 변형일 때만 따라가며,
+robots.txt는 5홉, 홈·사이트맵·llms.txt는 10홉까지다. 다른 도메인으로 가는 robots.txt는 "다른 도메인으로 리다이렉트된다 —
+서버 장애가 아니다"와 함께 "❓ 미확인"으로 남기고, 홈이 다른 도메인으로 가면 그 도메인의 HTML을 이 사이트 것으로 적지 않고
+진단을 멈춘다(exit 1).
 
 ## crawl.py — 범위 제한 진단
 
@@ -149,7 +152,21 @@ robots.txt 응답은 `site.robots.fetch_state`(선택 필드)로 셋으로 나�
 robots.txt가 진단 대상 호스트와 www↔apex 변형 사이에서 리다이렉트되면 최대 5홉까지 따라가 도착한 파일로
 판정한다(RFC 9309·Google도 따라간다). 도착 주소와 홉 수는 `site.robots.final_url`·`site.robots.redirects`(선택 필드)에
 남는다. 그 밖의 도메인으로 가는 리다이렉트는 따라가지 않고 `ROBOTS_UNREACHABLE`에 "다른 도메인으로 리다이렉트된다 —
-서버 장애가 아니다"라고 적는다. 5홉을 넘으면 `fetch_error: too_many_redirects`로 남긴다.
+서버 장애가 아니다"라고 적는다. 같은 호스트 안의 홉과 www↔apex 홉을 합쳐 5홉을 넘으면 `fetch_error: too_many_redirects`로 남긴다.
+
+### 비공개 주소 차단
+
+`crawl.py`(와 이를 쓰는 `verify.py`)는 연결할 때마다 호스트를 DNS로 풀어, 하나라도 공인 주소가 아니면(루프백·사설·
+link-local·CGNAT·멀티캐스트·예약, IPv4-mapped·6to4·NAT64 포함) 요청하지 않는다. 검사한 주소로 바로 연결하므로
+리다이렉트 홉마다 다시 풀어 확인하고, DNS 재바인딩 틈을 남기지 않는다. Host 헤더·TLS 인증서 확인은 원래 이름을 쓴다.
+
+- 거부된 요청은 `error: "nonpublic_address"`(+`address_class`)이며 HTTP 상태가 아니다. 페이지는 깨진 링크가 아니라
+  크롤 범위 불완전(`nonpublic_address`), robots.txt는 `ROBOTS_UNREACHABLE`(정책 미확인)이다
+- www↔apex 변형이 비공개 주소로 풀리면 `ALT_HOST_NONPUBLIC`(info), 개발·스테이징 후보 이름이 공개 DNS에서 비공개
+  주소로 풀리면 `hygiene.mirrors.nonpublic`과 `MIRROR_NONPUBLIC_DNS`(info) — 내부 호스트 이름이 공개 DNS에 드러난 것이다
+- 진단 대상 자체가 IP 리터럴·localhost·비공개 주소로 풀리는 이름이면(로컬 시험·사내 점검) **그 대상이 속한 분류만**
+  추가로 허용한다. 루프백 대상이면 루프백만, 사내망 대상이면 사설 주소만이다. 공개 대상에서 비공개 주소로 넘어가는 것은 막는다
+- 한계: 프록시를 쓰면 대상 주소는 프록시가 푼다. 로컬 DNS로 검사만 하므로 두 결과가 다르면 막지 못한다
 
 | 진단 코드 | 레인·등급 | 뜻 |
 |---|---|---|

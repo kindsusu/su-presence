@@ -128,7 +128,9 @@ def validate_brief(brief: dict) -> dict:
 
 def _resolve_host(host: str, port: int) -> list[str]:
     addresses = {row[4][0] for row in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)}
-    if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):
+    # is_global alone lets multicast through on older Pythons; refuse it explicitly.
+    if not addresses or any(not ipaddress.ip_address(address).is_global
+                            or ipaddress.ip_address(address).is_multicast for address in addresses):
         raise ValueError("DNS returned a nonpublic address")
     return sorted(addresses)
 

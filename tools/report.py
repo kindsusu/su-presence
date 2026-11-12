@@ -425,10 +425,26 @@ def url_list(urls, label):
 
 # ─────────────────────────────────────────────────────────── 섹션
 
+# 같은 코드라도 원인에 따라 영어 문구가 달라야 하는 경우 — (코드, data.error) 키. 없으면 MSG_EN을 쓴다.
+MSG_EN_BY_ERROR = {
+    ("ROBOTS_UNREACHABLE", "external_redirect_blocked"):
+        "robots.txt redirects to a different domain (HTTP {status}). This is not a server failure: "
+        "the audit follows robots.txt redirects only within the audited host and its www/apex variant, "
+        "so the target file was not read. Crawlers such as Google may follow the redirect and apply "
+        "that file — confirm it is intended. Per-UA crawler policy is unknown, not allowed.",
+    ("ROBOTS_UNREACHABLE", "too_many_redirects"):
+        "robots.txt redirects more than five times in a row (HTTP {status}). RFC 9309 and Google follow "
+        "about five hops, so crawlers may not read it either — redirect straight to the final URL. "
+        "Per-UA crawler policy is unknown, not allowed.",
+}
+
+
 def finding_message(finding: dict, lang: str) -> str:
     if lang == "ko":
         return finding["message"]
-    template = MSG_EN.get(finding["code"])
+    error = (finding.get("data") or {}).get("error")
+    template = MSG_EN_BY_ERROR.get((finding["code"], error)) if isinstance(error, str) else None
+    template = template or MSG_EN.get(finding["code"])
     if not template:
         return finding["message"]
     data = dict(finding.get("data") or {})

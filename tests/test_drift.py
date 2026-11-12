@@ -613,6 +613,51 @@ class TestControlChanges(DriftCase):
         self.assertEqual(controls["changes"], [])
         self.assertEqual(controls["unknown"]["canonical"], 1)
 
+    def crawled(self, url, head):
+        """crawl.page_record가 실제로 남기는 페이지 기록 (합성 HTML)."""
+        body = "<!doctype html><html><head>%s</head><body><h1>예시</h1></body></html>" % head
+        return crawl.page_record(url, {"status": 200, "final_url": url, "headers": {}, "body": body,
+                                       "ms": 1, "error": None,
+                                       "content_type": "text/html; charset=utf-8"})
+
+    def test_crawled_hreflang_difference_is_reported_as_change(self):
+        url = BASE + "/ko/"
+        before = self.crawled(url, '<link rel="alternate" hreflang="ko" href="/ko/">'
+                                   '<link rel="alternate" hreflang="en" href="/en/">')
+        after = self.crawled(url, '<link rel="alternate" hreflang="ko" href="/ko/">'
+                                  '<link rel="alternate" hreflang="en" href="/en-us/">'
+                                  '<link rel="alternate" hreflang="X-Default" href="/">')
+        self.two(audit(pages=[before]), audit(pages=[after]))
+        self.assertEqual(self.compare(), 0)
+        controls = self.result()["control_changes"]
+        self.assertEqual(controls["unknown"]["hreflang"], 0)
+        item = self.changes()[(url, "hreflang")]
+        self.assertEqual(item["kind"], "change")
+        self.assertEqual(item["before"], ["en → %s/en/" % BASE, "ko → %s/ko/" % BASE])
+        self.assertEqual(item["after"], ["en → %s/en-us/" % BASE, "ko → %s/ko/" % BASE,
+                                         "x-default → %s/" % BASE])
+
+    def test_crawled_page_without_hreflang_is_compared_not_unknown(self):
+        url = BASE + "/"
+        self.two(audit(pages=[self.crawled(url, "")]),
+                 audit(pages=[self.crawled(url, '<link rel="alternate" hreflang="ko" href="/">')]))
+        self.compare()
+        controls = self.result()["control_changes"]
+        self.assertEqual(controls["unknown"]["hreflang"], 0)
+        self.assertEqual(self.changes()[(url, "hreflang")]["before"], [])
+
+    def test_old_audit_without_hreflang_field_is_unknown(self):
+        url = BASE + "/"
+        old = self.crawled(url, '<link rel="canonical" href="/">')
+        del old["hreflang"]          # hreflang을 기록하기 전 crawl.py가 만든 audit
+        self.two(audit(pages=[old]),
+                 audit(pages=[self.crawled(url, '<link rel="canonical" href="/">'
+                                                '<link rel="alternate" hreflang="ko" href="/">')]))
+        self.assertEqual(self.compare(), 0)
+        controls = self.result()["control_changes"]
+        self.assertEqual(controls["unknown"]["hreflang"], 1)
+        self.assertNotIn((url, "hreflang"), self.changes())
+
     def test_declared_intentional_noindex_is_change_not_regression(self):
         self.two(audit(pages=[control_page(BASE + "/thanks")]),
                  audit(pages=[control_page(BASE + "/thanks", meta_robots="noindex",

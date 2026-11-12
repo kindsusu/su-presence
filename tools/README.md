@@ -89,6 +89,10 @@ bash tools/audit.sh example.com
 응답에 따라 달라져 완료 시간을 보장하지 않는다. 이 스크립트는 레거시 빠른 점검용이며,
 배포 판단·범위 판정·증적은 `crawl.py`가 만든 `audit.json`을 기준으로 한다.
 
+robots 정책 판정은 `crawl.py`의 판정기를 그대로 불러 쓰므로 Python 3.10+(`python` 또는 `python3`)가 필요하다.
+robots.txt가 429·5xx·접속 실패이거나 Python이 없어 판정하지 못하면 UA별로 "❓ 미확인"을 찍고 허용으로 보지 않는다.
+리다이렉트는 5홉까지 따라간다(curl은 다른 도메인으로 가는 리다이렉트도 따라가므로 `crawl.py`와 결과가 다를 수 있다).
+
 ## crawl.py — 범위 제한 진단
 
 ```bash
@@ -137,10 +141,15 @@ robots.txt 응답은 `site.robots.fetch_state`(선택 필드)로 셋으로 나�
 |---|---|---|
 | `ok` | 2xx 텍스트 | UA별 실효 정책 판정 |
 | `absent` | 429를 뺀 4xx, 200으로 꾸민 HTML 오류 페이지 | 제한 없음으로 판정, `ROBOTS_MISSING` |
-| `unreachable` | 429, 5xx, 접속 실패, 따라가지 못한 3xx | UA별 정책 `unknown`, `ROBOTS_UNREACHABLE`. GEO·NEO·KEO 크롤러 판정을 내지 않고 해당 레인은 `na`(미평가) |
+| `unreachable` | 429, 5xx, 접속 실패, 다른 도메인으로 가는 3xx, 5홉을 넘는 리다이렉트 | UA별 정책 `unknown`, `ROBOTS_UNREACHABLE`. GEO·NEO·KEO 크롤러 판정을 내지 않고 해당 레인은 `na`(미평가) |
 
 `User-agent` 값은 제품 토큰(첫 `/`나 공백 전까지)으로 대소문자 구분 없이 맞춘다. 접두 일치가
 아니다 — `GPTBot`과 `GPTBot-Image`, `Daumoa`와 `DAUM`은 다른 그룹이다. 우리 크롤의 규칙 선택도 같다.
+
+robots.txt가 진단 대상 호스트와 www↔apex 변형 사이에서 리다이렉트되면 최대 5홉까지 따라가 도착한 파일로
+판정한다(RFC 9309·Google도 따라간다). 도착 주소와 홉 수는 `site.robots.final_url`·`site.robots.redirects`(선택 필드)에
+남는다. 그 밖의 도메인으로 가는 리다이렉트는 따라가지 않고 `ROBOTS_UNREACHABLE`에 "다른 도메인으로 리다이렉트된다 —
+서버 장애가 아니다"라고 적는다. 5홉을 넘으면 `fetch_error: too_many_redirects`로 남긴다.
 
 | 진단 코드 | 레인·등급 | 뜻 |
 |---|---|---|
@@ -641,7 +650,8 @@ python tools/drift.py timeline out/example.com/audit.json
 
 페이지별 제어 필드(canonical·meta robots·`X-Robots-Tag`·noindex·hreflang) 변화는 `drift.json`의 `control_changes`와
 `DRIFT.md` 「페이지 제어 필드 변화」에 싣는다. 한쪽에 필드가 없거나 관측에 실패한 페이지는 변화가 아니라 미확인으로 센다.
-hreflang은 현재 `crawl.py`가 페이지 기록에 남기지 않아 항상 미확인이다.
+hreflang은 `crawl.py`가 `<head>`의 `<link rel="alternate" hreflang>`을 `pages[].hreflang`(선택 필드, 절대 URL·소문자 정렬)에
+남긴다. 이 필드가 없는 옛 audit과 비교하면 hreflang은 미확인이다.
 
 비브랜드 인용률은 양쪽 모두 관측 5회 이상이고 차이가 10%p 이상일 때만 의미 있는 변화로
 판정하며 Wilson 95% 구간을 함께 기록한다. 질의 fingerprint나 surface/mode/locale/login/search

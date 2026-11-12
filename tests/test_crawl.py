@@ -174,6 +174,61 @@ class TestPageParser(unittest.TestCase):
         self.assertEqual((count, types), (0, []))
 
 
+def html_response(body, url="https://example.com/ko/a", status=200, error=None,
+                  content_type="text/html; charset=utf-8"):
+    return {"status": status, "final_url": url, "headers": {}, "body": body, "ms": 1,
+            "error": error, "content_type": content_type}
+
+
+class TestHreflang(unittest.TestCase):
+    """<link rel="alternate" hreflang> 기록 — 합성 HTML만 쓴다."""
+
+    def test_attribute_order_quoting_rel_tokens_and_case(self):
+        body = ('<!doctype html><html><head>'
+                '<link href="/en/a" hreflang="EN" rel="alternate">'
+                "<link rel='alternate nofollow' hreflang='x-default' href='https://example.com/'>"
+                '<LINK REL=Alternate HREFLANG=ko-KR HREF=a>'
+                '<link rel="alternate" type="application/rss+xml" href="/feed.xml">'
+                '<link rel="alternates" hreflang="ja" href="/ja/a">'
+                '<link rel="alternate" hreflang="" href="/blank">'
+                '<link rel="alternate" hreflang="de">'
+                '</head><body><p>본문</p></body></html>')
+        page = crawl.page_record("https://example.com/ko/a", html_response(body))
+        self.assertEqual(page["hreflang"], [
+            {"hreflang": "en", "href": "https://example.com/en/a"},
+            {"hreflang": "ko-kr", "href": "https://example.com/ko/a"},
+            {"hreflang": "x-default", "href": "https://example.com/"},
+        ])
+
+    def test_href_resolves_against_final_url_and_duplicates_collapse(self):
+        body = ('<html><head><link rel="alternate" hreflang="en" href="../en/">'
+                '<link rel="alternate" hreflang="EN" href="../en/"></head><body></body></html>')
+        page = crawl.page_record("https://example.com/old",
+                                 html_response(body, url="https://example.com/ko/home/"))
+        self.assertEqual(page["hreflang"], [{"hreflang": "en", "href": "https://example.com/ko/en/"}])
+
+    def test_body_links_are_ignored_even_without_closing_head(self):
+        body = ('<html><head><link rel="alternate" hreflang="ko" href="/ko/">'
+                '<div><link rel="alternate" hreflang="fr" href="/fr/"></div></body></html>')
+        page = crawl.page_record("https://example.com/", html_response(body))
+        self.assertEqual([e["hreflang"] for e in page["hreflang"]], ["ko"])
+
+    def test_parsed_page_without_links_has_empty_list(self):
+        page = crawl.page_record("https://example.com/",
+                                 html_response("<html><head></head><body>x</body></html>"))
+        self.assertEqual(page["hreflang"], [])
+
+    def test_unparsed_pages_have_no_field(self):
+        for name, res in (
+                ("오류", html_response("", status=None, error="timeout")),
+                ("비HTML", html_response("%PDF-1.4", content_type="application/pdf")),
+                ("빈 본문", html_response("")),
+                ("잘린 본문", html_response("<html><head><link rel=alternate hreflang=en href=/en>",
+                                         error="body_truncated"))):
+            with self.subTest(name):
+                self.assertNotIn("hreflang", crawl.page_record("https://example.com/", res))
+
+
 class TestScriptDetection(unittest.TestCase):
     def test_korean_vs_english(self):
         self.assertEqual(crawl.script_of("한글 제목입니다"), "ko")

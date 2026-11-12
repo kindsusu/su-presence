@@ -38,11 +38,48 @@ ATTR() {
     | grep -oiE "$2=(\"[^\"]*\"|'[^']*')" | head -1 | sed -E 's/^[^=]*=.//; s/.$//'
 }
 
+# 판정기(crawl.py)를 돌릴 Python 3.10+를 고른다 → $PY (없으면 빈 값).
+# macOS·일부 Linux에는 python이 없거나 2.x이고, Windows의 python3는 스토어 안내용 가짜일 수 있다.
+PICK_PY() {
+  PY=""
+  for c in python python3; do
+    if command -v "$c" >/dev/null 2>&1 \
+       && "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+      PY="$c"; return 0
+    fi
+  done
+  return 1
+}
+
 # robots.txt에서 특정 UA의 실효 정책 판정. stdin=robots.txt, $1=UA
 # 출력: explicit-allow|explicit-block|explicit-partial|star-allow|star-block|star-partial|none
-# Python 크롤러와 같은 파서를 사용해 Shell/Python 판정 차이를 막는다.
+# Python 크롤러와 같은 파서(crawl.robots_policy)를 써서 Shell/Python 판정 차이를 막는다 —
+# User-agent는 제품 토큰(첫 '/'·공백 앞, 대소문자 무시)으로 맞춘다: GPTBot/1.1=GPTBot, GPTBot-Image≠GPTBot.
+# 판정기를 못 돌리면 아무것도 출력하지 않고 실패한다(호출 쪽이 '미확인'으로 적는다 — '허용'이 아니다).
 POLICY() {
-  python -c 'import sys; sys.path.insert(0, sys.argv[1]); import crawl; print(crawl.robots_policy(sys.stdin.read(), sys.argv[2]))' "$SCRIPT_DIR" "$1"
+  [ -n "${PY:-}" ] || return 1
+  "$PY" -c 'import sys
+sys.path.insert(0, sys.argv[1])
+import crawl
+raw = sys.stdin.buffer.read().decode("utf-8", "replace")
+print(crawl.robots_policy(raw, sys.argv[2]))' "$SCRIPT_DIR" "$1" 2>/dev/null | tr -d '\r'
+}
+
+# robots.txt 응답 분류 — crawl.robots_fetch_state(RFC 9309 2.3.1)와 같은 규칙.
+#   $1=HTTP 코드(curl %{http_code}, 접속 실패면 000) $2=curl 종료 코드 $3=본문
+# 출력: ok(2xx 텍스트) | absent(429 뺀 4xx, 200으로 꾸민 HTML → 제한 없음)
+#       | unreachable(429·5xx·접속 실패·시간 초과·따라가지 못한 3xx → 정책 미확인)
+RB_STATE() {
+  case "$1" in ''|*[!0-9]*) echo unreachable; return ;; esac
+  if [ "$1" -lt 100 ] || [ "$1" = 429 ] || [ "$1" -ge 500 ]; then echo unreachable; return; fi
+  if [ "$1" -ge 200 ] && [ "$1" -lt 300 ]; then
+    # 본문을 받다 끊기면(시간 초과 등) 일부만 읽은 규칙으로 판정하지 않는다
+    if [ "$2" != 0 ]; then echo unreachable; return; fi
+    if [ "$(printf '%s' "$3" | tr -d ' \t\r\n' | cut -c1)" = "<" ]; then echo absent; return; fi
+    echo ok; return
+  fi
+  if [ "$1" -ge 400 ]; then echo absent; return; fi
+  echo unreachable
 }
 
 echo "════════════════════════════════════════════"
@@ -92,15 +129,31 @@ echo "   네이버 소유확인: $([ -n "$NAVER_V" ] && echo '✅ naver-site-ver
 
 echo ""
 echo "── 2. robots / sitemap ──"
-RB_CODE=$(CODE "$BASE/robots.txt")
-RB="$(C "$BASE/robots.txt")"
-# 404를 200처럼 꾸민 HTML 오류 페이지를 robots.txt로 오인하지 않는다
-if [ "$RB_CODE" != "200" ] || printf '%s' "$RB" | head -1 | grep -qi '<'; then
-  echo "   robots.txt     : ❌ 없음 또는 비정상 (HTTP $RB_CODE)"
-  RB=""
-else
-  echo "   robots.txt     : 있음 (HTTP 200)"
-fi
+# 본문과 상태 코드를 한 요청으로 받는다 (두 번 요청하면 두 응답이 다를 수 있다).
+# 리다이렉트는 RFC 9309 최소치이자 crawl.py와 같은 5홉까지 — 넘으면 3xx로 끝나 '미확인'이 된다.
+NL='
+'
+RB_OUT="$(curl -sL --max-redirs 5 --max-time 20 -A "$UA" -w "${NL}%{http_code}" -- "$BASE/robots.txt")"
+RB_RC=$?
+RB_CODE="${RB_OUT##*"$NL"}"
+RB="${RB_OUT%"$NL"*}"
+RB_ST=$(RB_STATE "$RB_CODE" "$RB_RC" "$RB")
+case "$RB_ST" in
+  ok) echo "   robots.txt     : 있음 (HTTP $RB_CODE)" ;;
+  # 404를 200처럼 꾸민 HTML 오류 페이지도 여기 — robots.txt로 오인하지 않는다
+  absent)
+    echo "   robots.txt     : ❌ 없음 또는 비정상 (HTTP $RB_CODE) — 크롤러는 제한 없음으로 본다"
+    RB="" ;;
+  *)
+    if [ "$RB_CODE" = "000" ] || [ "$RB_RC" != 0 ]; then
+      RB_WHY="접속 실패·시간 초과 (HTTP $RB_CODE, curl $RB_RC)"
+    else
+      RB_WHY="HTTP $RB_CODE"
+    fi
+    echo "   robots.txt     : ❓ 미확인 — $RB_WHY"
+    echo "   └ 429·5xx·접속 실패는 '없음'이 아니다. 크롤러가 사이트 전체를 차단으로 볼 수 있다"
+    RB="" ;;
+esac
 # 후보: robots.txt의 Sitemap: 선언(최대 3) + 표준 경로 2종
 SM_DECL=$(printf '%s' "$RB" | grep -iE '^[[:space:]]*sitemap:' | sed -E 's/^[[:space:]]*[Ss][Ii][Tt][Ee][Mm][Aa][Pp]:[[:space:]]*//' | tr -d '\r' | head -3)
 if [ -n "$SM_DECL" ]; then
@@ -136,10 +189,17 @@ done
 
 echo ""
 echo "── 3. GEO: AI 크롤러 정책 (robots.txt 실효 판정) ──"
+PICK_PY
+POLICY_FAILED=0
 for ua in GPTBot OAI-SearchBot ChatGPT-User Googlebot Bingbot \
           ClaudeBot Claude-SearchBot Claude-User \
           PerplexityBot Perplexity-User Google-Extended Yeti DAUM Daumoa; do
-  V=$(printf '%s' "$RB" | POLICY "$ua")
+  if [ "$RB_ST" = "unreachable" ]; then
+    V=unknown
+  else
+    V=$(printf '%s' "$RB" | POLICY "$ua") || V=""
+    [ -n "$V" ] || { V=error; POLICY_FAILED=1; }
+  fi
   case "$V" in
     explicit-allow)   STATE="✅ 명시 허용" ;;
     explicit-block)
@@ -149,10 +209,14 @@ for ua in GPTBot OAI-SearchBot ChatGPT-User Googlebot Bingbot \
     star-allow)       STATE="허용 (User-agent:* 적용)" ;;
     star-block)       STATE="🚫 차단 (User-agent:* 전체 차단에 걸림)" ;;
     star-partial)     STATE="⚠️  부분 제한 (* 규칙 적용, 수동 확인)" ;;
-    *)                STATE="미설정 → 기본 허용 (명시 권장)" ;;
+    none)             STATE="미설정 → 기본 허용 (명시 권장)" ;;
+    unknown)          STATE="❓ 미확인 (robots.txt를 읽지 못함 — 판정 안 함)" ;;
+    *)                STATE="❓ 미확인 (판정 실패)" ;;
   esac
   printf '   %-18s %s\n' "$ua" "$STATE"
 done
+[ "$RB_ST" = "unreachable" ] && echo "   ※ robots.txt가 429·5xx·접속 실패라 UA별 허용/차단을 판정하지 않았다 — 잠시 뒤 다시 확인하라"
+[ "$POLICY_FAILED" = "1" ] && echo "   ※ 판정기를 실행하지 못했다 — Python 3.10+(python 또는 python3)와 tools/crawl.py가 필요하다"
 echo "   ※ Google-Extended는 UA가 아니라 robots 토큰이다 — 서버 로그에 안 잡힌다"
 echo "   ※ Yeti는 네이버 검색 크롤러다 — 차단이면 NEO 레인 전체가 닫힌다"
 

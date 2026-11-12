@@ -156,6 +156,7 @@ crawler depending on the status ([RFC 9309](https://www.rfc-editor.org/rfc/rfc93
 | 4xx (except 429) · HTML error page served as 200 | Treat as no robots.txt; crawling is unrestricted | `ROBOTS_MISSING` |
 | 429 | A 4xx in RFC 9309, but Google treats it like 5xx | `ROBOTS_UNREACHABLE`, per-UA policy unverified |
 | 5xx · unreachable | Assume a complete disallow | `ROBOTS_UNREACHABLE`, per-UA policy unverified |
+| 3xx | Follow the redirect (at least five hops) | Between www and apex the audit follows up to five hops and judges the file it lands on. Another domain or more than five hops → `ROBOTS_UNREACHABLE` |
 
 ⚠️ When robots.txt returns 429 or 5xx, the audit **does not issue** per-UA allow/block verdicts; the GEO, NEO and KEO lanes stay `na` (unassessed).
 The audit itself keeps crawling so the diagnosis does not collapse to zero pages; crawl coverage

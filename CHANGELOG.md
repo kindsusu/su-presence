@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+- 페이지별 hreflang 기록(`pages[].hreflang`). `drift compare`가 hreflang 변화를 실제로 비교한다.
+- `audit.sh`: robots.txt가 429·5xx·접속 실패이거나 Python 3.10+이 없어 판정하지 못하면 "기본 허용" 대신 "미확인"을 찍는다. robots.txt를 한 번만 요청하고 리다이렉트를 5홉으로 제한한다.
+- robots.txt가 www↔apex 사이에서 리다이렉트되면 5홉까지 따라가 판정한다(`site.robots.final_url`·`redirects`). 다른 도메인으로 가는 리다이렉트는 서버 장애가 아니라 리다이렉트라고 밝히고, 5홉 초과는 `too_many_redirects`로 남긴다.
+
 - 사이트맵 위생 지표(`site.sitemaps[].quality`)와 info 진단 6종: 파일 한도 초과, 다른 호스트 URL, 중복 URL, lastmod 형식 오류·누락·일괄 동일값.
 - llms.txt 형식 메모(`site.llms_format`, verify `llms.format`). 순위·인용 요인으로 다루지 않으며 실패로 치지 않는다.
 - `rebuild research`: 숨김 텍스트를 인용 근거에서 빼고 `hidden_text`·`review_flags`로 표시한다. 숨긴 지시 문구가 계획을 바꾸지 않는다는 회귀 시험을 추가한다.

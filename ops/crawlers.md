@@ -149,6 +149,7 @@ robots.txt는 본문보다 **응답 상태**를 먼저 본다. 같은 파일이�
 | 4xx (429 제외) · 200으로 꾸민 HTML 오류 페이지 | 파일이 없는 것으로 보고 제한 없이 크롤할 수 있다 | `ROBOTS_MISSING` |
 | 429 | RFC 9309상 4xx지만 Google은 5xx처럼 처리한다 | `ROBOTS_UNREACHABLE`, UA별 정책 미확인 |
 | 5xx · 연결 실패 | 전면 Disallow로 간주한다 | `ROBOTS_UNREACHABLE`, UA별 정책 미확인 |
+| 3xx | 리다이렉트를 따라간다(최소 5홉) | www↔apex 사이는 5홉까지 따라가 도착 파일로 판정. 다른 도메인·5홉 초과는 `ROBOTS_UNREACHABLE` |
 
 ⚠️ robots.txt가 429·5xx면 감사는 UA별 허용/차단을 **판정하지 않는다.** GEO·NEO·KEO 레인은 `na`(미평가)로 남는다.
 진단 자체는 계속 크롤한다 — 진단 대상 페이지를 0개로 만들지 않기 위해서이며, 크롤 범위에는

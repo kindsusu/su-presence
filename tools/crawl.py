@@ -293,15 +293,16 @@ def crawl_allowed(rules, path: str) -> bool:
 # ─────────────────────────────────────────────────────────── HTTP
 
 class _CountingRedirect(urllib.request.HTTPRedirectHandler):
-    def __init__(self, origin_host, rules=None):
+    def __init__(self, origin_host, rules=None, max_redirects=10):
         self.count = 0
         self.origin_host = origin_host
         self.rules = rules
+        self.max_redirects = max_redirects
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         self.count += 1
         parts = urllib.parse.urlsplit(newurl)
-        if self.count > 10 or parts.scheme not in ("http", "https") or parts.netloc.lower() != self.origin_host:
+        if self.count > self.max_redirects or parts.scheme not in ("http", "https") or parts.netloc.lower() != self.origin_host:
             return None
         target = (parts.path or "/") + (("?" + parts.query) if parts.query else "")
         if self.rules is not None and not crawl_allowed(self.rules, target):
@@ -329,13 +330,17 @@ def _response_headers(message) -> dict:
     return out
 
 
-def fetch(url: str, method: str = "GET", rules=None):
-    """한 번 받아온다. 예외를 던지지 않고 dict로 돌려준다."""
+def fetch(url: str, method: str = "GET", rules=None, max_redirects: int = 10):
+    """한 번 받아온다. 예외를 던지지 않고 dict로 돌려준다.
+
+    리다이렉트는 같은 호스트 안에서만 max_redirects번까지 따라간다. 다른 호스트로 가는
+    리다이렉트는 따라가지 않고 external_redirect_blocked로 남긴다.
+    """
     out = {
         "status": None, "final_url": url, "headers": {}, "body": "",
         "ms": 0, "redirects": 0, "error": None, "content_type": "",
     }
-    redirector = _CountingRedirect(host_of(url), rules)
+    redirector = _CountingRedirect(host_of(url), rules, max_redirects)
     opener = urllib.request.build_opener(redirector)
     req = urllib.request.Request(url, method=method, headers={
         "User-Agent": UA,
@@ -395,6 +400,75 @@ def fetch(url: str, method: str = "GET", rules=None):
     return out
 
 
+# RFC 9309 2.3.1.2: robots.txt 리다이렉트는 연속 5번 이상 따라가야 한다(Google도 5홉).
+ROBOTS_MAX_REDIRECTS = 5
+REDIRECT_STATUSES = (301, 302, 303, 307, 308)
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _host_key(url: str):
+    """비교용 호스트[:포트]. 스킴 기본 포트는 떼어 낸다. 읽을 수 없으면 None."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return None
+    host = (parts.hostname or "").lower()
+    if not host:
+        return None
+    if ":" in host:
+        host = "[%s]" % host
+    if port is not None and port != _DEFAULT_PORTS.get(parts.scheme.lower()):
+        host = "%s:%d" % (host, port)
+    return host
+
+
+def fetch_robots(base: str) -> dict:
+    """robots.txt를 받는다. 진단 대상 호스트와 그 www↔apex 변형 사이의 리다이렉트만 따라간다.
+
+    fetch()는 다른 호스트로 가는 리다이렉트를 따라가지 않는다(SSRF 방지). robots.txt만 예외로,
+    http(s)이고 대상 호스트 또는 www↔apex 변형(probe_site가 이미 직접 요청하는 호스트)일 때만
+    한 홉씩 다시 fetch()로 받는다 — 각 홉은 fetch()의 같은 보호를 그대로 거친다.
+    www↔apex가 섞인 체인은 전체 ROBOTS_MAX_REDIRECTS홉까지다.
+
+    돌려주는 dict는 fetch()와 같고, 다음 키가 붙는다.
+      robots_url        — 처음 요청한 robots.txt 주소
+      redirect_hosts    — www↔apex로 넘어간 홉 수 (0이면 같은 호스트 안에서 끝났다)
+      redirect_reason   — 따라가지 않은 이유: other_host · too_many_redirects (따라갔으면 없음)
+    """
+    url = "%s/robots.txt" % base.rstrip("/")
+    origin = _host_key(url)
+    alt = alt_host_of(origin) if origin else None
+    allowed = {h for h in (origin, alt) if h}
+    res = fetch(url)
+    total = res.get("redirects") or 0
+    crossed = 0
+    reason = None
+    while res.get("error") == "external_redirect_blocked" and res.get("status") in REDIRECT_STATUSES:
+        target = res.get("final_url") or ""
+        scheme = urllib.parse.urlsplit(target).scheme.lower()
+        if scheme not in ("http", "https") or _host_key(target) not in allowed:
+            reason = "other_host"
+            break
+        if total > ROBOTS_MAX_REDIRECTS:
+            reason = "too_many_redirects"
+            break
+        crossed += 1
+        res = fetch(target, max_redirects=ROBOTS_MAX_REDIRECTS - total)
+        total += res.get("redirects") or 0
+    if reason is None and crossed and (
+            total > ROBOTS_MAX_REDIRECTS or res.get("status") in REDIRECT_STATUSES):
+        # 남은 홉 수를 다 쓰고도 3xx가 남았다 — 연속 5홉을 넘겼다.
+        reason = "too_many_redirects"
+    if reason == "too_many_redirects":
+        res["error"] = "too_many_redirects"
+    res["redirects"] = total
+    res["robots_url"] = url
+    res["redirect_hosts"] = crossed
+    res["redirect_reason"] = reason
+    return res
+
+
 def _bounded_gunzip(body: bytes, limit: int) -> tuple[bytes, bool]:
     """압축 폭탄이 메모리를 무제한 소비하지 않도록 limit+1 바이트만 푼다."""
     with gzip.GzipFile(fileobj=io.BytesIO(body)) as stream:
@@ -430,6 +504,11 @@ def _decode(body: bytes, content_type: str) -> str:
 
 # ─────────────────────────────────────────────────────────── HTML 파싱
 
+# <head> 안에 올 수 있는 요소. 이 밖의 시작 태그가 나오면 head가 끝난 것으로 본다(HTML 파싱 규칙).
+_HEAD_TAGS = frozenset(("html", "head", "title", "meta", "link", "base", "script", "style",
+                        "noscript", "template"))
+
+
 class PageParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -444,6 +523,9 @@ class PageParser(HTMLParser):
         self.h1 = []
         self.jsonld_raw = []
         self.links = []
+        # <head>의 <link rel="alternate" hreflang href> — (hreflang 원문, href 원문) 순서대로
+        self.hreflang_links = []
+        self._head_closed = False
         self._title_buf = []
         self._h1_buf = []
         self._ld_buf = []
@@ -455,6 +537,8 @@ class PageParser(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         a = {k.lower(): (v or "") for k, v in attrs}
+        if tag not in _HEAD_TAGS:
+            self._head_closed = True   # <body>나 본문 요소가 나오면 </head>가 생략돼도 head는 끝났다
         if tag == "html" and not self.lang:
             self.lang = a.get("lang") or None
         elif tag == "title":
@@ -465,6 +549,10 @@ class PageParser(HTMLParser):
             rel = a.get("rel", "").lower()
             if "canonical" in rel and not self.canonical:
                 self.canonical = a.get("href") or None
+            # hreflang은 <head>의 link만 유효하다. rel은 공백으로 나뉜 토큰 목록이다.
+            if (not self._head_closed and "alternate" in rel.split()
+                    and a.get("hreflang", "").strip() and a.get("href", "").strip()):
+                self.hreflang_links.append((a["hreflang"], a["href"]))
         elif tag == "a":
             href = a.get("href")
             if href:
@@ -504,7 +592,9 @@ class PageParser(HTMLParser):
             self._in_ld = False
 
     def handle_endtag(self, tag):
-        if tag == "title":
+        if tag == "head":
+            self._head_closed = True
+        elif tag == "title":
             self._in_title = False
             self.title = WS.sub(" ", "".join(self._title_buf)).strip() or None
         elif tag == "h1" and self._in_h1:
@@ -814,9 +904,30 @@ def page_record(url: str, res: dict) -> dict:
         "og": parser.og,
         "naver_site_verification": parser.naver_site_verification,
         "lang": parser.lang,
+        # 선택 필드 — HTML을 파싱한 페이지에만 있다(없으면 빈 목록). 옛 audit·미파싱 페이지는 키가 없다.
+        "hreflang": hreflang_entries(res["final_url"] or url, parser.hreflang_links),
         "_links": parser.links,
     })
     return page
+
+
+def hreflang_entries(page_url: str, links) -> list:
+    """<link rel="alternate" hreflang href> 목록을 정렬된 {"hreflang", "href"}로.
+
+    hreflang 값은 소문자로(x-default 포함), href는 페이지 URL 기준 절대 주소로 바꾼다.
+    """
+    rows = set()
+    for lang, href in links:
+        lang = (lang or "").strip().lower()
+        href = (href or "").strip()
+        if not lang or not href:
+            continue
+        try:
+            absolute = urllib.parse.urljoin(page_url, href)
+        except ValueError:
+            continue
+        rows.add((lang, absolute))
+    return [{"hreflang": lang, "href": href} for lang, href in sorted(rows)]
 
 
 # ─────────────────────────────────────────────────────────── llms.txt 형식 메모
@@ -948,7 +1059,7 @@ def llms_format_record(res: dict):
 # ─────────────────────────────────────────────────────────── 사이트 수준
 
 def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap_data=None,
-               robots_state=None, robots_error=None) -> dict:
+               robots_state=None, robots_error=None, robots_final_url=None, robots_redirects=None) -> dict:
     host = host_of(base)
     declared = [
         m.strip() for m in
@@ -1040,6 +1151,10 @@ def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap
     if robots_state:
         robots["fetch_state"] = robots_state
         robots["fetch_error"] = robots_error
+    if robots_final_url is not None:
+        # 선택 필드 — 마지막으로 받은(또는 따라가지 않은) robots.txt 주소와 리다이렉트 홉 수.
+        robots["final_url"] = robots_final_url
+        robots["redirects"] = robots_redirects or 0
     site = {
         "robots": robots,
         "sitemaps": sitemaps,
@@ -1541,6 +1656,16 @@ def _check_site(findings, base, site, ok):
         detail = ", " + robots["fetch_error"] if robots.get("fetch_error") else ""
         if status is not None and 300 <= status < 400:
             why = "리다이렉트를 따라가지 못해 내용을 확인하지 못했다 (HTTP %s%s)." % (status, detail)
+            target = robots.get("final_url")
+            if robots.get("fetch_error") == "external_redirect_blocked":
+                why += (" 다른 도메인(%s)으로 리다이렉트된다 — 서버 장애가 아니다. 이 도구는 진단 대상과 "
+                        "www↔apex 변형 밖의 호스트를 따라가지 않으므로 그쪽 내용은 확인하지 않았다. "
+                        "Google 등 크롤러는 리다이렉트를 따라가 도착한 파일을 적용할 수 있으니 의도한 "
+                        "설정인지 확인하라." % (host_of(target) if target else "알 수 없음"))
+            elif robots.get("fetch_error") == "too_many_redirects":
+                why += (" 리다이렉트가 연속 %d번을 넘는다 — RFC 9309와 Google은 5홉까지만 따라가므로 "
+                        "크롤러도 이 파일을 읽지 못할 수 있다. robots.txt를 한 번에 최종 주소로 보내라."
+                        % ROBOTS_MAX_REDIRECTS)
         else:
             why = ("응답을 받지 못했다 (HTTP %s%s). RFC 9309는 서버 오류·접속 불가일 때 크롤러가 "
                    "사이트 전체를 차단으로 간주하라고 하고, Google도 429·5xx를 일시적으로 전체 "
@@ -1549,7 +1674,8 @@ def _check_site(findings, base, site, ok):
         add(findings, "SEO", "warn", "ROBOTS_UNREACHABLE",
             "robots.txt를 읽지 못했다 — " + why + " UA별 크롤러 정책은 미확인이다(허용으로 보지 않는다).",
             ["%s/robots.txt" % base],
-            {"status": status, "error": robots.get("fetch_error")})
+            {"status": status, "error": robots.get("fetch_error"),
+             "final_url": robots.get("final_url"), "redirects": robots.get("redirects")})
     elif not robots["present"]:
         add(findings, "SEO", "warn", "ROBOTS_MISSING",
             "robots.txt가 없거나 비정상이다 (HTTP %s)." % site["robots"]["status"],
@@ -2038,7 +2164,8 @@ def build_report(target: str, max_pages: int, delay: float, allow_noindex=None) 
     base = base.rstrip("/")
     host = host_of(base)
 
-    robots = fetch("%s/robots.txt" % base)
+    # www↔apex 리다이렉트까지만 따라간다(fetch_robots). 원문·규칙은 도착한 응답에서 읽는다.
+    robots = fetch_robots(base)
     # ok만 원문을 판정한다. 404를 200처럼 꾸민 HTML 오류 페이지는 absent,
     # 429·5xx·접속 실패는 unreachable(정책 미확인)이다 — 둘 다 원문은 비운다.
     robots_state = robots_fetch_state(robots)
@@ -2072,7 +2199,8 @@ def build_report(target: str, max_pages: int, delay: float, allow_noindex=None) 
         coverage["reasons"] = list(dict.fromkeys(coverage["reasons"] + ["sitemap_truncated"]))
 
     site = probe_site(base, raw, robots["status"], pages, sitemap_data=sitemap_data,
-                      robots_state=robots_state, robots_error=robots.get("error"))
+                      robots_state=robots_state, robots_error=robots.get("error"),
+                      robots_final_url=robots.get("final_url"), robots_redirects=robots.get("redirects"))
     site["_coverage"] = coverage
     site["_all_pages_status"] = [(p["url"], p["status"]) for p in pages]
     findings, stats, board = analyze(base, site, pages)

@@ -100,7 +100,13 @@ SRV_PID=""
 cleanup() { [ -n "$SRV_PID" ] && kill "$SRV_PID" 2>/dev/null; rm -rf "$E2E_DIR"; }
 trap cleanup EXIT
 SRV_PY='
-import http.server, threading
+import http.server, socketserver, threading
+class S(http.server.ThreadingHTTPServer):
+    # HTTPServer.server_bind 는 socket.getfqdn() 으로 역방향 DNS 를 조회한다.
+    # macOS 러너에서는 이 조회가 몇 초씩 걸려 포트 출력이 대기 시간을 넘겼다(PR #16 CI).
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def _reply(self, send_body):
@@ -122,7 +128,7 @@ class H(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
     def do_GET(self): self._reply(True)
     def do_HEAD(self): self._reply(False)
-srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+srv = S(("127.0.0.1", 0), H)
 print(srv.server_address[1])
 threading.Timer(300, srv.shutdown).start()
 srv.serve_forever()
@@ -132,7 +138,9 @@ if [ -n "${PY:-}" ]; then
   SRV_PID=$!
 fi
 PORT=""
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
+i=0
+while [ "$i" -lt 75 ]; do   # 최대 15초
+  i=$((i + 1))
   [ -n "${PY:-}" ] || break
   PORT=$( (tr -dc '0-9' < "$E2E_DIR/port") 2>/dev/null)
   [ -n "$PORT" ] && break

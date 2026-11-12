@@ -39,6 +39,9 @@ A page that only says "ask for a quote" has nothing to compare, so another compa
 
 - [ ] Write sentences that survive extraction — conditions, exceptions and as-of date in the same sentence ([aeo](../lanes/aeo.md) four checks)
 - [ ] Structured data only when it matches visible values. Put only prices shown on the page into `site.json`
+- [ ] If the price sheet exists only as a PDF, also publish it as an HTML table on a web page. Converter output (for
+      example [markitdown](https://github.com/microsoft/markitdown), MIT) is a **draft** — PDF tables shift columns easily, so a
+      person checks every number, unit and as-of date against the original PDF before publishing
 
 ## 3. Do we answer the question's conditions — decompose the question
 

@@ -17,6 +17,12 @@ The lane that makes generative AI cite you as a **primary source**. Because engi
 - Gemini not showing up → check Googlebot access and GSC indexing
 - Claude/Perplexity not showing up → check role-specific robots policy, responses, and sources
 
+> Note — **search APIs for agents** (for example [Exa](https://github.com/exa-labs/exa-mcp-server)) are not consumer
+> answer engines but the surface developer tools and AI agents use to find web pages. For B2B or developer audiences
+> you can check **manually** whether non-brand queries surface your domain and how a page is read back. For
+> consumer services in a local market the priority is low. Queries (including brand names) are sent to an external
+> service; record results as a separate surface from the engine citation measurements above.
+
 ## 1. Shared — llms.txt
 
 A markdown site guide for AI at `/llms.txt`:

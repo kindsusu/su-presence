@@ -819,6 +819,132 @@ def page_record(url: str, res: dict) -> dict:
     return page
 
 
+# ─────────────────────────────────────────────────────────── llms.txt 형식 메모
+
+# llms.txt는 공식 표준이 아니라 llmstxt.org의 제안 형식이다. Google은 검색에 필요 없고 순위에
+# 영향이 없다고 밝혔다(lanes/geo.md 1번). 그래서 아래 메모는 순위·인용 요인이 아니라 "제안 형식과
+# 다른 곳"을 알려 주는 참고 사항이다. 메모가 없다고 인용이 오는 것도, 있다고 감점되는 것도 아니다.
+# 아이디어: AgriciDaniel/claude-seo(MIT) agentic_check.py의 llms_format_notes — 코드는 새로 썼다.
+LLMS_MAX_BYTES = 100 * 1024
+_LLMS_LIST_ITEM = re.compile(r"^[-*+]\s+")
+_LLMS_LINK_ITEM = re.compile(r"^[-*+]\s+\[([^\[\]\n]+)\]\(\s*([^()\s]+)\s*\)(?:\s*:\s*(.*))?$")
+_LLMS_H1 = re.compile(r"^#\s+\S")
+_LLMS_H2 = re.compile(r"^##\s+\S")
+# 메모 등급 — 권장 항목은 info, 제안 형식과 다른 곳은 warn. 어느 것도 fail이 아니다.
+LLMS_NOTE_LEVEL = {"summary_missing": "info"}
+_LLMS_HTML = re.compile(r"^\s*(?:<!doctype\s+html|<html[\s>])", re.I)
+
+
+def _llms_clip(text: str, limit: int = 120) -> str:
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def llms_format_notes(text: str, size_bytes=None) -> list:
+    """llms.txt 본문을 llmstxt.org 제안 형식과 대조한 메모 목록. 빈 목록이면 관측된 차이가 없다.
+
+    각 메모는 {"code", "level", "message", "lines"}다. level은 info(권장 항목) 또는 warn(형식 차이)이고
+    fail은 없다. lines는 "줄번호: 원문" 형태로 최대 10개다.
+    size_bytes를 주지 않으면 UTF-8로 다시 인코딩한 크기를 쓴다.
+    """
+    notes = []
+
+    def note(code, message, lines=None):
+        notes.append({"code": code, "level": LLMS_NOTE_LEVEL.get(code, "warn"),
+                      "message": message, "lines": list(lines or [])[:10]})
+
+    text = text or ""
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    size = size_bytes if size_bytes is not None else len(text.encode("utf-8"))
+    if size > LLMS_MAX_BYTES:
+        note("too_large",
+             "파일이 %d KB다 — 제안 형식은 짧은 안내서라 100 KB를 넘으면 전문은 llms-full.txt 같은 "
+             "별도 파일로 나누는 편이 낫다." % (size // 1024))
+    if _LLMS_HTML.match(text):
+        note("html_document",
+             "마크다운이 아니라 HTML 문서가 돌아왔다 — 앱의 기본 페이지(SPA 폴백)가 대신 응답했을 수 있다. "
+             "형식 검사는 하지 않았다.")
+        return notes
+
+    content = []   # (줄번호, 앞뒤 공백을 뗀 줄) — 빈 줄과 코드 블록 안은 뺀다
+    fenced = False
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if line.startswith(("```", "~~~")):
+            fenced = not fenced
+            continue
+        if fenced or not line:
+            continue
+        content.append((number, line))
+    if not content:
+        note("empty", "내용이 없다 — 제목(# 이름) 한 줄도 없다.")
+        return notes
+
+    h1_at = next((i for i, (_, line) in enumerate(content) if _LLMS_H1.match(line)), None)
+    first_no, first = content[0]
+    if h1_at is None:
+        note("h1_missing", "H1 제목(`# 이름`)이 없다 — 제안 형식에서 유일한 필수 항목이다.",
+             ["%d: %s" % (first_no, _llms_clip(first))])
+    elif h1_at != 0:
+        note("h1_not_first", "첫 줄이 H1 제목(`# 이름`)이 아니다 — 제안 형식은 H1으로 시작한다.",
+             ["%d: %s" % (first_no, _llms_clip(first))])
+    if h1_at is not None:
+        following = content[h1_at + 1] if h1_at + 1 < len(content) else None
+        if following is None or not following[1].startswith(">"):
+            note("summary_missing",
+                 "H1 바로 다음에 인용 블록 요약(`> 한 줄 소개`)이 없다 — 필수는 아니지만 권장 항목이다.",
+                 ["%d: %s" % (following[0], _llms_clip(following[1]))] if following else [])
+
+    in_section = False
+    links, relative, non_http, malformed = 0, [], [], []
+    for number, line in content:
+        if _LLMS_H2.match(line):
+            in_section = True
+            continue
+        if _LLMS_H1.match(line):
+            in_section = False
+            continue
+        # 링크 목록은 H2 절 안의 목록 항목이다. H1 아래 소개부의 목록은 자유 형식이라 보지 않는다.
+        if not in_section or not _LLMS_LIST_ITEM.match(line):
+            continue
+        match = _LLMS_LINK_ITEM.match(line)
+        if match:
+            links += 1
+            target = match.group(2)
+            scheme = re.match(r"^([A-Za-z][A-Za-z0-9+.-]*):", target)
+            if scheme is None:
+                relative.append("%d: %s" % (number, _llms_clip(target)))
+            elif scheme.group(1).lower() not in ("http", "https"):
+                non_http.append("%d: %s" % (number, _llms_clip(target)))
+        elif "[" in line or "](" in line:
+            malformed.append("%d: %s" % (number, _llms_clip(line)))
+    if relative:
+        note("relative_links",
+             "상대 경로 링크가 %d개다 — 파일만 따로 읽는 도구는 상대 경로를 풀지 못할 수 있다. "
+             "절대 https:// 주소로 적는다." % len(relative), relative)
+    if non_http:
+        note("non_http_links",
+             "http(s)가 아닌 링크가 %d개다 (mailto:·ftp: 등) — 링크 목록은 읽을 수 있는 문서 주소를 "
+             "가리킨다." % len(non_http), non_http)
+    if malformed:
+        note("malformed_links",
+             "`- [제목](https://…): 설명` 형식에서 벗어난 링크 줄이 %d개다." % len(malformed), malformed)
+    if not links:
+        note("no_links",
+             "H2 절 아래 `- [제목](https://…)` 형식의 링크 목록이 하나도 없다 — 안내할 문서가 없는 셈이다.")
+    return notes
+
+
+def llms_format_record(res: dict):
+    """crawl·verify 공용. 200으로 받은 llms.txt 응답이면 형식 메모 기록을, 아니면 None(미측정)을 준다."""
+    if res.get("status") != 200 or res.get("error") not in (None, "body_truncated"):
+        return None
+    body = res.get("body") or ""
+    size = len(body.encode("utf-8"))
+    return {"bytes": size, "truncated": bool(res.get("truncated")),
+            "notes": llms_format_notes(body, size_bytes=size)}
+
+
 # ─────────────────────────────────────────────────────────── 사이트 수준
 
 def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap_data=None,
@@ -868,8 +994,12 @@ def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap
         return fetch(url, rules=audit_rules)
 
     llms = {}
+    llms_format = None
     for name in ("llms.txt", "llms-full.txt"):
-        llms[name] = allowed_fetch("%s/%s" % (base, name))["status"]
+        res = allowed_fetch("%s/%s" % (base, name))
+        llms[name] = res["status"]
+        if name == "llms.txt":
+            llms_format = llms_format_record(res)
 
     home = allowed_fetch(base)
     probe = allowed_fetch("%s/__multi_geo_404_probe__" % base)
@@ -910,7 +1040,7 @@ def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap
     if robots_state:
         robots["fetch_state"] = robots_state
         robots["fetch_error"] = robots_error
-    return {
+    site = {
         "robots": robots,
         "sitemaps": sitemaps,
         "sitemap_urls": sorted(sm_set),
@@ -929,6 +1059,11 @@ def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap
             },
         },
     }
+    # 선택 필드 — llms.txt를 HTTP 200으로 받았을 때만 생긴다. 키가 없으면 미측정이지 "문제 없음"이 아니다.
+    # 순위·인용 요인이 아니라 참고 메모라 findings·scorecard에는 넣지 않는다.
+    if llms_format is not None:
+        site["llms_format"] = llms_format
+    return site
 
 
 def sitemap_candidates(base: str, host: str, declared: list) -> list:
@@ -940,6 +1075,101 @@ def sitemap_candidates(base: str, host: str, declared: list) -> list:
         if url not in candidates:
             candidates.append(url)
     return candidates
+
+
+# ─────────────────────────────────────────────────────────── 사이트맵 위생
+
+# 사이트맵 프로토콜(sitemaps.org)의 파일당 한도. 넘으면 검색엔진이 파일을 읽지 않을 수 있다.
+# 아래 지표는 순위·인용 요인이 아니라 사이트맵 관리 상태다. 크롤 완전성 판정에는 쓰지 않는다.
+SITEMAP_MAX_URLS = 50_000
+SITEMAP_MAX_BYTES = 52_428_800          # 50 MB, 압축 해제 기준
+SITEMAP_UNIFORM_MIN = 10                # 같은 lastmod 비율을 따질 최소 항목 수
+SITEMAP_UNIFORM_SHARE = 0.9
+_W3C_DATETIME = re.compile(
+    r"^(\d{4})(?:-(\d{2})(?:-(\d{2})"
+    r"(?:T([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d)(?:\.\d+)?)?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d))?)?)?$")
+
+
+def w3c_datetime(value: str) -> bool:
+    """W3C Datetime(YYYY · YYYY-MM · YYYY-MM-DD · 시각은 시간대 필수) 형식인가. 없는 날짜는 거부한다."""
+    match = _W3C_DATETIME.match(value or "")
+    if not match:
+        return False
+    year, month, day = match.group(1), match.group(2), match.group(3)
+    try:
+        datetime(int(year), int(month or 1), int(day or 1))
+    except ValueError:
+        return False
+    return True
+
+
+def _xml_local(tag) -> str:
+    return tag.rsplit("}", 1)[-1].lower() if isinstance(tag, str) else ""
+
+
+def _normalize_safe(url: str) -> str:
+    try:
+        return normalize(url)
+    except ValueError:   # 잘못된 IPv6 표기 등 — 원문 그대로 비교한다
+        return url
+
+
+def _declared_size(res: dict, url: str):
+    """압축되지 않은 응답의 Content-Length. gzip이면 압축 해제 크기를 알 수 없어 None."""
+    headers = res.get("headers") or {}
+    if headers.get("content-encoding") or urllib.parse.urlsplit(url).path.lower().endswith(".gz"):
+        return None
+    try:
+        return int(headers.get("content-length") or "")
+    except ValueError:
+        return None
+
+
+def sitemap_quality(root, body: str, host: str, declared_size=None) -> dict:
+    """사이트맵 한 파일의 위생 지표 (선택 필드 sitemaps[].quality).
+
+    항목은 루트 바로 아래 <url>·<sitemap>이고, 그 항목의 직계 <loc>·<lastmod>만 본다
+    (image:loc 같은 확장 요소는 세지 않는다). 예시 목록은 최대 5개다.
+    """
+    entries = [node for node in root if _xml_local(node.tag) in ("url", "sitemap")]
+    locs, valid, invalid, missing = [], [], [], 0
+    for entry in entries:
+        loc = next(((child.text or "").strip() for child in entry
+                    if _xml_local(child.tag) == "loc"), "")
+        if loc:
+            locs.append(loc)
+        lastmod = next(((child.text or "").strip() for child in entry
+                        if _xml_local(child.tag) == "lastmod"), "")
+        if not lastmod:
+            missing += 1
+        elif w3c_datetime(lastmod):
+            valid.append(lastmod)
+        else:
+            invalid.append(lastmod)
+    top_value, top_count = (Counter(valid).most_common(1) or [(None, 0)])[0]
+    foreign = [u for u in locs if u.lower().startswith(("http://", "https://")) and host_of(u) != host]
+    seen = Counter(_normalize_safe(u) for u in locs)
+    duplicates = [u for u, n in seen.items() if n > 1]
+    size = len((body or "").encode("utf-8"))
+    if declared_size and declared_size > size:
+        size = declared_size
+    count = len(entries)
+    return {
+        "entries": count,
+        "bytes": size,
+        "lastmod_missing": missing,
+        "lastmod_invalid": len(invalid),
+        "lastmod_invalid_examples": list(dict.fromkeys(invalid))[:5],
+        "lastmod_top_value": top_value,
+        "lastmod_top_count": top_count,
+        "lastmod_top_share": round(top_count / count, 3) if count else 0.0,
+        "foreign_host": len(foreign),
+        "foreign_host_examples": list(dict.fromkeys(foreign))[:5],
+        "duplicate_urls": sum(n - 1 for n in seen.values() if n > 1),
+        "duplicate_examples": duplicates[:5],
+        "over_url_limit": count > SITEMAP_MAX_URLS,
+        "over_size_limit": size > SITEMAP_MAX_BYTES,
+    }
 
 
 def read_sitemaps(base: str, host: str, declared: list):
@@ -957,7 +1187,7 @@ def read_sitemaps(base: str, host: str, declared: list):
             continue
         seen.add(url)
         res = fetch(url)
-        locs, is_index, parsed, parse_error = [], False, False, None
+        locs, is_index, parsed, parse_error, quality = [], False, False, None, None
         if res["status"] == 200 and not res.get("error"):
             try:
                 root = ET.fromstring(res["body"] or "")
@@ -970,12 +1200,26 @@ def read_sitemaps(base: str, host: str, declared: list):
                 parsed = True
             except (ET.ParseError, ValueError) as exc:
                 parse_error = str(exc)
-        results.append({
+            if parsed:
+                # 위생 지표는 참고용이다 — 계산이 실패해도 파싱·완전성 판정은 바꾸지 않는다.
+                try:
+                    quality = sitemap_quality(root, res["body"] or "", host,
+                                              _declared_size(res, url))
+                except ValueError:
+                    quality = None
+        elif res["status"] == 200 and (_declared_size(res, url) or 0) > SITEMAP_MAX_BYTES:
+            # 본문을 다 받지 못해 파싱은 못 했지만 선언된 크기만으로 한도 초과는 확인된다.
+            size = _declared_size(res, url)
+            quality = {"bytes": size, "over_size_limit": True, "partial": True}
+        result = {
             "url": url, "status": res["status"],
             "is_index": is_index, "url_count": len(locs), "parsed": parsed,
             "truncated": bool(res.get("truncated")) or (is_index and len(locs) > 100),
             "error": res.get("error") or parse_error,
-        })
+        }
+        if quality is not None:
+            result["quality"] = quality   # 선택 필드 — 옛 audit에는 없다
+        results.append(result)
         if res["status"] != 200 or not parsed:
             continue
         if is_index:
@@ -1019,6 +1263,7 @@ def analyze(base: str, site: dict, pages: list) -> tuple:
     _check_meta(findings, ok, total)
     _check_structure(findings, ok, total)
     _check_site(findings, base, site, ok)
+    _check_sitemap_quality(findings, site)
     _check_link_discovery(findings, base, site, ok)
     _check_robots_file(findings, base, site)
     _check_crawler_policy(findings, site)
@@ -1392,6 +1637,90 @@ def _check_site(findings, base, site, ok):
     # (ops/coverage.md · KEO 다음 웹마스터도구).
 
 
+def _check_sitemap_quality(findings, site):
+    """사이트맵 위생 (선택 필드 sitemaps[].quality — 옛 audit에는 없고, 없으면 아무것도 내지 않는다).
+
+    순위·인용 요인이 아니라 프로토콜 준수·관리 상태다. 프로토콜 위반으로 항목이나 파일이 무시될 수
+    있는 것(한도 초과·다른 호스트)만 warn, 나머지는 info다. 크롤 완전성 판정은 바꾸지 않는다.
+    """
+    measured = [s for s in site.get("sitemaps") or [] if isinstance(s.get("quality"), dict)]
+    if not measured:
+        return
+    note = " 순위·인용 요인이 아니라 사이트맵 관리 상태다."
+
+    def rows(key, *extra):
+        return [dict({"url": s["url"], key: s["quality"].get(key)},
+                     **{k: s["quality"].get(k) for k in extra})
+                for s in measured if s["quality"].get(key)]
+
+    over = [s for s in measured
+            if s["quality"].get("over_url_limit") or s["quality"].get("over_size_limit")]
+    if over:
+        add(findings, "SEO", "info", "SITEMAP_LIMIT_EXCEEDED",
+            "사이트맵 %d개가 파일당 한도(URL %s개 · 압축 해제 50 MB)를 넘는다 — 검색엔진이 파일을 "
+            "읽지 않을 수 있다. 여러 파일로 나누고 sitemap index로 묶는다." % (len(over), format(SITEMAP_MAX_URLS, ","))
+            + note,
+            [s["url"] for s in over],
+            {"count": len(over), "max_urls": SITEMAP_MAX_URLS, "max_bytes": SITEMAP_MAX_BYTES,
+             "sitemaps": [{"url": s["url"], "entries": s["quality"].get("entries"),
+                           "bytes": s["quality"].get("bytes"),
+                           "over_url_limit": bool(s["quality"].get("over_url_limit")),
+                           "over_size_limit": bool(s["quality"].get("over_size_limit"))}
+                          for s in over]})
+
+    foreign = rows("foreign_host", "foreign_host_examples")
+    if foreign:
+        total = sum(r["foreign_host"] for r in foreign)
+        add(findings, "SEO", "info", "SITEMAP_FOREIGN_HOST",
+            "사이트맵 <loc> %d개가 진단 대상과 다른 호스트를 가리킨다 — 프로토콜상 사이트맵에는 같은 "
+            "호스트의 URL만 싣는다(www↔apex 혼용부터 확인). 이 URL은 사이트맵·크롤 비교에서도 빠졌다."
+            % total + note,
+            [u for r in foreign for u in r["foreign_host_examples"] or []],
+            {"count": total, "sitemaps": foreign})
+
+    duplicates = rows("duplicate_urls", "duplicate_examples")
+    if duplicates:
+        total = sum(r["duplicate_urls"] for r in duplicates)
+        add(findings, "SEO", "info", "SITEMAP_DUPLICATE_URLS",
+            "사이트맵 안에서 같은 URL이 %d번 더 실렸다 — 생성 설정을 확인한다." % total + note,
+            [u for r in duplicates for u in r["duplicate_examples"] or []],
+            {"count": total, "sitemaps": duplicates})
+
+    invalid = rows("lastmod_invalid", "lastmod_invalid_examples")
+    if invalid:
+        total = sum(r["lastmod_invalid"] for r in invalid)
+        add(findings, "SEO", "info", "SITEMAP_LASTMOD_INVALID",
+            "W3C Datetime 형식이 아닌 lastmod가 %d개다 (예: %s) — 그 값은 무시될 수 있다. "
+            "2026-11-12 또는 2026-11-12T09:00:00+09:00처럼 적는다."
+            % (total, ", ".join(v for r in invalid for v in r["lastmod_invalid_examples"] or [])[:120])
+            + note,
+            [r["url"] for r in invalid], {"count": total, "sitemaps": invalid})
+
+    entries = sum(s["quality"].get("entries") or 0 for s in measured)
+    missing = rows("lastmod_missing", "entries")
+    if missing:
+        total = sum(r["lastmod_missing"] for r in missing)
+        add(findings, "SEO", "info", "SITEMAP_LASTMOD_MISSING",
+            "사이트맵 항목 %d/%d개에 lastmod가 없다 — 필수 항목은 아니다. 넣는다면 실제 내용이 바뀐 "
+            "날짜만 적는다." % (total, entries) + note,
+            [r["url"] for r in missing], {"count": total, "entries": entries, "sitemaps": missing})
+
+    uniform = [s for s in measured
+               if (s["quality"].get("lastmod_top_count") or 0) >= SITEMAP_UNIFORM_MIN
+               and (s["quality"].get("lastmod_top_share") or 0) >= SITEMAP_UNIFORM_SHARE]
+    if uniform:
+        first = uniform[0]["quality"]
+        add(findings, "SEO", "info", "SITEMAP_LASTMOD_UNIFORM",
+            "사이트맵 %d개에서 항목의 %d%% 이상이 같은 lastmod(%s)다 — 생성 시각을 일괄로 찍는 설정일 수 "
+            "있다. 실제 변경일이 아니면 lastmod가 신뢰받지 못할 수 있다."
+            % (len(uniform), round(SITEMAP_UNIFORM_SHARE * 100), first.get("lastmod_top_value")) + note,
+            [s["url"] for s in uniform],
+            {"count": len(uniform), "min_share": SITEMAP_UNIFORM_SHARE,
+             "sitemaps": [{"url": s["url"], "value": s["quality"].get("lastmod_top_value"),
+                           "share": s["quality"].get("lastmod_top_share"),
+                           "entries": s["quality"].get("entries")} for s in uniform]})
+
+
 def robots_unknown(site) -> bool:
     """robots.txt를 읽지 못해 UA별 정책이 미확인인가 (옛 audit에는 fetch_state가 없다)."""
     robots = site.get("robots") or {}
@@ -1611,6 +1940,15 @@ def print_summary(report: dict) -> None:
     for sm in site["sitemaps"]:
         tag = "인덱스 · 하위 %d" % sm["url_count"] if sm["is_index"] else "URL %d개" % sm["url_count"]
         print("   %-42s HTTP %s  (%s)" % (sm["url"], sm["status"], tag))
+        q = sm.get("quality")
+        if q and not q.get("partial"):
+            print("     위생: lastmod 없음 %d · 형식 오류 %d · 최다 동일값 %d%% · 다른 호스트 %d · 중복 %d%s"
+                  % (q.get("lastmod_missing") or 0, q.get("lastmod_invalid") or 0,
+                     round((q.get("lastmod_top_share") or 0) * 100), q.get("foreign_host") or 0,
+                     q.get("duplicate_urls") or 0,
+                     " · ⚠️ 파일 한도 초과" if q.get("over_url_limit") or q.get("over_size_limit") else ""))
+        elif q:
+            print("     위생: ⚠️ 선언 크기 %s바이트 — 파일 한도(50 MB) 초과" % q.get("bytes"))
     mismatch = site["sitemap_vs_crawl"]
     print("   사이트맵 vs 크롤: 사이트맵에만 %d · 크롤에만 %d"
           % (len(mismatch["only_in_sitemap"]), len(mismatch["only_in_crawl"])))
@@ -1626,6 +1964,13 @@ def print_summary(report: dict) -> None:
     print("── 4. llms.txt / 응답 위생 ──")
     for name, status in site["llms"].items():
         print("   /%-14s HTTP %s" % (name, status))
+    llms_format = site.get("llms_format")
+    if llms_format is not None:
+        notes = llms_format.get("notes") or []
+        print("   llms.txt 형식 메모: %s (llmstxt.org 제안 형식 기준 — 순위·인용 요인이 아니다)"
+              % ("%d건" % len(notes) if notes else "없음"))
+        for item in notes:
+            print("     · %s" % item["message"])
     hygiene = site["hygiene"]
     print("   404 동작        : HTTP %s  (404여야 정상)" % hygiene["probe_404"])
     print("   리다이렉트 홉   : %s" % hygiene["redirect_hops"])

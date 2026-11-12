@@ -58,6 +58,8 @@ NEXT = {
     "sitemap.canonical": "사이트맵 URL과 canonical이 어긋난다 — 사이트맵에 canonical URL을 실어라.",
     "llms.status": "llms.txt를 웹루트에 올려라.",
     "llms.todo": "llms.txt에 `<<TODO` 표식이 남아 있다 — 미완성 배포다. 채우고 다시 올려라.",
+    "llms.format": "선택 사항이다. llms.txt를 쓰는 서비스를 위해 다듬을 때 `verify.json`의 메모(줄 번호)를 "
+                   "참고하라. Google 검색에는 필요 없고 순위에 영향이 없다 (lanes/geo.md 1번).",
     "jsonld.present": "해당 페이지 `<head>`에 LD 스니펫이 들어가지 않았다.",
     "jsonld.type": "LD가 들어갔지만 @type이 다르다 — 스니펫을 다시 붙여라.",
     "jsonld.visible": "LD가 화면에 없는 말을 한다 — 스팸으로 분류될 수 있다. "
@@ -129,6 +131,7 @@ class Session:
         rec["status"] = res.get("status")
         rec["final_url"] = res.get("final_url") or url
         rec["error"] = res.get("error")
+        rec["truncated"] = bool(res.get("truncated"))
         headers = res.get("headers") or {}
         rec["x_robots_tag"] = headers.get("x-robots-tag")
         # 리다이렉트 목적지도 대상 호스트여야 한다 — 밖으로 나갔으면 본문을 쓰지 않는다
@@ -694,6 +697,24 @@ def check_llms(checks, session: Session, base: str, pkg: dict) -> None:
             {"lines": todos[:20]})
     else:
         chk(checks, "llms.todo", "pass", "llms.txt에 남은 TODO 표식이 없다")
+    # 형식 메모는 참고용이다 — llmstxt.org 제안 형식과 다른 곳을 알려 줄 뿐 순위·인용 요인이 아니어서
+    # fail로 올리지 않는다(종료 코드에 영향 없음). 받은 본문을 읽지 못했으면 미측정으로 남긴다.
+    record = crawl.llms_format_record(rec)
+    if record is None:
+        chk(checks, "llms.format", "skip",
+            "llms.txt 본문을 온전히 받지 못해 형식을 확인하지 않았다 (%s)" % (rec.get("error") or "unknown"))
+    elif any(n.get("level", "warn") == "warn" for n in record["notes"]):
+        chk(checks, "llms.format", "warn",
+            "llms.txt 형식 메모 %d건 — llmstxt.org 제안 형식 기준의 참고 사항이며 순위·인용 요인이 아니다: %s"
+            % (len(record["notes"]), ", ".join(n["code"] for n in record["notes"])), record)
+    elif record["notes"]:
+        # 권장 항목(info)만 빠졌다 — 형식 차이는 없으므로 pass로 두고 메모만 남긴다.
+        chk(checks, "llms.format", "pass",
+            "llms.txt가 제안 형식과 맞는다. 권장 항목 참고 %d건: %s (순위·인용 요인이 아니다)"
+            % (len(record["notes"]), ", ".join(n["code"] for n in record["notes"])), record)
+    else:
+        chk(checks, "llms.format", "pass",
+            "llms.txt가 llmstxt.org 제안 형식과 맞는다 (참고 사항 — 순위·인용 요인이 아니다)", record)
 
 
 def jsonld_targets(pkg: dict, audit: dict, base: str) -> list:

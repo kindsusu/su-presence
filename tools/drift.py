@@ -38,8 +38,11 @@ from datetime import date as _date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import urllib.parse  # noqa: E402
+
 import verify  # noqa: E402  (verify_diff — findings/scorecard/stats/pages 비교를 복제하지 않는다)
 import measure  # noqa: E402  (source_channel — 플랫폼 도메인을 경쟁사로 세지 않는다)
+import crawl  # noqa: E402  (_robots_directives — noindex 판정을 복제하지 않는다)
 
 SCHEMA_HISTORY = "su-presence/history/1"
 # 옛 이름을 안 받으면 기존 history.json 이 버려지고 **기준선이 조용히 초기화된다.**
@@ -543,6 +546,130 @@ def compare_measure(before: dict, after: dict) -> dict:
     }
 
 
+# ─────────────────────────────────────────────────────────── 페이지 제어 필드
+#
+# 페이지마다 색인·대표 URL을 정하는 필드가 바뀌었는지 본다. 아이디어 출처:
+# AgriciDaniel/chatgpt-seo(MIT)의 compare_snapshots CONTROL_FIELDS — 코드는 새로 썼다.
+# 옛 audit에 키가 없으면 "미확인"이지 변화가 아니다. 관측 실패(오류·비200) 페이지도 미확인이다.
+
+CONTROL_FIELDS = ("canonical", "meta_robots", "x_robots_tag", "noindex", "hreflang")
+CONTROL_CHANGE_LIMIT = 200
+_UNKNOWN = object()
+
+
+def _control_observed(page: dict) -> bool:
+    return isinstance(page, dict) and page.get("status") == 200 and not page.get("error")
+
+
+def _directive_tokens(value) -> str:
+    """meta robots·X-Robots-Tag 값을 비교용으로 정규화한다 (대소문자·공백·순서 무시)."""
+    if not isinstance(value, str):
+        return ""
+    parts = []
+    for line in value.splitlines():
+        for piece in line.split(","):
+            piece = " ".join(piece.lower().split()).replace(" :", ":").replace(": ", ":")
+            if piece:
+                parts.append(piece)
+    return ", ".join(sorted(set(parts)))
+
+
+def _absolute(page: dict, href):
+    if not isinstance(href, str) or not href.strip():
+        return None
+    base = page.get("final_url") or page.get("url") or ""
+    return urllib.parse.urldefrag(urllib.parse.urljoin(base, href.strip()))[0]
+
+
+def _hreflang_set(page: dict, value):
+    """hreflang 표현을 정렬된 "lang → href" 목록으로. 모양을 모르면 미확인."""
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        items = list(value.items())
+    elif isinstance(value, list):
+        items = []
+        for entry in value:
+            if isinstance(entry, dict):
+                items.append((entry.get("hreflang") or entry.get("lang"),
+                              entry.get("href") or entry.get("url")))
+            elif isinstance(entry, str):
+                items.append((entry, None))
+            else:
+                return _UNKNOWN
+    else:
+        return _UNKNOWN
+    rows = []
+    for lang, href in items:
+        if not isinstance(lang, str) or not lang.strip():
+            return _UNKNOWN
+        rows.append("%s → %s" % (lang.strip().lower(), _absolute(page, href) or "?"))
+    return sorted(set(rows))
+
+
+def _noindex_state(page: dict):
+    """noindex면 True. 아니라고 하려면 판정에 쓰는 키가 모두 있어야 한다 — 하나라도 없으면 미확인."""
+    keys = ("meta_robots", "meta_googlebot", "x_robots_tag")
+    present = {k: page[k] for k in keys if k in page}
+    if "noindex" in crawl._robots_directives(present):
+        return True
+    return False if len(present) == len(keys) else _UNKNOWN
+
+
+def control_values(page: dict) -> dict:
+    """페이지 하나의 제어 필드 정규화 값. 판정할 수 없으면 _UNKNOWN."""
+    values = {field: _UNKNOWN for field in CONTROL_FIELDS}
+    if not _control_observed(page):
+        return values
+    if "canonical" in page:
+        values["canonical"] = _absolute(page, page["canonical"])
+    for field in ("meta_robots", "x_robots_tag"):
+        if field in page:
+            values[field] = _directive_tokens(page[field])
+    values["noindex"] = _noindex_state(page)
+    if "hreflang" in page:
+        values["hreflang"] = _hreflang_set(page, page["hreflang"])
+    return values
+
+
+def compare_controls(before: dict, after: dict) -> dict:
+    """두 audit 사이 같은 URL 페이지의 제어 필드 변화. 한쪽에만 있는 URL은 diff.pages가 다룬다."""
+    def by_url(report):
+        return {p["url"]: p for p in report.get("pages") or []
+                if isinstance(p, dict) and isinstance(p.get("url"), str)}
+    b_pages, a_pages = by_url(before), by_url(after)
+    shared = sorted(set(b_pages) & set(a_pages))
+    changes, new_noindex = [], []
+    unknown = OrderedDict((field, 0) for field in CONTROL_FIELDS)
+    for url in shared:
+        bv, av = control_values(b_pages[url]), control_values(a_pages[url])
+        for field in CONTROL_FIELDS:
+            b, a = bv[field], av[field]
+            if b is _UNKNOWN or a is _UNKNOWN:
+                unknown[field] += 1
+                continue
+            if b == a:
+                continue
+            item = {"url": url, "field": field, "before": b, "after": a, "kind": "change"}
+            if field == "noindex" and b is False and a is True:
+                if a_pages[url].get("intended_indexable", True) is False:
+                    item["intended"] = True     # --allow-noindex로 선언한 비색인은 회귀가 아니다
+                else:
+                    item["kind"] = "regression"
+                    new_noindex.append(url)
+            changes.append(item)
+    changes.sort(key=lambda c: (c["kind"] != "regression", c["url"], CONTROL_FIELDS.index(c["field"])))
+    return {
+        "fields": list(CONTROL_FIELDS),
+        "pages_compared": len(shared),
+        "change_count": len(changes),
+        "changes": changes[:CONTROL_CHANGE_LIMIT],
+        "truncated": len(changes) > CONTROL_CHANGE_LIMIT,
+        "new_noindex": new_noindex,
+        "unknown": dict(unknown),
+    }
+
+
 def build_drift(outdir: str, host: str, index: dict, from_date: str, to_date: str,
                 stale_days: int) -> dict:
     b_snap, a_snap = find_snapshot(index, "audit", from_date), find_snapshot(index, "audit", to_date)
@@ -551,6 +678,13 @@ def build_drift(outdir: str, host: str, index: dict, from_date: str, to_date: st
     audit_diff = verify.verify_diff(before, after)
     b_metrics, a_metrics = audit_metrics(before), audit_metrics(after)
     regressions, improvements, flat = compare_metrics(b_metrics, a_metrics)
+
+    controls = compare_controls(before, after)
+    if controls["new_noindex"]:
+        regressions.append({"code": "control_new_noindex", "label": "색인 가능 → noindex 페이지",
+                            "urls": controls["new_noindex"],
+                            "message": "이전에 색인 가능하던 페이지 %d개에 noindex가 새로 생겼다"
+                                       % len(controls["new_noindex"])})
 
     score = check_by_id(audit_diff, "diff.scorecard")
     if score.get("status") == "fail":
@@ -638,6 +772,7 @@ def build_drift(outdir: str, host: str, index: dict, from_date: str, to_date: st
             "pages": check_by_id(audit_diff, "diff.pages").get("evidence") or {},
             "summary": audit_diff.get("summary"),
         },
+        "control_changes": controls,
         "measure_diff": measure_diff,
         "regressions": regressions,
         "improvements": improvements,
@@ -651,6 +786,44 @@ def build_drift(outdir: str, host: str, index: dict, from_date: str, to_date: st
 
 def _pct(rate):
     return "—" if rate is None else "%.0f%%" % (rate * 100)
+
+
+def _control_value_md(value) -> str:
+    if value is None or value == "" or value == []:
+        return "(없음)"
+    if isinstance(value, bool):
+        return "noindex" if value else "색인 가능"
+    if isinstance(value, list):
+        return "; ".join(value)
+    return str(value)
+
+
+def render_controls_md(controls) -> list:
+    """페이지 제어 필드 절. 옛 drift.json에는 키가 없으니 그때는 아무것도 싣지 않는다."""
+    if not controls:
+        return []
+    out = ["## 페이지 제어 필드 변화", "",
+           "같은 URL에서 canonical · meta robots · X-Robots-Tag · noindex · hreflang을 비교했다 "
+           "(%d개 페이지)." % controls.get("pages_compared", 0), ""]
+    changes = controls.get("changes") or []
+    if not changes:
+        out += ["바뀐 것이 없다.", ""]
+    else:
+        out += ["| URL | 필드 | 전 | 후 | 판정 |", "|---|---|---|---|---|"]
+        for item in changes:
+            verdict = ("❌ 회귀" if item.get("kind") == "regression"
+                       else "의도한 비색인" if item.get("intended") else "변경")
+            out.append("| %s | %s | %s | %s | %s |" % (
+                item["url"].replace("|", "\\|"), item["field"], _control_value_md(item.get("before")).replace("|", "\\|"),
+                _control_value_md(item.get("after")).replace("|", "\\|"), verdict))
+        out.append("")
+        if controls.get("truncated"):
+            out += ["변경 %d건 중 앞의 %d건만 실었다." % (controls.get("change_count", 0), len(changes)), ""]
+    unknown = {k: v for k, v in (controls.get("unknown") or {}).items() if v}
+    if unknown:
+        out += ["미확인(한쪽 audit에 필드가 없거나 관측 실패 — 변화로 세지 않음): "
+                + ", ".join("%s %d" % (k, v) for k, v in unknown.items()), ""]
+    return out
 
 
 def render_drift_md(drift: dict) -> str:
@@ -703,6 +876,8 @@ def render_drift_md(drift: dict) -> str:
             out.append("- `%s` (%s/%s) — %s" % (f.get("code"), f.get("lane"),
                                                 f.get("severity"), f.get("message")))
         out.append("")
+
+    out += render_controls_md(drift.get("control_changes"))
 
     md = drift.get("measure_diff")
     out += ["## 측정 드리프트", ""]

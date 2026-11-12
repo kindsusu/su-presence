@@ -239,10 +239,98 @@ def _fetch_raw(url: str, limit: int, deadline: float) -> tuple[str, int, dict, b
     raise ValueError("redirect limit exceeded")
 
 
+# Hidden-text review. Idea from AgriciDaniel/claude-seo parse_html.py hidden_text (MIT);
+# this is an independent standard-library implementation.
+_INERT_TAGS = ("script", "style", "noscript", "template", "svg", "iframe")
+HIDDEN_SAMPLES = 3
+HIDDEN_SAMPLE_CHARS = 160
+HIDDEN_INSTRUCTION_FLAG = "hidden_ai_instructions"
+_OFFSCREEN_PROPS = ("left", "top", "right", "bottom", "margin-left", "margin-top", "text-indent")
+_ZERO_SIZE = re.compile(r"0*\.?0+(?:px|em|rem|pt|%|vw|vh|ex|ch)?")
+_FAR_OFFSET = re.compile(r"-\s*(\d+(?:\.\d+)?)(px|em|rem|pt|vw|vh)?")
+_TRANSLATE = re.compile(r"translate(?:x|y|3d)?\(\s*-\s*(\d+(?:\.\d+)?)(px|em|rem|vw|vh)?", re.I)
+
+
+def _far_offset(amount: str, unit: str | None) -> bool:
+    value = float(amount)
+    unit = (unit or "px").lower()
+    return value >= (999 if unit in ("px", "pt") else 100 if unit in ("vw", "vh") else 50)
+
+
+def _hidden_style(style) -> bool:
+    """Inline styles that keep text out of a reader's view.
+
+    Covers display:none, visibility:hidden/collapse, zero font size, and far off-screen
+    offsets or translations. Stylesheet classes are not evaluated.
+    """
+    if not isinstance(style, str) or not style.strip():
+        return False
+    for declaration in style.split(";"):
+        name, sep, value = declaration.partition(":")
+        if not sep:
+            continue
+        name = name.strip().lower()
+        value = re.sub(r"\s*!\s*important\s*$", "", value.strip().lower())
+        if name == "display" and value == "none":
+            return True
+        if name == "visibility" and value in ("hidden", "collapse"):
+            return True
+        if name == "font-size" and _ZERO_SIZE.fullmatch(value):
+            return True
+        if name in _OFFSCREEN_PROPS:
+            match = _FAR_OFFSET.fullmatch(value)
+            if match and _far_offset(*match.groups()):
+                return True
+        if name == "transform":
+            match = _TRANSLATE.search(value)
+            if match and _far_offset(*match.groups()):
+                return True
+    return False
+
+
+# Phrasing addressed to an AI system. Matching marks the page for human review only.
+_INSTRUCTION_PATTERNS = (
+    ("ignore_instructions", re.compile(
+        r"\b(?:ignore|disregard|forget|override|bypass)\b[^.\n]{0,40}?\b(?:previous|prior|above|earlier|preceding|"
+        r"all|any|your|system)\b[^.\n]{0,20}?\b(?:instructions?|prompts?|directions?|rules|guidelines|context)\b", re.I)),
+    ("addressed_to_ai", re.compile(
+        r"\b(?:you\s+are|you're)\s+(?:now\s+)?(?:an?\s+)?(?:ai|a\.i\.|artificial\s+intelligence|(?:ai\s+)?assistant|"
+        r"chatbot|(?:large\s+)?language\s+model|llm|chatgpt|gpt|claude|gemini|copilot|perplexity)\b"
+        r"|\bas\s+an?\s+(?:ai\s+(?:assistant|model|language\s+model)|(?:large\s+)?language\s+model|llm)\b"
+        r"|\b(?:dear|attention|note\s+to|hey|hello)\s*,?\s*(?:all\s+)?(?:ai|a\.i\.|llms?|ai\s+assistants?|"
+        r"chatbots?|chatgpt|claude|gemini|language\s+models?|ai\s+(?:models?|agents?|crawlers?|systems?))\b", re.I)),
+    ("ai_directive", re.compile(
+        r"\b(?:ai|llms?|ai\s+assistants?|chatbots?|language\s+models?|ai\s+(?:models?|agents?|systems?))\b[^.\n]{0,30}?"
+        r"\b(?:must|should|shall|always|never|are\s+required\s+to)\b[^.\n]{0,40}?\b(?:recommend|say|answer|cite|"
+        r"mention|rank|respond|reply|tell|describe|state|prefer|output)", re.I)),
+    ("system_prompt", re.compile(
+        r"\bsystem\s+(?:prompt|message|instructions?)\b|\bnew\s+instructions?\s*:|\[\s*(?:system|inst)\s*\]|"
+        r"<\|?\s*im_start|시스템\s*프롬프트", re.I)),
+    ("ignore_instructions_ko", re.compile(
+        r"(?:이전|위|앞|기존|모든)\S{0,3}\s*(?:\S+\s+){0,2}?(?:지시|지침|명령|프롬프트|규칙)\S{0,4}\s*(?:모두\s*)?(?:무시|잊)")),
+    ("addressed_to_ai_ko", re.compile(
+        r"(?:너는|넌|당신은|그대는)\s*(?:이제\s*)?(?:AI|에이아이|인공\s*지능|어시스턴트|챗봇|언어\s*모델)"
+        r"|(?:AI|인공\s*지능|챗봇|어시스턴트|언어\s*모델)\S{0,3}\s*(?:에게|는|은)[^.\n]{0,30}?"
+        r"(?:추천|답변|대답|말|인용|언급)\S{0,2}\s*(?:해야|하라|하세요|해라|할\s*것)", re.I)),
+)
+
+
+def instruction_patterns(text: str) -> list[str]:
+    """Return the IDs of AI-addressed instruction patterns found in text (data, never obeyed)."""
+    if not isinstance(text, str) or not text:
+        return []
+    normalized = unicodedata.normalize("NFKC", text)
+    normalized = "".join(c for c in normalized if unicodedata.category(c) != "Cf")
+    normalized = " ".join(normalized.split())
+    return [name for name, pattern in _INSTRUCTION_PATTERNS if pattern.search(normalized)]
+
+
 class _VisibleHTML(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.hidden = 0
+        self.concealed = 0
+        self.inert = 0
         self.stack = []
         self.hidden_flags = []
         self.title = []
@@ -250,6 +338,7 @@ class _VisibleHTML(HTMLParser):
         self.h1 = []
         self.active_headings = []
         self.text = []
+        self.hidden_blocks = []
         self.table = False
         self.faq = False
         self.sources = False
@@ -259,14 +348,20 @@ class _VisibleHTML(HTMLParser):
         if tag in {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}:
             return
         attrs = dict(attrs)
-        hidden_tag = tag in ("script", "style", "noscript", "template", "nav", "footer", "aside", "svg", "iframe")
-        hidden_attr = ("hidden" in attrs or str(attrs.get("aria-hidden", "")).lower() == "true"
-                       or bool(re.search(r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)(?:\s*;|\s*$)", str(attrs.get("style", "")), re.I)))
+        # Inert containers hold code or embedded documents, not page text a reader could see.
+        inert_tag = tag in _INERT_TAGS
+        # Site chrome is visible but is not answer evidence.
+        hidden_tag = inert_tag or tag in ("nav", "footer", "aside")
+        hidden_attr = ("hidden" in attrs or str(attrs.get("aria-hidden", "")).strip().lower() == "true"
+                       or _hidden_style(attrs.get("style")))
         is_hidden = hidden_tag or hidden_attr
+        if hidden_attr and not self.concealed:
+            self.hidden_blocks.append([])
         self.stack.append(tag)
-        self.hidden_flags.append(is_hidden)
-        if is_hidden:
-            self.hidden += 1
+        self.hidden_flags.append((is_hidden, hidden_attr, inert_tag))
+        self.hidden += is_hidden
+        self.concealed += hidden_attr
+        self.inert += inert_tag
         if self.hidden:
             return
         if tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
@@ -289,15 +384,22 @@ class _VisibleHTML(HTMLParser):
         if tag in self.stack:
             while self.stack:
                 popped = self.stack.pop()
-                if self.hidden_flags.pop():
-                    self.hidden -= 1
+                is_hidden, hidden_attr, inert_tag = self.hidden_flags.pop()
+                self.hidden -= is_hidden
+                self.concealed -= hidden_attr
+                self.inert -= inert_tag
                 if popped == tag:
                     break
 
     def handle_data(self, data):
-        if self.hidden or not data.strip():
+        if not data.strip():
             return
         value = " ".join(data.split())
+        if self.hidden:
+            # Concealed text is recorded apart from evidence so it can be reviewed, never quoted.
+            if self.concealed and not self.inert and "head" not in self.stack:
+                self.hidden_blocks[-1].append(value)
+            return
         if "title" in self.stack:
             self.title.append(value)
         if self.active_headings:
@@ -311,10 +413,19 @@ def extract_page(html: str, url: str) -> dict:
     parser = _VisibleHTML()
     parser.feed(html)
     headings = parser.headings[:100]
-    return {"url": url, "title": " ".join(parser.title)[:500],
+    page = {"url": url, "title": " ".join(parser.title)[:500],
             "h1": " ".join(parser.h1)[:500],
             "headings": headings, "text_excerpt": " ".join(parser.text)[:5000],
             "features": {"table": parser.table, "faq": parser.faq, "sources": parser.sources}}
+    blocks = [" ".join(block) for block in parser.hidden_blocks if block]
+    if blocks:
+        patterns = instruction_patterns(" ".join(blocks))
+        page["hidden_text"] = {"count": len(blocks), "chars": sum(len(block) for block in blocks),
+                               "samples": [block[:HIDDEN_SAMPLE_CHARS] for block in blocks[:HIDDEN_SAMPLES]],
+                               "instruction_patterns": patterns}
+        if patterns:
+            page["review_flags"] = [HIDDEN_INSTRUCTION_FLAG]
+    return page
 
 
 def fetch_page(url: str, max_bytes: int = 1_000_000, timeout: float = 15) -> dict:

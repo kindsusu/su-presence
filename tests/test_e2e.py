@@ -429,7 +429,9 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual(diff["ours"], [])
 
     def test_no_stale_baseline_warning_for_a_14_day_gap(self):
-        self.assertEqual(self.drift["baseline_age_days"], 14)
+        # TODAY는 테스트 시작 때 한 번 정하고, drift.py는 compare를 실행하는 순간 날짜를 다시 읽는다.
+        # 그 사이 자정을 넘기면 나이가 15일이 된다(2026-11-12 macOS CI, UTC 00:00 실패). 둘 다 허용한다.
+        self.assertIn(self.drift["baseline_age_days"], (14, 15))
         self.assertEqual([w for w in self.drift["warnings"] if "낡았다" in w], [])
 
 

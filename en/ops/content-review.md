@@ -18,6 +18,11 @@ The input fixture contains synthetic data. Put completed text or Markdown in `pa
 
 The offline review flags draft placeholders, literal matches between supplied claim text and body, exact quote presence in supplied source text, date format, and differences in the explicitly supplied profile fields. A match does not verify truth or meaning. A person must check whether the copy directly answers the question, whether sources are authoritative and current, and whether a comparison is fair. The tool does not require a fixed number of FAQs, statistics, or quotations.
 
+Optional step — **Korean style editing.** Edit translationese, mechanical lists and inflated closings **before**
+`rebuild review`, then rerun the review so any changed number, condition or quotation is caught by the claim and
+quote checks. Keep meaning and figures unchanged; the aim is readable copy, not evading AI detectors. Reference:
+[im-not-ai](https://github.com/epoko77-ai/im-not-ai) (MIT, a separate tool).
+
 `identity` contains verified reference values; `profiles` contains external profile values you collected yourself. Missing values are unknown, and differing values are review prompts. Synonyms or translations are not automatically treated as errors. Each invocation writes JSON, Markdown, and HTML reports to a new run directory; it does not edit external profiles or publish content.
 
 ## Repeat measurement protocol

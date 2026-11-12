@@ -40,7 +40,8 @@ def audit(args):
     import crawl
     import report
 
-    result = crawl.build_report(args.target, args.max_pages, args.delay, args.allow_noindex)
+    result = crawl.build_report(args.target, args.max_pages, args.delay, args.allow_noindex,
+                                direct=args.direct)
     folder = Path(args.out).resolve() / crawl.safe_host(result["target"]["host"])
     path = folder / "audit.json"
     # Keep the previous local observation; a re-audit must not silently erase it.
@@ -124,6 +125,8 @@ def main(argv=None):
     p.add_argument("--allow-noindex", action="append", default=[], metavar="PATH",
                    help="의도한 비색인 경로 (반복 가능)")
     p.add_argument("--lang", choices=("ko", "en"), default="ko")
+    p.add_argument("--direct", action="store_true",
+                   help="프록시 환경 변수를 무시하고 직접 연결 (비공개 주소 차단이 실제 연결을 덮는다)")
     p.set_defaults(func=audit)
     p = sub.add_parser("status", help="로컬 산출물 기록 상태 확인 (네트워크 없음)")
     p.add_argument("audit")

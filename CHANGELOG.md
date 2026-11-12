@@ -4,7 +4,11 @@
 
 ## [Unreleased]
 
+- 문서: 측정 방법 표와 자동화 대상 설명을 실제 도구에 맞춘다 — 네이버 AI 브리핑·다음·Google AI 개요는 `collect.py` 무인 수집, `auto` API는 ChatGPT·Claude, Gemini·Perplexity·Copilot은 브라우저 관측 또는 수동 폼.
+
 - `crawl.py`·`verify.py`: 공인 주소가 아닌 곳(루프백·사설·link-local·CGNAT·멀티캐스트·예약)으로 풀리는 호스트에는 연결하지 않는다. 검사한 주소로 바로 연결해 DNS 재바인딩 틈을 막는다. 진단 대상 자체가 로컬·사내 주소면 그 분류만 허용한다. 새 오류값 `nonpublic_address`, info 진단 `ALT_HOST_NONPUBLIC`·`MIRROR_NONPUBLIC_DNS`, 선택 필드 `hygiene.mirrors.nonpublic`.
+- `crawl.py`·`verify.py`: DNS 조회를 요청 시간 제한(15초) 안에서만 기다린다. 넘기면 새 오류값 `dns_timeout`(미관측) — 페이지는 깨진 링크가 아니라 크롤 범위 불완전 사유 `dns_timeout`, www↔apex 변형은 `alt_host.result: "dns_timeout"`이며 접속 불가 진단을 내지 않는다.
+- HTTP(S) 프록시를 거친 실행은 주소 검사가 로컬 DNS뿐임을 밝힌다: 선택 필드 `coverage.network`(`verify.json`은 `target.network`)와 info 진단 `PROXY_ADDRESS_UNVERIFIED`. 프록시 주소·자격 증명은 기록하지 않는다. 새 옵션 `--direct`(`crawl.py`·`seo_geo.py audit`·`verify.py deploy`)는 프록시 환경 변수를 무시하고 직접 연결해 검사한 주소로 고정한다.
 - robots.txt 리다이렉트는 같은 호스트 홉을 포함해 전체 5홉으로 제한한다.
 - `audit.sh`: 홈·robots.txt·사이트맵·llms.txt 리다이렉트를 curl `-L`에 맡기지 않고, 진단 대상 호스트와 www↔apex 변형 안에서만 따라간다(robots 5홉, 그 밖 10홉). 다른 도메인으로 가는 robots.txt는 사유와 함께 미확인, 홈이 다른 도메인으로 가면 진단을 멈춘다.
 - `rebuild` 조사: 멀티캐스트 주소를 비공개 주소로 거부한다(옛 Python의 `is_global` 판정 보완).

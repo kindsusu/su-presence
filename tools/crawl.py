@@ -28,10 +28,12 @@ import io
 import ipaddress
 import json
 import os
+import queue
 import re
 import socket
 import ssl
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -307,6 +309,14 @@ def crawl_allowed(rules, path: str) -> bool:
 # 허용 범위는 진단 대상(target_scope)이 정한다. 공개 주소는 늘 허용이다. 진단 대상 자신이
 # 비공개 주소(127.0.0.1 테스트 서버·사내망 이름)면 그 대상이 속한 분류(loopback·private …)만
 # 추가로 허용한다 — 공개 대상에서 사설·루프백 주소로 넘어가는 요청은 늘 거부된다.
+#
+# DNS 조회(socket.getaddrinfo)에는 시간 제한이 없다. 그래서 조회마다 별도 데몬 스레드에서 돌리고
+# 요청 시간 제한(TIMEOUT)만큼만 기다린다. 넘기면 error=dns_timeout — dns_fail처럼 미관측이다.
+#
+# HTTP(S) 프록시를 거치면(urllib가 따르는 *_proxy 환경 변수, NO_PROXY로 빠지지 않는 호스트) 대상
+# 주소는 프록시가 푼다. 로컬 DNS로 검사는 하지만 실제로 닿는 주소를 증명하지 못하므로, 프록시를
+# 쓴 사실을 범위(_TargetScope.proxied)에 남긴다. --direct(direct_connection)는 프록시 환경 변수를
+# 무시하고 직접 연결해 검사한 주소로 고정한다.
 
 _SHARED_NET = ipaddress.ip_network("100.64.0.0/10")        # CGNAT (RFC 6598)
 _NAT64_NET = ipaddress.ip_network("64:ff9b::/96")          # NAT64 well-known prefix (RFC 6052)
@@ -355,11 +365,59 @@ class NonPublicAddress(OSError):
         self.address_class = klass
 
 
-def _resolve(host: str, port: int) -> list:
-    rows = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-    if not rows:
+class DNSTimeout(OSError):
+    """DNS 조회가 요청 시간 제한 안에 끝나지 않았다 — 접속하지 않았다(미관측)."""
+
+    def __init__(self, host, timeout):
+        super().__init__("DNS lookup for %s exceeded %.1fs" % (host, timeout))
+        self.host = host
+
+
+# 끝나지 않은 조회 스레드가 무한히 쌓이지 않게 동시 조회 수를 묶는다.
+_DNS_SLOTS = threading.BoundedSemaphore(16)
+
+
+def _dns_timeout(timeout) -> float:
+    """연결 함수가 받은 timeout을 조회 제한으로 쓴다. 숫자가 아니면(기본값 객체 등) TIMEOUT."""
+    if isinstance(timeout, (int, float)) and not isinstance(timeout, bool) and timeout > 0:
+        return float(timeout)
+    return float(TIMEOUT)
+
+
+def _resolve(host: str, port: int, timeout=None) -> list:
+    """getaddrinfo를 데몬 스레드에서 돌리고 timeout(기본 TIMEOUT)초만 기다린다.
+
+    늦은 리졸버가 크롤 전체를 붙잡지 못하게 한다. 시간을 넘기면 DNSTimeout. 버려진 스레드는
+    데몬이라 종료를 막지 않고, 세마포어가 그 수를 묶는다.
+    """
+    limit = _dns_timeout(timeout)
+    started = time.monotonic()
+    if not _DNS_SLOTS.acquire(timeout=limit):
+        raise DNSTimeout(host, limit)
+    remaining = limit - (time.monotonic() - started)
+    if remaining <= 0:
+        _DNS_SLOTS.release()
+        raise DNSTimeout(host, limit)
+    results = queue.Queue(maxsize=1)
+
+    def run():
+        try:
+            results.put((True, socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)))
+        except BaseException as exc:   # 호출한 스레드에서 그대로 다시 올린다
+            results.put((False, exc))
+        finally:
+            _DNS_SLOTS.release()
+
+    threading.Thread(target=run, name="su-presence-dns", daemon=True).start()
+    try:
+        ok, value = results.get(timeout=remaining)
+    except queue.Empty:
+        raise DNSTimeout(host, limit) from None
+    if not ok:
+        raise value
+    if not value:
         raise socket.gaierror(socket.EAI_NONAME, "no address for %s" % host)
-    return rows
+    return value
 
 
 class _TargetScope:
@@ -373,8 +431,12 @@ class _TargetScope:
         except ValueError:
             self.host, self.port = "", 443
         self._allowed = None
+        # 이 범위 안의 요청 중 하나라도 HTTP(S) 프록시를 거쳤나 — 주소 검사가 로컬 DNS뿐이었다는 표시.
+        self.proxied = False
 
-    def allowed(self) -> frozenset:
+    def allowed(self, timeout=None) -> frozenset:
+        """허용 분류. 대상 이름 조회가 시간 제한을 넘기면 DNSTimeout을 그대로 올린다 — 이때는
+        결과를 캐시하지 않는다(일시적으로 늦은 응답이 감사 전체의 허용 범위를 줄이지 않게)."""
         if self._allowed is None:
             classes = {"public"}
             literal = address_class(self.host)
@@ -384,7 +446,10 @@ class _TargetScope:
                 if self.host == "localhost" or self.host.endswith(".localhost"):
                     classes.add("loopback")
                 try:
-                    classes.update(address_class(row[4][0]) for row in _resolve(self.host, self.port))
+                    classes.update(address_class(row[4][0])
+                                   for row in _resolve(self.host, self.port, timeout))
+                except DNSTimeout:
+                    raise
                 except (OSError, UnicodeError):
                     pass   # 대상이 안 풀리면 공개 주소만 허용한다
             classes.discard("invalid")
@@ -425,11 +490,21 @@ def _scoped(url_of):
     return decorate
 
 
-def _checked_rows(host: str, port: int) -> list:
-    """host를 풀고, 주소가 하나라도 허용 범위 밖이면 NonPublicAddress. 통과한 행을 돌려준다."""
-    rows = _resolve(host, port)
+def _checked_rows(host: str, port: int, timeout=None) -> list:
+    """host를 풀고, 주소가 하나라도 허용 범위 밖이면 NonPublicAddress. 통과한 행을 돌려준다.
+
+    두 조회(host, 범위가 처음 정해질 때 진단 대상)를 합쳐 timeout(기본 TIMEOUT) 하나로 묶는다.
+    넘기면 DNSTimeout. 범위는 첫 연결에서 바로 정한다 — 공인 주소로 시작한 대상이 나중에 비공개
+    주소로 바뀌어 풀려도(재바인딩) 범위가 그 주소를 따라 넓어지지 않게 한다.
+    """
+    limit = _dns_timeout(timeout)
+    deadline = time.monotonic() + limit
+    rows = _resolve(host, port, limit)
     scope = _SCOPE.get() or _TargetScope("//%s:%d" % ("[%s]" % host if ":" in host else host, port))
-    allowed = scope.allowed()
+    remaining = deadline - time.monotonic()
+    if remaining <= 0 and scope._allowed is None:
+        raise DNSTimeout(scope.host or host, limit)
+    allowed = scope.allowed(max(remaining, 0.001))
     for row in rows:
         klass = address_class(row[4][0])
         if klass not in allowed:
@@ -465,7 +540,8 @@ def _guarded_connection(base_cls, req):
     같은 검사를 다시 거친다.
 
     프록시를 거치면 실제 대상 주소는 프록시가 푼다. 그때는 로컬 DNS로 대상 이름을 검사만 하고
-    (로컬에서 안 풀리면 검사할 수 없으니 통과) 프록시에 연결한다.
+    (로컬에서 안 풀리거나 시간 안에 안 풀리면 검사할 수 없으니 통과) 프록시에 연결한다. 프록시를
+    거쳤다는 사실은 범위(_TargetScope.proxied)에 남긴다 — audit.json·verify.json이 이를 밝힌다.
     """
     target = urllib.parse.urlsplit(req.full_url)
     target_host = target.hostname or ""
@@ -477,12 +553,15 @@ def _guarded_connection(base_cls, req):
 
         def create(address, timeout=None, source_address=None):
             if via_proxy:
+                scope = _SCOPE.get()
+                if scope is not None:
+                    scope.proxied = True
                 try:
-                    _checked_rows(target_host, target_port)
-                except socket.gaierror:
+                    _checked_rows(target_host, target_port, timeout)
+                except (socket.gaierror, DNSTimeout):
                     pass
                 return socket.create_connection(address, timeout, source_address)
-            return _connect_rows(_checked_rows(address[0], address[1]), timeout, source_address)
+            return _connect_rows(_checked_rows(address[0], address[1], timeout), timeout, source_address)
 
         conn._create_connection = create
         return conn
@@ -518,6 +597,44 @@ class _CountingRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+_DIRECT: contextvars.ContextVar = contextvars.ContextVar("su_presence_direct", default=False)
+
+
+@contextlib.contextmanager
+def direct_connection(enabled: bool = True):
+    """이 블록 안의 fetch()는 프록시 환경 변수(http_proxy·https_proxy 등)를 무시하고 직접 연결한다.
+
+    프록시를 거치면 대상 주소는 프록시가 풀어 주소 검사가 로컬 DNS에 그친다. 직접 연결하면
+    검사한 그 주소로 고정해 연결하므로 비공개 주소 차단이 실제 연결을 덮는다(--direct).
+    """
+    token = _DIRECT.set(bool(enabled))
+    try:
+        yield
+    finally:
+        _DIRECT.reset(token)
+
+
+def network_record(scope=None, direct=None):
+    """audit.json coverage.network / verify.json target.network 선택 필드.
+
+    프록시를 거쳤으면 {"proxy": true, "address_check": "local_dns_only"}, --direct면
+    {"proxy": false, "direct": true, "address_check": "connected_address"}. 그 밖에는 None(필드 없음).
+    프록시 주소·자격 증명은 남기지 않는다.
+    """
+    scope = scope if scope is not None else _SCOPE.get()
+    direct = _DIRECT.get() if direct is None else direct
+    if scope is not None and getattr(scope, "proxied", False):
+        return {"proxy": True, "address_check": "local_dns_only"}
+    if direct:
+        return {"proxy": False, "direct": True, "address_check": "connected_address"}
+    return None
+
+
+PROXY_NOTE_KO = ("HTTP(S) 프록시를 거쳐 요청했다 — 대상 주소는 프록시가 풀었으므로 비공개 주소 차단은 "
+                 "로컬 DNS 검사에 그쳤고 실제로 연결된 주소는 확인하지 못했다. 주소 검사가 실제 연결을 "
+                 "덮게 하려면 --direct로 프록시 없이 다시 실행하라.")
+
+
 def _response_headers(message) -> dict:
     """HTTPMessage를 소문자 dict로 바꾸되 반복 X-Robots-Tag를 모두 보존한다."""
     if message is None:
@@ -549,7 +666,11 @@ def fetch(url: str, method: str = "GET", rules=None, max_redirects: int = 10):
         "ms": 0, "redirects": 0, "error": None, "content_type": "",
     }
     redirector = _CountingRedirect(host_of(url), rules, max_redirects)
-    opener = urllib.request.build_opener(redirector, _GuardedHTTPHandler(), _GuardedHTTPSHandler())
+    handlers = [redirector, _GuardedHTTPHandler(), _GuardedHTTPSHandler()]
+    if _DIRECT.get():
+        # 빈 ProxyHandler가 기본(환경 변수) ProxyHandler를 대신한다 — 프록시를 쓰지 않는다.
+        handlers.insert(0, urllib.request.ProxyHandler({}))
+    opener = urllib.request.build_opener(*handlers)
     req = urllib.request.Request(url, method=method, headers={
         "User-Agent": UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -697,6 +818,8 @@ def _classify_error(exc) -> str:
         return "nonpublic_address"
     if isinstance(reason, ssl.SSLError) or isinstance(exc, ssl.SSLError):
         return "tls_fail"
+    if isinstance(reason, DNSTimeout) or isinstance(exc, DNSTimeout):
+        return "dns_timeout"
     if isinstance(reason, socket.gaierror):
         return "dns_fail"
     if isinstance(reason, socket.timeout) or isinstance(exc, socket.timeout):
@@ -943,7 +1066,7 @@ def probe_mirrors(host: str) -> dict:
         if res["error"] == "nonpublic_address":
             nonpublic.append({"host": cand, "address_class": res.get("address_class") or "unknown"})
             continue
-        if res["error"] in ("dns_fail", "tls_fail") or not res["status"]:
+        if res["error"] in ("dns_fail", "dns_timeout", "tls_fail") or not res["status"]:
             continue
         if res["status"] >= 400:
             continue
@@ -1081,6 +1204,9 @@ def crawl_site(base: str, max_pages: int, delay: float, rules, seeds=None, cover
         if any(p.get("error") == "nonpublic_address" for p in pages):
             # 대상 범위 밖 주소로 풀려 받지 않은 페이지 — 깨진 링크가 아니라 미관측이다.
             reasons.append("nonpublic_address")
+        if any(p.get("error") == "dns_timeout" for p in pages):
+            # DNS 조회가 시간 안에 끝나지 않아 받지 않은 페이지 — 역시 깨진 링크가 아니라 미관측이다.
+            reasons.append("dns_timeout")
         if http_errors:
             reasons.append("http_errors")
         if not pages:
@@ -1364,6 +1490,9 @@ def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap
         elif alt["error"] == "nonpublic_address":
             # 진단 대상 범위 밖 주소로 풀려 접속하지 않았다 — 접속 불가가 아니라 미관측이다.
             alt_result = "nonpublic_address"
+        elif alt["error"] == "dns_timeout":
+            # DNS가 시간 안에 답하지 않았다 — 접속 불가 판정이 아니라 미관측이다(finding 없음).
+            alt_result = "dns_timeout"
         elif alt["error"]:
             alt_result = alt["error"] if alt["error"] in ("tls_fail", "dns_fail") else "error"
         elif alt["redirects"]:
@@ -2417,9 +2546,16 @@ def _policy_label(policy: str, ua=None) -> str:
 
 # ─────────────────────────────────────────────────────────── main
 
+def build_report(target: str, max_pages: int, delay: float, allow_noindex=None,
+                 direct: bool = False) -> dict:
+    """진단 하나. direct=True면 프록시 환경 변수를 무시하고 직접 연결한다(--direct)."""
+    with direct_connection(direct):
+        return _build_report(target, max_pages, delay, allow_noindex)
+
+
 @_scoped(lambda target, *_a, **_k: target if target.startswith(("http://", "https://"))
          else "https://%s" % target)
-def build_report(target: str, max_pages: int, delay: float, allow_noindex=None) -> dict:
+def _build_report(target: str, max_pages: int, delay: float, allow_noindex=None) -> dict:
     base = target if target.startswith(("http://", "https://")) else "https://%s" % target
     base = base.rstrip("/")
     host = host_of(base)
@@ -2462,12 +2598,22 @@ def build_report(target: str, max_pages: int, delay: float, allow_noindex=None) 
                       robots_state=robots_state, robots_error=robots.get("error"),
                       robots_final_url=robots.get("final_url"), robots_redirects=robots.get("redirects"))
     site["_coverage"] = coverage
-    # 범위 밖 주소로 풀려 받지 않은 페이지는 깨진 링크가 아니다 — coverage(nonpublic_address)가 말한다.
+    # 범위 밖 주소로 풀렸거나 DNS가 시간 안에 답하지 않아 받지 않은 페이지는 깨진 링크가 아니다 —
+    # coverage(nonpublic_address·dns_timeout)가 말한다.
     site["_all_pages_status"] = [(p["url"], p["status"]) for p in pages
-                                 if p.get("error") != "nonpublic_address"]
+                                 if p.get("error") not in ("nonpublic_address", "dns_timeout")]
     findings, stats, board = analyze(base, site, pages)
     site.pop("_all_pages_status", None)
     site.pop("_coverage", None)
+
+    network = network_record()
+    if network is not None:
+        # 선택 필드 — 프록시를 거쳤거나 --direct로 실행했을 때만 생긴다. 프록시 주소는 적지 않는다.
+        coverage["network"] = network
+    if network is not None and network.get("proxy"):
+        # 점수표(analyze)가 끝난 뒤에 붙인다 — 실행 환경 메모이지 사이트 결함이 아니다.
+        add(findings, "SEO", "info", "PROXY_ADDRESS_UNVERIFIED", PROXY_NOTE_KO, [],
+            {"address_check": "local_dns_only"})
 
     return {
         "schema": SCHEMA,
@@ -2494,6 +2640,8 @@ def main(argv=None) -> int:
     ap.add_argument("--allow-noindex", action="append", default=[], metavar="PATH",
                     help="의도한 비색인 경로(반복 가능, 예: /search)")
     ap.add_argument("--out", default="out")
+    ap.add_argument("--direct", action="store_true",
+                    help="프록시 환경 변수를 무시하고 직접 연결한다 — 비공개 주소 차단이 실제 연결을 덮는다")
     args = ap.parse_args(argv)
 
     report = None
@@ -2502,7 +2650,8 @@ def main(argv=None) -> int:
             ap.error("--max-pages는 1 이상이어야 한다")
         if args.delay < 0:
             ap.error("--delay는 0 이상이어야 한다")
-        report = build_report(args.target, args.max_pages, args.delay, args.allow_noindex)
+        report = build_report(args.target, args.max_pages, args.delay, args.allow_noindex,
+                              direct=args.direct)
     except KeyboardInterrupt:
         sys.stderr.write("\n중단됨 — 여기까지의 결과를 저장한다.\n")
     except Exception as exc:  # 부분 결과라도 남긴다

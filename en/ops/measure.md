@@ -83,8 +83,8 @@ as real operations, grow the set to **40–50 questions**, brand and non-brand c
 | **Gemini** | ❌ **impossible** | **Direct querying is the only method** |
 | Claude | ✅ 3 UAs | Query with web search on → cited, O/X |
 | Perplexity | ✅ 2 UAs | Query → source card, O/X |
-| Naver AI Briefing | ❌ | Search in the Naver app → source chip, O/X |
-| Google AI Overviews | ❌ | Google search → answer box sources, O/X |
+| Naver AI Briefing | ❌ | Unattended `collect.py` (trigger block and source chips); the app view is a cross-check — see [measure-playbook](measure-playbook.md) "AI Briefing" |
+| Google AI Overviews | ❌ | Unattended `collect.py` (only the answer box's explicit sources), or Google search → answer box sources, O/X |
 
 > **⚠️ Gemini has no leading indicator.**
 > `Google-Extended` is a robots.txt token, not a user-agent, so it **never appears in server
@@ -168,8 +168,10 @@ python tools/measure.py report out/<host>/audit.json --since 2026-09-01 --until 
   model, locale, login and search conditions define separate cohorts. Do not combine ChatGPT web UI
   results with an OpenAI API model
 - ⚠️ **The API is a different surface from the signed-out web UI.** Automation does not replace
-  manual measurement; it is a cheap way to watch the trend more often. Gemini, Perplexity,
-  Google AI Overviews, Naver, Daum and Copilot are not automatable — measure them by hand
+  manual measurement; it is a cheap way to watch the trend more often. The `auto` API targets are
+  ChatGPT and Claude only. Naver, Daum and Google AI Overviews are collected unattended from the
+  search pages by `collect.py`, not by API; Gemini, Perplexity and Copilot are measured through
+  browser observation (`collect --browser` → `--record`) or the manual form
 - The user pays for every call. `auto` counts the expected calls and asks before spending them
 - API failures use `outcome=error`; they are neither non-citations nor part of the citation-rate
   denominator. Error rate is reported separately, and runs with errors cannot confirm a regression.

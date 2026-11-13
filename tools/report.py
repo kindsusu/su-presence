@@ -25,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 TEMPLATE = os.path.join(ROOT, "templates", "report.html")
 sys.path.insert(0, HERE)
+import browser_review
 import crawl  # noqa: E402  (lane_coverage — 평가 범위 계산을 복제하지 않는다)
 GLOSSARY = os.path.join(ROOT, "templates", "glossary.json")
 
@@ -554,6 +555,18 @@ def evidence_scope(report, lang):
     reasons = coverage.get("reasons") or []
     if reasons:
         parts.append('<p>%s</p>' % escape("; ".join(str(r) for r in reasons)))
+    items = browser_review.candidates(report)
+    if items:
+        title, hint = (("일반 브라우저로 확인", "제외된 주소 중 최대 30개입니다. 화면이 열려도 크롤러 접근이나 색인이 확인된 것은 아닙니다.")
+                       if lang == "ko" else
+                       ("Review in a regular browser", "Up to 30 skipped URLs. A visible page does not establish crawler access or indexing."))
+        parts.append("<h3>%s</h3><p>%s</p><ol>" % (title, hint))
+        for item in items:
+            url = escape(item["url"], quote=True)
+            reason = browser_review.REASONS[item["reason"]][0 if lang == "ko" else 1]
+            parts.append('<li><a href="%s" target="_blank" rel="noopener noreferrer">%s</a> · %s</li>'
+                         % (url, url, reason))
+        parts.append("</ol>")
     return '<div class="card scope">%s</div>' % "".join(parts)
 
 
@@ -583,6 +596,11 @@ def section_shape(report, lab, ann, lang):
          hygiene["alt_host"]["result"] if hygiene["alt_host"]["result"] == "na"
          else "%s → %s" % (hygiene["alt_host"]["host"], hygiene["alt_host"]["result"])),
     ]
+    if site.get("probes_skipped") == "robots_unavailable":
+        pairs = [(lab["th"]["pages"], stats["pages_crawled"]),
+                 ("robots.txt", "HTTP %s" % site["robots"]["status"]),
+                 ("Site probes" if lang == "en" else "사이트 검사",
+                  "Not measured: robots.txt unreachable" if lang == "en" else "미측정: robots.txt 확인 불가")]
     stat_rows = [[td(ann(str(k))), td(escape(str(v)), "num")] for k, v in pairs]
     out = table([lab["th"]["item"], lab["th"]["value"]], stat_rows)
 

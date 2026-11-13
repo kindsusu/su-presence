@@ -36,6 +36,10 @@ Use `python <skill-root>/tools/seo_geo.py <command> --help` and
 
 ## 1. Baseline and technical audit
 
+For a rendered-page check after robots excludes a URL, run `audit URL --browser-fallback` or `browser-review AUDIT --page N --open` for a saved audit. Record the actual browser observation with `--result`; keep crawler access and citation evidence separate.
+
+On a browser-capable host, open the listed URL, inspect the rendered title and body, and continue the page review. Record login prompts and error pages as such; opening a tab alone is not an observation.
+
 `audit` writes `audit.json` and `report.html`, preserving a previous observation when applicable.
 Read `coverage` for limits, failures, robots exclusions, and queued work. Never call incomplete or
 unknown coverage exhaustive.

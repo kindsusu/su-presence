@@ -77,6 +77,9 @@ class RobotsHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def log_request(self, *args):
+        self.server.requests.append(self.path)
+
     def log_message(self, *_args):
         pass
 
@@ -107,6 +110,7 @@ class _LocalSite(unittest.TestCase):
     def setUpClass(cls):
         handler = type("H", (cls.handler,), {"robots_status": cls.status, "robots_body": cls.body})
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        cls.server.requests = []
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.base = "http://127.0.0.1:%d" % cls.server.server_port
@@ -131,6 +135,17 @@ class RobotsUnreachableServer(_LocalSite):
         self.assertEqual(robots["fetch_state"], "unreachable")
         self.assertEqual(set(robots["policies"].values()), {"unknown"})
 
+    def test_no_requests_after_policy_failure(self):
+        self.assertEqual(self.server.requests, ["/robots.txt"])
+        self.assertFalse(self.report["pages"])
+        before = dict(self.report, findings=[{"code": "TITLE_MISSING", "severity": "critical",
+                                              "lane": "SEO", "urls": [self.base]}])
+        checks = {c["id"]: c for c in verify.verify_diff(before, self.report)["checks"]}
+        self.assertFalse(checks["diff.resolved"]["evidence"]["items"])
+        self.assertEqual(checks["diff.pages"]["status"], "skip")
+        self.assertTrue({"SITEMAP_MISSING", "LLMS_TXT_MISSING", "SOFT_404",
+                         "NAVER_VERIFY_MISSING"}.isdisjoint(self.codes()))
+
     def test_only_unreachable_finding_and_no_default_allow_claims(self):
         codes = self.codes()
         self.assertIn("ROBOTS_UNREACHABLE", codes)
@@ -150,24 +165,6 @@ class RobotsUnreachableServer(_LocalSite):
             self.assertEqual(board[lane]["unassessed"], ["crawler_policy"])
         reach = crawl.lane_coverage(board, self.report["coverage"])
         self.assertFalse(reach["conclusive"])
-
-    def test_throttled_pages_are_not_broken_links(self):
-        codes = self.codes()
-        self.assertIn("HTTP_THROTTLED", codes)
-        throttled = [f for f in self.report["findings"] if f["code"] == "HTTP_THROTTLED"][0]
-        self.assertEqual(sorted(throttled["urls"]), [self.base + "/busy", self.base + "/down"])
-        self.assertEqual(throttled["data"]["statuses"], {"429": 1, "503": 1})
-        broken = [f for f in self.report["findings"] if f["code"] == "HTTP_ERROR"][0]
-        self.assertEqual(broken["urls"], [self.base + "/gone"])
-        # 완전성 의미는 바꾸지 않는다 — 못 잰 페이지는 여전히 불완전 사유다.
-        self.assertIn("http_errors", self.report["coverage"]["reasons"])
-
-    def test_broken_only_jsonld_is_invalid_not_missing(self):
-        home = [p for p in self.report["pages"] if p["url"] == self.base + "/"][0]
-        self.assertEqual((home["jsonld_count"], home["jsonld_invalid"]), (0, 1))
-        self.assertIn("JSONLD_INVALID", self.codes())
-        missing = [f for f in self.report["findings"] if f["code"] == "JSONLD_MISSING"]
-        self.assertFalse(missing and self.base + "/" in missing[0]["urls"])
 
     def test_console_and_html_render_unknown_without_allow_wording(self):
         out = io.StringIO()
@@ -219,6 +216,64 @@ class RobotsAbsentCleanSite(_LocalSite):
                                             self.report["coverage"])["crawl_complete"])
         html = report.render(self.report, "ko")
         self.assertNotIn("크롤 불완전", html)
+
+
+class PageFindingsWithReadablePolicy(_LocalSite):
+    status = 200
+    body = b"User-agent: *\nAllow: /\n"
+
+    def test_throttled_pages_are_not_broken_links(self):
+        codes = self.codes()
+        self.assertIn("HTTP_THROTTLED", codes)
+        throttled = [f for f in self.report["findings"] if f["code"] == "HTTP_THROTTLED"][0]
+        self.assertEqual(sorted(throttled["urls"]), [self.base + "/busy", self.base + "/down"])
+        self.assertEqual(throttled["data"]["statuses"], {"429": 1, "503": 1})
+        broken = [f for f in self.report["findings"] if f["code"] == "HTTP_ERROR"][0]
+        self.assertEqual(broken["urls"], [self.base + "/gone"])
+        # 완전성 의미는 바꾸지 않는다 — 못 잰 페이지는 여전히 불완전 사유다.
+        self.assertIn("http_errors", self.report["coverage"]["reasons"])
+
+    def test_broken_only_jsonld_is_invalid_not_missing(self):
+        home = [p for p in self.report["pages"] if p["url"] == self.base + "/"][0]
+        self.assertEqual((home["jsonld_count"], home["jsonld_invalid"]), (0, 1))
+        self.assertIn("JSONLD_INVALID", self.codes())
+        missing = [f for f in self.report["findings"] if f["code"] == "JSONLD_MISSING"]
+        self.assertFalse(missing and self.base + "/" in missing[0]["urls"])
+
+
+class NestedStartServer(_LocalSite):
+    status = 200
+    body = b"User-agent: *\nDisallow: /private\n"
+
+    def test_start_url_uses_origin_policy_and_keeps_path_and_query(self):
+        for suffix, allowed in (("/private?id=1", False), ("/public/?id=2", True)):
+            with self.subTest(suffix=suffix), patch.object(sys, "stderr", io.StringIO()):
+                self.server.requests.clear()
+                result = crawl.build_report(self.base + suffix, 1, 0, direct=True)
+                self.assertEqual(self.server.requests[0], "/robots.txt")
+                self.assertEqual(suffix in self.server.requests, allowed)
+                self.assertEqual(result["target"]["base"], self.base)
+                self.assertEqual(result["target"]["input"], self.base + suffix)
+
+
+class TruncatedRobotsServer(_LocalSite):
+    status = 200
+    body = b"User-agent: *\nAllow: /\n" + b"# padding\n" * 100 + b"Disallow: /private\n"
+
+    def test_incomplete_raw_never_becomes_a_replacement(self):
+        with tempfile.TemporaryDirectory() as out, patch.object(sys, "stderr", io.StringIO()):
+            generate.run("robots", self.report, {}, out)
+            draft = os.path.join(out, "robots.txt")
+            with open(draft, encoding="utf-8") as fh:
+                self.assertIn("Disallow: /private", fh.read())
+            with patch.object(crawl, "MAX_BODY", 256):
+                partial = crawl.build_report(self.base, 1, 0, direct=True)
+            self.assertIn("robots_truncated", partial["coverage"]["reasons"])
+            self.assertNotIn("Disallow: /private", partial["site"]["robots"]["raw"])
+            ctx = generate.run("all", partial, {}, out)
+            self.assertNotIn("robots.txt", ctx.files)
+            self.assertFalse(os.path.exists(draft))
+            self.assertTrue(any("잘렸다" in note for note in ctx.todos))
 
 
 class RobotsAbsentServer(_LocalSite):

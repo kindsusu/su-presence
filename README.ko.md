@@ -22,6 +22,16 @@
 
 **검색·AI 노출을 진단하고, 경쟁 출처와 자사 페이지를 비교해 재구축 설계와 실행 가이드를 만드는 한국어 우선 도구입니다.** SEO·AEO·GEO·LLMO·네이버(NEO)·다음/카카오(KEO)·평판을 별도 레인으로 다루며, 크롤러 접근·색인 상태·인용·사업 성과를 같은 결과로 섞지 않습니다.
 
+## API 키 없이 예제 보고서 만들기
+
+저장소를 내려받은 뒤 루트 폴더에서 Python 3.10 이상으로 다음 한 줄을 실행하세요. Windows PowerShell과 macOS·Linux에서 같은 명령을 쓸 수 있습니다.
+
+```bash
+python tools/seo_geo.py rebuild plan templates/rebuild/audit.json --brief templates/rebuild/brief.json --research templates/rebuild/research.json --observations templates/rebuild/observations.json --out out/demo
+```
+
+마지막에 출력되는 `Report:` 경로의 `report.html`을 브라우저로 여세요. 같은 폴더의 `guide.md`에는 페이지별 작업 순서가 있습니다. 저장소에 포함된 가상 사이트 자료만으로 만드는 재구축 계획이므로 외부 접속이나 API 키가 필요하지 않습니다.
+
 ## v3.1.0 주요 내용
 
 **3.1.0**은 기존 조사·설계 흐름에 선택적 측정 작업 큐, 실제 인용 출처 조사와 원고 검토를 연결합니다. 미확인 인용과 미인용을 구분하고, 새 대화로 반복 측정할 때 계획 회차를 정확히 집계합니다. 실제 브라우저 실행과 사람의 검토·발행은 별도입니다.
@@ -66,6 +76,24 @@ python tools/seo_geo.py audit https://example.com --out out
 ```
 
 `audit`는 `out/<host>/audit.json`과 `report.html`을 만듭니다. 적용되는 `robots.txt`를 지키고 수집 범위를 기록하며, 수집이 끝나지 않으면 종료 코드 `2`를 냅니다. 불완전한 진단은 사이트 전체 목록이 아니라 일부 관측입니다.
+
+### robots.txt로 막힌 페이지를 일반 브라우저에서 확인하기
+
+터미널에서 직접 진단하면, 크롤러가 robots 규칙으로 건너뛴 첫 페이지를 PC의 기본 브라우저로 엽니다. 자동 실행이나 출력 리디렉션에서는 링크만 남깁니다. 항상 열려면 아래처럼 `--browser-fallback`을, 링크만 원하면 `--no-browser-fallback`을 쓰세요. robots.txt가 503 등으로 응답하지 않으면 요청한 시작 페이지를 제시합니다. 대상이 없으면 탭을 열지 않습니다.
+
+```bash
+python tools/seo_geo.py audit https://example.com/catalog --out out --browser-fallback
+```
+
+다른 페이지는 보고서의 **일반 브라우저로 확인** 링크에서 열거나 아래 명령을 쓰세요. 번호는 첫 명령이 출력하는 목록 기준입니다.
+
+```bash
+python tools/seo_geo.py browser-review out/example.com/audit.json
+python tools/seo_geo.py browser-review out/example.com/audit.json --page 1 --open
+python tools/seo_geo.py browser-review out/example.com/audit.json --page 1 --result visible --note "상품 목록이 화면에 표시됨"
+```
+
+화면을 직접 본 뒤 `visible`(내용 표시), `login_required`(로그인 필요), `blocked`(접근 거부), `error`(오류) 중 하나로 기록합니다. 관측은 진단 폴더의 `browser-reviews/`에 별도로 남고, 크롤 점수·인용률·사이트맵 후보에는 합쳐지지 않습니다. 브라우저를 열어도 불완전 진단의 종료 코드 `2`는 유지됩니다.
 
 ## 경쟁 분석에서 페이지 설계까지
 

@@ -11,11 +11,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
                                "tools"))
 
 import crawl  # noqa: E402
+import generate  # noqa: E402
+import verify  # noqa: E402
 
 
 class RobotsHeaderHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         body = b"<!doctype html><html><head><title>x</title></head><body>x</body></html>"
+        if self.path in ("/news", "/web"):
+            scope = "googlebot-news" if self.path == "/news" else "googlebot"
+            body = ('<html><head><meta name="%s" content="noindex"></head></html>' % scope).encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         if self.path == "/mixed":
@@ -53,6 +58,21 @@ class DuplicateRobotsHeaders(unittest.TestCase):
     def page(self, path):
         response = crawl.fetch(self.base + path)
         return crawl.page_record(self.base + path, response), response
+
+    def test_news_only_restriction_keeps_article_in_web_sitemap(self):
+        pages = [self.page(path)[0] for path in ("/news", "/web")]
+        self.assertIn("noindex", crawl._robots_directives(pages[0], "googlebot-news"))
+        self.assertFalse(crawl._noindex(pages[0]))
+        self.assertTrue(crawl._noindex(pages[1]))
+        ctx = generate.Ctx({"target": {"base": self.base, "host": crawl.host_of(self.base)},
+                            "pages": pages}, {}, ".")
+        self.assertEqual(generate.eligible_urls(ctx), [self.base + "/news"])
+        session = verify.Session(crawl.host_of(self.base), delay=0)
+        self.assertFalse(verify.is_noindex(session.get(self.base + "/news")))
+        self.assertTrue(verify.is_noindex(session.get(self.base + "/web")))
+        directives = {"x_robots_tag": "googlebot-news: noindex, nofollow"}
+        self.assertFalse(crawl._noindex(directives))
+        self.assertIn("noindex", crawl._robots_directives(directives, "googlebot-news"))
 
     def test_duplicate_header_lines_are_preserved_and_combined_for_google(self):
         page, response = self.page("/mixed")

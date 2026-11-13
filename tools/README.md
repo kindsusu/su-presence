@@ -79,6 +79,10 @@ python tools/seo_geo.py generate all out/example.com/audit.json --site out/examp
 네트워크 검증이나 예약 작업 생성은 하지 않는다.
 `status`는 rebuild 실행 폴더를 추적하지 않는다. 재구축 결과는 각 `run-*` 폴더에서 확인한다.
 
+robots 차단 시 브라우저에서 계속하려면 `audit TARGET --browser-fallback`을 사용한다. 기존 로그에서는
+`browser-review AUDIT --page 1 --open`으로 다시 열고, 직접 본 뒤 `--result visible` 등으로 기록한다.
+[일반 브라우저 확인 절차](../README.ko.md#robotstxt로-막힌-페이지를-일반-브라우저에서-확인하기)를 참고한다.
+
 ## audit.sh — 빠른 1페이지 점검
 
 ```bash

@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import crawl  # noqa: E402
 import drift  # noqa: E402
+import measure  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────── 픽스처
@@ -143,6 +144,34 @@ class DriftCase(unittest.TestCase):
 
 
 # ─────────────────────────────────────────────────────────── snapshot
+
+class CitationDenominator(DriftCase):
+    def test_mixed_then_all_unknown_reports_agree(self):
+        query = {"id": "q", "text": "test", "type": "nonbrand"}
+
+        def measurement(states):
+            rows = [measure.make_row("2026-09-01", "q", "chatgpt", i, "manual", True,
+                                     cited, [], None, [], outcome="observed", answer_complete=True,
+                                     citation_coverage="unknown" if cited is None else "complete",
+                                     query_fingerprint_value=measure.query_fingerprint(query))
+                    for i, cited in enumerate(states, 1)]
+            return measure.aggregate(rows, [query], HOST, BASE, cumulative=False)
+
+        before, after = measurement([True, None]), measurement([None, None])
+        self.two(audit(), audit(), before, after)
+        self.compare()
+        result = self.result()
+        diff = result["measure_diff"]
+        mixed, unknown = (diff["totals"][side]["nonbrand"] for side in ("before", "after"))
+        self.assertEqual(mixed["rate"], before["engines"][0]["nonbrand"]["rate"])
+        self.assertEqual((mixed["rate"], mixed["runs"], mixed["citation_unknown"]), (1, 1, 1))
+        self.assertEqual(mixed["wilson95"], drift.wilson_interval(1, 1))
+        self.assertEqual((unknown["rate"], unknown["wilson95"], unknown["runs"]), (None, None, 0))
+        self.assertIsNone(diff["engines"][0]["nonbrand"]["points"])
+        self.assertEqual(diff["comparison"]["status"], "inconclusive")
+        for rendered in (measure.render_measure_md(before), drift.render_drift_md(result)):
+            self.assertIn("1/1 · 미확인 1회", rendered)
+
 
 class TestSnapshot(DriftCase):
 

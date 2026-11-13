@@ -43,6 +43,8 @@ from collections import Counter, deque
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 
+import browser_review
+
 # 신분은 도구 이름을 따른다. audit.sh 도 같은 토큰을 쓴다.
 UA = "su-presence-audit/2.1"
 SCHEMA = "su-presence/audit/1"
@@ -694,7 +696,7 @@ def fetch(url: str, method: str = "GET", rules=None, max_redirects: int = 10):
         out["headers"] = _response_headers(exc.headers)
         location = out["headers"].get("location")
         if exc.code in (301, 302, 303, 307, 308) and location:
-            redirected = urllib.parse.urljoin(url, location)
+            redirected = urllib.parse.urljoin(exc.url or url, location)
             parts = urllib.parse.urlsplit(redirected)
             target = (parts.path or "/") + (("?" + parts.query) if parts.query else "")
             if host_of(redirected) != host_of(url):
@@ -770,7 +772,7 @@ def fetch_robots(base: str) -> dict:
       redirect_hosts    — www↔apex로 넘어간 홉 수 (0이면 같은 호스트 안에서 끝났다)
       redirect_reason   — 따라가지 않은 이유: other_host · too_many_redirects (따라갔으면 없음)
     """
-    url = "%s/robots.txt" % base.rstrip("/")
+    url = urllib.parse.urljoin(base, "/robots.txt")
     origin = _host_key(url)
     alt = alt_host_of(origin) if origin else None
     allowed = {h for h in (origin, alt) if h}
@@ -856,6 +858,7 @@ class PageParser(HTMLParser):
         self.meta_description = None
         self.meta_robots = None
         self.meta_googlebot = None
+        self.meta_googlebot_news = None
         self.canonical = None
         self.lang = None
         self.naver_site_verification = False
@@ -916,8 +919,10 @@ class PageParser(HTMLParser):
             self.meta_description = content
         elif name == "robots":
             self.meta_robots = ", ".join(filter(None, (self.meta_robots, content))) or None
-        elif name in ("googlebot", "googlebot-news"):
+        elif name == "googlebot":
             self.meta_googlebot = ", ".join(filter(None, (self.meta_googlebot, content))) or None
+        elif name == "googlebot-news":
+            self.meta_googlebot_news = ", ".join(filter(None, (self.meta_googlebot_news, content))) or None
         elif name == "naver-site-verification":
             self.naver_site_verification = True
         elif name.startswith("og:"):
@@ -1126,7 +1131,10 @@ def crawl_site(base: str, max_pages: int, delay: float, rules, seeds=None, cover
     for seed in seed_list:
         parts = urllib.parse.urlsplit(seed)
         target = (parts.path or "/") + (("?" + parts.query) if parts.query else "")
-        if host_of(seed) != host or not is_page(seed) or not crawl_allowed(rules, target):
+        eligible = host_of(seed) == host and is_page(seed)
+        if not eligible or not crawl_allowed(rules, target):
+            if eligible and coverage is not None:
+                browser_review.offer(coverage, base, seed, "disallow")
             blocked_count += 1
             blocked_seeds += 1
             continue
@@ -1139,6 +1147,8 @@ def crawl_site(base: str, max_pages: int, delay: float, rules, seeds=None, cover
     while queue and len(pages) < max_pages:
         url = queue.popleft()
         res = fetch(url, rules=rules)
+        if res.get("error") == "redirect_blocked_by_robots" and coverage is not None:
+            browser_review.offer(coverage, base, res["final_url"], "disallow")
         page = page_record(url, res)
         pages.append(page)
         sys.stderr.write("  · %-4s %s\n" % (page["status"] or "ERR", url))
@@ -1168,6 +1178,8 @@ def crawl_site(base: str, max_pages: int, delay: float, rules, seeds=None, cover
             parts = urllib.parse.urlsplit(nxt)
             target = (parts.path or "/") + (("?" + parts.query) if parts.query else "")
             if not crawl_allowed(rules, target):
+                if coverage is not None:
+                    browser_review.offer(coverage, base, nxt, "disallow")
                 blocked_count += 1
                 continue
             seen.add(nxt)
@@ -1254,6 +1266,7 @@ def page_record(url: str, res: dict) -> dict:
         "meta_description": parser.meta_description,
         "meta_robots": parser.meta_robots,
         "meta_googlebot": parser.meta_googlebot,
+        "meta_googlebot_news": parser.meta_googlebot_news,
         "canonical": parser.canonical,
         "h1": parser.h1,
         "jsonld_count": count,
@@ -1424,6 +1437,35 @@ def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap
         m.strip() for m in
         re.findall(r"(?im)^\s*sitemap:\s*(\S+)", robots_raw or "")
     ]
+    robots = {
+        "status": robots_status,
+        "present": bool(robots_raw),
+        "raw": robots_raw or "",
+        # 읽지 못한 robots.txt는 "미설정(none)"이 아니라 "미확인(unknown)"이다.
+        "policies": {ua: ("unknown" if robots_state == "unreachable"
+                          else robots_policy(robots_raw or "", ua)) for ua in ALL_UAS},
+        "sitemap_declared": declared,
+        # 이하 선택 필드 — 옛 audit에는 없다. 키가 있으면 측정했다는 뜻이다.
+        "nonstandard_agents": robots_nonstandard_agents(robots_raw or ""),
+        "cdn_managed": cdn_managed_info(robots_raw or ""),
+        "content_signals": robots_content_signals(robots_raw or ""),
+    }
+    if robots_state:
+        robots["fetch_state"] = robots_state
+        robots["fetch_error"] = robots_error
+    if robots_final_url is not None:
+        # 선택 필드 — 마지막으로 받은(또는 따라가지 않은) robots.txt 주소와 리다이렉트 홉 수.
+        robots["final_url"] = robots_final_url
+        robots["redirects"] = robots_redirects or 0
+    if robots_state == "unreachable":
+        # No cached policy: return the observed policy response without sending probes.
+        return {"probes_skipped": "robots_unavailable", "robots": robots, "sitemaps": [], "sitemap_urls": [],
+                "sitemap_vs_crawl": {"only_in_sitemap": [], "only_in_crawl": [],
+                                     "excluded_noindex": [], "excluded_noncanonical": []},
+                "llms": {}, "hygiene": {"probe_404": None, "redirect_hops": None,
+                                        "home_response_ms": None, "mirrors": {},
+                                        "alt_host": {"host": alt_host_of(host), "result": "unmeasured",
+                                                     "status": None, "location": None}}}
     sitemaps, sitemap_urls = sitemap_data or read_sitemaps(base, host, declared)
 
     crawl_set = set()
@@ -1500,26 +1542,6 @@ def probe_site(base: str, robots_raw: str, robots_status, crawled: list, sitemap
         else:
             alt_result = "ok"
 
-    robots = {
-        "status": robots_status,
-        "present": bool(robots_raw),
-        "raw": robots_raw or "",
-        # 읽지 못한 robots.txt는 "미설정(none)"이 아니라 "미확인(unknown)"이다.
-        "policies": {ua: ("unknown" if robots_state == "unreachable"
-                          else robots_policy(robots_raw or "", ua)) for ua in ALL_UAS},
-        "sitemap_declared": declared,
-        # 이하 선택 필드 — 옛 audit에는 없다. 키가 있으면 측정했다는 뜻이다.
-        "nonstandard_agents": robots_nonstandard_agents(robots_raw or ""),
-        "cdn_managed": cdn_managed_info(robots_raw or ""),
-        "content_signals": robots_content_signals(robots_raw or ""),
-    }
-    if robots_state:
-        robots["fetch_state"] = robots_state
-        robots["fetch_error"] = robots_error
-    if robots_final_url is not None:
-        # 선택 필드 — 마지막으로 받은(또는 따라가지 않은) robots.txt 주소와 리다이렉트 홉 수.
-        robots["final_url"] = robots_final_url
-        robots["redirects"] = robots_redirects or 0
     site = {
         "robots": robots,
         "sitemaps": sitemaps,
@@ -1655,7 +1677,7 @@ def sitemap_quality(root, body: str, host: str, declared_size=None) -> dict:
 
 
 @_scoped(lambda base, *_a, **_k: base)
-def read_sitemaps(base: str, host: str, declared: list):
+def read_sitemaps(base: str, host: str, declared: list, *, rules=None):
     """선언된 사이트맵 + 표준 경로 2종을 읽는다."""
     candidates = sitemap_candidates(base, host, declared)
     required = set(declared) & set(candidates)
@@ -1669,7 +1691,12 @@ def read_sitemaps(base: str, host: str, declared: list):
         if url in seen:
             continue
         seen.add(url)
-        res = fetch(url)
+        parts = urllib.parse.urlsplit(url)
+        target = (parts.path or "/") + (("?" + parts.query) if parts.query else "")
+        if rules and not crawl_allowed(rules, target):
+            res = {"status": None, "error": "robots_blocked"}
+        else:
+            res = fetch(url, rules=rules) if rules else fetch(url)
         locs, is_index, parsed, parse_error, quality = [], False, False, None, None
         if res["status"] == 200 and not res.get("error"):
             try:
@@ -1737,17 +1764,18 @@ def add(findings, lane, severity, code, message, urls=None, data=None):
     })
 
 
-def analyze(base: str, site: dict, pages: list) -> tuple:
+def analyze(base: str, site: dict, pages: list, *, start=None) -> tuple:
     findings: list = []
     ok = [p for p in pages if p["status"] == 200]
     total = max(1, len(ok))
 
     _check_indexability(findings, ok)
     _check_meta(findings, ok, total)
-    _check_structure(findings, ok, total)
+    if ok:
+        _check_structure(findings, ok, total)
     _check_site(findings, base, site, ok)
     _check_sitemap_quality(findings, site)
-    _check_link_discovery(findings, base, site, ok)
+    _check_link_discovery(findings, start or base, site, ok)
     _check_robots_file(findings, base, site)
     _check_crawler_policy(findings, site)
 
@@ -1762,6 +1790,9 @@ def analyze(base: str, site: dict, pages: list) -> tuple:
     if robots_unknown(site):
         for lane in ROBOTS_POLICY_LANES:
             unassessed[lane] = ["crawler_policy"]
+    if site["robots"].get("fetch_state") == "unreachable":
+        for lane in ("AEO", "LLMO"):
+            unassessed[lane] = ["page_content"]
     return findings, stats, scorecard(findings, unassessed)
 
 
@@ -1772,10 +1803,12 @@ def _noindex(page) -> bool:
 def _robots_directives(page, ua="googlebot") -> set[str]:
     """페이지 수준 지시를 토큰화한다. generic과 해당 UA 지시는 합산한다."""
     values = [page.get("meta_robots") or ""]
-    if ua.startswith("googlebot"):
+    if ua in ("googlebot", "googlebot-news"):
         values.append(page.get("meta_googlebot") or "")
+    if ua == "googlebot-news":
+        values.append(page.get("meta_googlebot_news") or "")
     header = page.get("x_robots_tag") or ""
-    scope_pattern = re.compile(r"^\s*([\w-]+(?:bot|user))\s*:\s*(.*)$", re.I)
+    scope_pattern = re.compile(r"^\s*(googlebot-news|[\w-]+(?:bot|user))\s*:\s*(.*)$", re.I)
     for line in header.splitlines():
         active_scope = None
         for segment in line.split(","):
@@ -2018,6 +2051,12 @@ def _check_site(findings, base, site, ok):
             % (len(throttled), ", ".join("%s×%d" % kv for kv in sorted(statuses.items()))),
             [u for u, _ in throttled], {"count": len(throttled), "statuses": dict(statuses)})
 
+    coverage = site.get("_coverage")
+    if coverage and not coverage.get("complete"):
+        add(findings, "SEO", "critical", "CRAWL_INCOMPLETE",
+            "크롤 범위가 완전하지 않다 (%s). 결과를 전수 진단으로 사용하면 안 된다."
+            % ", ".join(coverage.get("reasons") or ["unknown"]), [], coverage)
+
     robots = site["robots"]
     if robots.get("fetch_state") == "unreachable":
         status = robots.get("status")
@@ -2048,6 +2087,7 @@ def _check_site(findings, base, site, ok):
             ["%s/robots.txt" % base],
             {"status": status, "error": robots.get("fetch_error"),
              "final_url": robots.get("final_url"), "redirects": robots.get("redirects")})
+        return  # All remaining checks need observations withheld by the policy gate.
     elif not robots["present"]:
         add(findings, "SEO", "warn", "ROBOTS_MISSING",
             "robots.txt가 없거나 비정상이다 (HTTP %s)." % site["robots"]["status"],
@@ -2069,12 +2109,6 @@ def _check_site(findings, base, site, ok):
                 "사이트맵과 실제 크롤 결과가 어긋난다 — 사이트맵에만 %d개, 크롤에만 %d개."
                 % (len(only_sm), len(only_cr)), (only_cr or only_sm),
                 {"only_in_sitemap": len(only_sm), "only_in_crawl": len(only_cr)})
-
-    coverage = site.get("_coverage")
-    if coverage and not coverage.get("complete"):
-        add(findings, "SEO", "critical", "CRAWL_INCOMPLETE",
-            "크롤 범위가 완전하지 않다 (%s). 결과를 전수 진단으로 사용하면 안 된다."
-            % ", ".join(coverage.get("reasons") or ["unknown"]), [], coverage)
 
     if site["llms"].get("llms.txt") != 200:
         add(findings, "GEO", "info", "LLMS_TXT_MISSING",
@@ -2347,7 +2381,8 @@ ROBOTS_DERIVED_CODES = frozenset((
     "NAVER_CRAWLER_BLOCKED", "DAUM_CRAWLER_BLOCKED", "DAUM_CRAWLER_UNDECLARED",
     "ROBOTS_NONSTANDARD_UA", "ROBOTS_CDN_MANAGED", "CONTENT_SIGNAL_PRESENT",
     "ROBOTS_MISSING", "SITEMAP_NOT_DECLARED"))
-UNASSESSED_NOTE = {"crawler_policy": "robots.txt 미확인 — 크롤러 정책을 판정하지 못했다"}
+UNASSESSED_NOTE = {"page_content": "robots.txt 미확인으로 본문 수집을 보류했다",
+                   "crawler_policy": "robots.txt 미확인 — 크롤러 정책을 판정하지 못했다"}
 
 
 def scorecard(findings, unassessed=None) -> dict:
@@ -2408,6 +2443,16 @@ STATUS_MARK = {"ok": "✅", "warn": "⚠️", "bad": "❌", "na": "—"}
 SEV_MARK = {"critical": "🚨", "warn": "⚠️ ", "info": "· "}
 
 
+def _print_hygiene(hygiene):
+    print("   404 동작        : HTTP %s  (404여야 정상)" % hygiene["probe_404"])
+    print("   리다이렉트 홉   : %s" % hygiene["redirect_hops"])
+    print("   홈 응답 시간    : %sms" % hygiene["home_response_ms"])
+    alt = hygiene["alt_host"]
+    print("   도메인 변형     : %s" % ("해당 없음 (IP·localhost 대상)" if alt["result"] == "na"
+                                       else "https://%s → %s" % (alt["host"], alt["result"])))
+
+
+
 def print_summary(report: dict) -> None:
     site = report["site"]
     stats = report["stats"]
@@ -2449,7 +2494,7 @@ def print_summary(report: dict) -> None:
              site["robots"]["status"]))
     print("   Sitemap 선언    : %s"
           % ("✅ %d건" % len(site["robots"]["sitemap_declared"])
-             if site["robots"]["sitemap_declared"] else "❌ robots.txt에 없음"))
+             if site["robots"]["sitemap_declared"] else "미확인" if state == "unreachable" else "❌ robots.txt에 없음"))
     for sm in site["sitemaps"]:
         tag = "인덱스 · 하위 %d" % sm["url_count"] if sm["is_index"] else "URL %d개" % sm["url_count"]
         print("   %-42s HTTP %s  (%s)" % (sm["url"], sm["status"], tag))
@@ -2485,12 +2530,10 @@ def print_summary(report: dict) -> None:
         for item in notes:
             print("     · %s" % item["message"])
     hygiene = site["hygiene"]
-    print("   404 동작        : HTTP %s  (404여야 정상)" % hygiene["probe_404"])
-    print("   리다이렉트 홉   : %s" % hygiene["redirect_hops"])
-    print("   홈 응답 시간    : %sms" % hygiene["home_response_ms"])
-    alt = hygiene["alt_host"]
-    print("   도메인 변형     : %s" % ("해당 없음 (IP·localhost 대상)" if alt["result"] == "na"
-                                       else "https://%s → %s" % (alt["host"], alt["result"])))
+    if state == "unreachable":
+        print("   robots.txt를 확인하지 못해 본문·사이트 검사를 보류했다. 응답 복구 후 재진단하라.")
+    else:
+        _print_hygiene(hygiene)
 
     print("")
     print("── 5. 레인 점수표 ──")
@@ -2556,8 +2599,9 @@ def build_report(target: str, max_pages: int, delay: float, allow_noindex=None,
 @_scoped(lambda target, *_a, **_k: target if target.startswith(("http://", "https://"))
          else "https://%s" % target)
 def _build_report(target: str, max_pages: int, delay: float, allow_noindex=None) -> dict:
-    base = target if target.startswith(("http://", "https://")) else "https://%s" % target
-    base = base.rstrip("/")
+    start = target if target.startswith(("http://", "https://")) else "https://%s" % target
+    parts = urllib.parse.urlsplit(start)
+    base = urllib.parse.urlunsplit((parts.scheme, parts.netloc, "", "", ""))
     host = host_of(base)
 
     # www↔apex 리다이렉트까지만 따라간다(fetch_robots). 원문·규칙은 도착한 응답에서 읽는다.
@@ -2568,20 +2612,25 @@ def _build_report(target: str, max_pages: int, delay: float, allow_noindex=None)
     raw = robots["body"] if robots_state == "ok" else ""
     rules = crawl_rules(raw, UA.split("/")[0])
     declared = [m.strip() for m in re.findall(r"(?im)^\s*sitemap:\s*(\S+)", raw or "")]
-    sitemap_data = read_sitemaps(base, host, declared)
-    coverage = {}
-
-    sys.stderr.write("크롤 시작: %s (최대 %d페이지, 간격 %.1fs)\n" % (base, max_pages, delay))
-    pages = crawl_site(base, max_pages, delay, rules, seeds=sitemap_data[1], coverage=coverage)
+    if robots_state == "unreachable":
+        sitemap_data, pages = ([], []), []
+        coverage = {"complete": False, "max_pages": max_pages, "pages_fetched": 0,
+                    "queued_remaining": 0, "blocked_count": 0, "reasons": ["robots_unavailable"]}
+        if robots.get("error") not in ("external_redirect_blocked", "nonpublic_address"):
+            browser_review.offer(coverage, base, normalize(start), "robots_unavailable")
+    else:
+        sitemap_data = read_sitemaps(base, host, declared, rules=rules)
+        coverage = {}
+        sys.stderr.write("크롤 시작: %s (최대 %d페이지, 간격 %.1fs)\n" % (start, max_pages, delay))
+        pages = crawl_site(start, max_pages, delay, rules, seeds=sitemap_data[1], coverage=coverage)
     allowed_paths = set(allow_noindex or [])
     for page in pages:
         if urllib.parse.urlsplit(page["url"]).path in allowed_paths:
             page["intended_indexable"] = False
 
-    if robots_state == "unreachable":
-        # 404·410(absent)은 RFC 9309상 "제한 없음"이라 범위를 줄이지 않는다 — 429·5xx·접속 실패만 불완전이다
+    if robots.get("error") == "body_truncated":
         coverage["complete"] = False
-        coverage["reasons"] = list(dict.fromkeys(coverage["reasons"] + ["robots_unavailable"]))
+        coverage["reasons"].append("robots_truncated")
     if any(s.get("status") != 200 and
            (s.get("required") or s.get("status") not in (404, 410) or s.get("error"))
            for s in sitemap_data[0]):
@@ -2602,7 +2651,7 @@ def _build_report(target: str, max_pages: int, delay: float, allow_noindex=None)
     # coverage(nonpublic_address·dns_timeout)가 말한다.
     site["_all_pages_status"] = [(p["url"], p["status"]) for p in pages
                                  if p.get("error") not in ("nonpublic_address", "dns_timeout")]
-    findings, stats, board = analyze(base, site, pages)
+    findings, stats, board = analyze(base, site, pages, start=start)
     site.pop("_all_pages_status", None)
     site.pop("_coverage", None)
 
@@ -2642,6 +2691,7 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default="out")
     ap.add_argument("--direct", action="store_true",
                     help="프록시 환경 변수를 무시하고 직접 연결한다 — 비공개 주소 차단이 실제 연결을 덮는다")
+    browser_review.add_option(ap)
     args = ap.parse_args(argv)
 
     report = None
@@ -2669,6 +2719,7 @@ def main(argv=None) -> int:
     print_summary(report)
     print("")
     print("audit.json 저장: %s" % path)
+    browser_review.after_audit(report, path, args.browser_fallback)
     print("보고서 생성    : python tools/report.py %s" % path)
     return 0 if report.get("coverage", {}).get("complete") is True else 2
 

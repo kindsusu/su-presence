@@ -8,6 +8,7 @@ import types
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from io import StringIO
+from unittest.mock import patch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -97,6 +98,33 @@ class GoogleAioTest(unittest.TestCase):
             '<a href="https://source.test/google.com-review">출처</a></div>')
         self.assertEqual(collect.google("질의", HOST)[2],
                          ["https://source.test/google.com-review"])
+
+
+class DaumSourcesTest(unittest.TestCase):
+    outside = '<script>{"sources":[{"url":"https://example.com/organic","gsid":"web-1"}]}</script>'
+
+    def observe(self, html):
+        with patch.object(collect, "_render", return_value=padded("daum", html)):
+            return collect.daum("질의", HOST)
+
+    def test_only_closed_answer_payload_supplies_citations(self):
+        inside = '<script type="application/json">{"sources":[{"gsid":"web-2","url":"https://source.test/a"}]}</script>'
+        html = self.outside + '<div disp-attr="AIO"><br>' + inside + '</div>' + self.outside
+        self.assertEqual(self.observe(html)[1:], (True, ["https://source.test/a"]))
+
+    def test_missing_malformed_and_unclosed_sources_are_unknown(self):
+        for html in ('<script>load("aioColl")</script>',
+                     '<div disp-attr="AIO">answer</div>' + self.outside,
+                     '<div id="aioColl"><script>{"sources":[{}]}</script></div>',
+                     '<div disp-attr="AIO"><script>{"sources":[]}</script>',
+                     '<div disp-attr="AIO"><script>{"sources":bad}</script></div>'):
+            with self.subTest(html=html), self.assertRaises(collect.Unmeasured):
+                self.observe(html)
+
+    def test_explicit_empty_sources_and_absent_answer_are_distinct(self):
+        self.assertEqual(self.observe('<div id="aioColl"><script>{"sources":[]}</script></div>')[1:],
+                         (True, []))
+        self.assertEqual(self.observe(self.outside)[1:], (False, []))
 
 
 class NaverSourcesTest(unittest.TestCase):

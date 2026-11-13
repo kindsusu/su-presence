@@ -219,8 +219,8 @@ def domains_of(urls):
     return sorted(set(out))
 
 
-class _GoogleAioSources(HTMLParser):
-    """명시적인 AI 개요 컨테이너 안의 링크만 모은다."""
+class _AiBoundary(HTMLParser):
+    """Track explicitly marked, balanced answer containers in rendered HTML."""
 
     VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input",
                  "link", "meta", "param", "source", "track", "wbr"}
@@ -233,12 +233,6 @@ class _GoogleAioSources(HTMLParser):
         self.closed_boundary = False
         self.invalid_boundary = False
 
-    @staticmethod
-    def _is_boundary(attrs):
-        values = {k.lower(): str(v or "") for k, v in attrs}
-        attrid = values.get("data-attrid", "").lower()
-        return attrid == "sgeanswer"
-
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
         if self.stack:
@@ -247,16 +241,13 @@ class _GoogleAioSources(HTMLParser):
         elif self._is_boundary(attrs):
             self.stack = [tag]
             self.found_boundary = True
-        if self.stack and tag == "a":
-            href = dict(attrs).get("href")
-            if href and href.startswith(("http://", "https://")):
-                self.sources.append(href)
+        if self.stack:
+            self._element(tag, attrs)
 
     def handle_startendtag(self, tag, attrs):
-        if self.stack and tag.lower() == "a":
-            href = dict(attrs).get("href")
-            if href and href.startswith(("http://", "https://")):
-                self.sources.append(href)
+        self.handle_starttag(tag, attrs)
+        if tag not in self.VOID_TAGS:
+            self.handle_endtag(tag)
 
     def handle_endtag(self, tag):
         tag = tag.lower()
@@ -268,6 +259,20 @@ class _GoogleAioSources(HTMLParser):
         self.stack.pop()
         if not self.stack:
             self.closed_boundary = True
+
+
+class _GoogleAioSources(_AiBoundary):
+    @staticmethod
+    def _is_boundary(attrs):
+        values = {k.lower(): str(v or "") for k, v in attrs}
+        attrid = values.get("data-attrid", "").lower()
+        return attrid == "sgeanswer"
+
+    def _element(self, tag, attrs):
+        if tag == "a":
+            href = dict(attrs).get("href")
+            if href and href.startswith(("http://", "https://")):
+                self.sources.append(href)
 
 
 def google_aio_sources(html):
@@ -349,14 +354,67 @@ def naver(q, host):
     return organic, fired, [u for u in sources if u]
 
 
+class _DaumAioSources(_AiBoundary):
+    """Accept an explicit sources array inside the answer, never page-wide URL matches."""
+
+    @staticmethod
+    def _is_boundary(attrs):
+        a = dict(attrs)
+        return ((a.get("disp-attr") or "").upper() == "AIO" or
+                "aioColl" in (a.get("id"), *(a.get("class") or "").split()))
+
+    def _payload(self, value):
+        try:
+            obj = json.loads(value)
+        except (TypeError, ValueError):
+            return
+        if not isinstance(obj, dict) or "sources" not in obj:
+            return
+        rows = obj["sources"]
+        if not isinstance(rows, list):
+            raise Unmeasured("daum AI 요약 sources가 배열이 아니다")
+        for row in rows:
+            url = row.get("url") if isinstance(row, dict) else None
+            try:
+                parts = urllib.parse.urlsplit(url) if isinstance(url, str) else None
+                valid = parts and parts.scheme in ("https", "http") and parts.hostname
+            except ValueError:
+                valid = False
+            if not valid:
+                raise Unmeasured("daum AI 요약 source URL이 유효하지 않다")
+            self.sources.append(url)
+        self.have_payload = True
+
+    def _element(self, tag, attrs):
+        if self._is_boundary(attrs) and len(self.stack) == 1:
+            self.have_payload = False
+        for key, value in attrs:
+            if key.startswith("data-") and value and value.lstrip().startswith("{"):
+                self._payload(value)
+
+    def handle_data(self, data):
+        if self.stack and self.stack[-1] == "script":
+            self._payload(data)
+
+    def handle_endtag(self, tag):
+        if len(self.stack) == 1 and tag == self.stack[0] and not self.have_payload:
+            self.invalid_boundary = True
+        super().handle_endtag(tag)
+
+
 def daum(q, host):
     """다음 웹검색 + AI 요약. 단순 HTTP 는 축소 SERP 를 준다 — 렌더링 DOM 을 쓴다."""
     url = "https://search.daum.net/search?w=tot&q=" + urllib.parse.quote(q)
     html = _gate("daum", _render(url), q)
     organic = seen(html, host, q)
-    fired = bool(re.search(r'disp-attr="AIO"|aioColl', html))
-    sources = re.findall(r'"url"\s*:\s*"([^"]+)"\s*,\s*"gsid"', html) if fired else []
-    return organic, fired, sources
+    parser = _DaumAioSources()
+    parser.feed(html)
+    parser.close()
+    if not parser.found_boundary and re.search(r'aioColl|disp-attr\s*=\s*["\x27]AIO', html, re.I):
+        raise Unmeasured("daum AI 요약 표시가 있지만 답변 영역을 식별할 수 없다")
+    if parser.found_boundary and (parser.invalid_boundary or parser.stack or not parser.closed_boundary):
+        raise Unmeasured("daum AI 요약의 전체 출처 목록을 확인할 수 없다")
+    return organic, parser.found_boundary, list(dict.fromkeys(parser.sources))
 
 
 def google(q, host):
@@ -409,6 +467,8 @@ def _pad(text, width) -> str:
 
 def _audit_state(kind, audit):
     site = audit.get("site") or {}
+    if site.get("probes_skipped") == "robots_unavailable":
+        return ("미측정", "robots.txt 확인 불가로 수집 보류")
     if kind == "audit:pages":
         n = len(audit.get("pages") or [])
         return ("관측", "%d쪽" % n) if n else ("미측정", "크롤 결과 없음")

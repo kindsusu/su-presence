@@ -142,7 +142,7 @@ else
 fi
 
 # audit.sh 전체 실행(로컬 HTTP 서버): robots.txt 응답 상태가 3절 UA 판정까지 이어지는지.
-# 경로 첫 조각이 시나리오다. 외부 사이트에 접속하지 않는다.
+# 시나리오는 별도 파일로 선택한다. 실제 감사 대상의 정책은 항상 /robots.txt에 있다.
 #   /sNNN  robots.txt 응답 코드 — /s503/robots.txt → 503
 #   /hN    robots.txt가 같은 호스트 안에서 N홉 리다이렉트(상대 경로 Location) 뒤 200
 #   /abs   robots.txt가 같은 호스트 절대 주소로 리다이렉트
@@ -153,7 +153,8 @@ SRV_PID=""
 cleanup() { [ -n "$SRV_PID" ] && kill "$SRV_PID" 2>/dev/null; rm -rf "$E2E_DIR"; }
 trap cleanup EXIT
 SRV_PY='
-import http.server, socketserver, threading
+import http.server, socketserver, threading, sys
+from pathlib import Path
 HITS = []
 HTML = b"<html><head><title>t</title></head><body><h1>t</h1></body></html>"
 BLOCK = b"User-agent: GPTBot/1.1\nDisallow: /\n"
@@ -170,6 +171,11 @@ class H(http.server.BaseHTTPRequestHandler):
         scen = parts[1] if len(parts) > 1 else ""
         leaf = parts[2] if len(parts) == 3 else None
         home = len(parts) == 2 or leaf == ""
+        active = Path(sys.argv[1]).read_text().strip()
+        if self.path.split("?")[0] in ("/robots.txt", "/sitemap.xml", "/sitemap_index.xml"):
+            scen, leaf, home = active, self.path.strip("/"), False
+        elif active == "s503" and scen != "__hits":
+            HITS.append("unexpected-503-request:" + self.path)
         other = "http://localhost:%d" % self.server.server_port
         code, body, ctype, location = 404, b"not found", "text/plain", None
         if scen.startswith("trap-"):
@@ -177,10 +183,14 @@ class H(http.server.BaseHTTPRequestHandler):
             code, body = 200, BLOCK
         elif scen == "__hits":
             code, body = 200, "".join(p + "\n" for p in HITS).encode()
-        elif home and scen != "xhome":
+        elif home and scen not in ("xhome", "deny"):
             code, body, ctype = 200, HTML, "text/html; charset=utf-8"
         elif scen == "xhome" and home:
             code, location = 301, other + "/trap-xhome/"
+        elif scen == "deny" and leaf == "robots.txt":
+            code, body = 200, b"User-agent: *\nDisallow: /deny\n"
+        elif scen == "deny" and home:
+            HITS.append("unexpected-denied-request:" + self.path)
         elif scen[:1] == "s" and scen[1:].isdigit() and leaf == "robots.txt":
             code = int(scen[1:])
             body = BLOCK if code == 200 else b"busy"
@@ -214,7 +224,7 @@ threading.Timer(300, srv.shutdown).start()
 srv.serve_forever()
 '
 if [ -n "${PY:-}" ]; then
-  "$PY" -u -c "$SRV_PY" > "$E2E_DIR/port" 2>/dev/null &
+  "$PY" -u -c "$SRV_PY" "$E2E_DIR/scenario" > "$E2E_DIR/port" 2>/dev/null &
   SRV_PID=$!
 fi
 PORT=""
@@ -232,7 +242,9 @@ LOCAL_NP=127.0.0.1,localhost
 LAST_SCEN=""
 run_audit() { # $1=시나리오 → $out (같은 시나리오는 한 번만 실행)
   [ "$1" = "$LAST_SCEN" ] && return 0
+  printf "%s" "$1" > "$E2E_DIR/scenario"
   out=$(NO_PROXY=$LOCAL_NP no_proxy=$LOCAL_NP "$BASH" ./audit.sh "http://127.0.0.1:$PORT/$1" 2>&1)
+  AUDIT_RC=$?
   LAST_SCEN="$1"
 }
 e2e() { # $1=설명 $2=시나리오 $3=줄 첫 칸(UA·robots.txt 등) $4=기대 문구 $5=있으면 안 되는 문구(선택)
@@ -257,8 +269,12 @@ if [ -z "$PORT" ]; then
   echo "FAIL e2e 로컬 HTTP 서버를 띄우지 못함"
   FAIL=1
 else
-  e2e "robots 503 → 미확인"            s503 GPTBot  "미확인" "허용" || FAIL=1
-  e2e "robots 429 → 미확인"            s429 Yeti    "미확인" "허용" || FAIL=1
+  e2e "robots 503 → 미확인"            s503 robots.txt "미확인" || FAIL=1
+  [ "$AUDIT_RC" = 2 ] || { echo "FAIL 503 exit: $AUDIT_RC"; FAIL=1; }
+  e2e_has "루트 정책이 시작 경로를 막으면 요청하지 않음" deny "본문 요청 보류" || FAIL=1
+  [ "$AUDIT_RC" = 2 ] || { echo "FAIL deny exit: $AUDIT_RC"; FAIL=1; }
+  e2e_has "일반 브라우저 후속 경로 안내" deny "--browser-fallback" || FAIL=1
+  e2e "robots 429 → 미확인"            s429 robots.txt "미확인" || FAIL=1
   e2e "robots 404 → 제한 없음"         s404 GPTBot  "기본 허용" || FAIL=1
   e2e "robots 200 GPTBot/1.1 → 차단"   s200 GPTBot  "학습 사용 차단" || FAIL=1
   e2e "robots 200 GPTBot/1.1 ≠ DAUM"   s200 DAUM    "기본 허용" || FAIL=1
@@ -269,11 +285,11 @@ else
   e2e_has "robots 따라간 홉 수 표시"                   h1  "리다이렉트 1홉을 따라감 → http://127.0.0.1:$PORT/h0/robots.txt" || FAIL=1
   e2e "robots 같은 호스트 절대 주소 → 따라가 판정"     abs GPTBot     "학습 사용 차단" || FAIL=1
   e2e "robots 5홉(한도) → 따라가 판정"                 h5  GPTBot     "학습 사용 차단" || FAIL=1
-  e2e "robots 6홉 → 미확인"                            h6  GPTBot     "미확인" "차단" || FAIL=1
+  e2e "robots 6홉 → 미확인"                            h6  robots.txt "미확인" || FAIL=1
   e2e "robots 6홉 → 5번 초과 사유"                     h6  robots.txt "리다이렉트가 연속 5번을 넘는다" || FAIL=1
-  e2e "robots 다른 호스트 → 미확인"                    xrb GPTBot     "미확인" "차단" || FAIL=1
+  e2e "robots 다른 호스트 → 미확인"                    xrb robots.txt "미확인" || FAIL=1
   e2e "robots 다른 호스트 → 다른 도메인 사유"          xrb robots.txt "다른 도메인(localhost:$PORT)으로 리다이렉트된다 — 서버 장애가 아니다" || FAIL=1
-  e2e "robots 다른 호스트 → 3절 각주"                  xrb ※          "리다이렉트를 따라가지 않아" || FAIL=1
+  e2e_has "robots 다른 호스트 → 본문 보류" xrb "본문·사이트 검사를 보류" || FAIL=1
   e2e "sitemap 다른 호스트 리다이렉트 → 따라가지 않음" xsm /sitemap.xml "다른 도메인(localhost:$PORT)" || FAIL=1
   e2e "홈 다른 호스트 리다이렉트 → 진단 중단"          xhome ❌        "다른 도메인(localhost:$PORT)" || FAIL=1
 

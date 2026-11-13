@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import browser_review
 import importlib
 import json
 import os
@@ -54,6 +55,7 @@ def audit(args):
     report_path.write_text(report.render(result, args.lang), encoding="utf-8")
     crawl.print_summary(result)
     print("\n진단: %s\n보고서: %s" % (path, report_path))
+    browser_review.after_audit(result, path, args.browser_fallback)
     print("다음: python tools/seo_geo.py generate all \"%s\" --site <회사사실.json>" % path)
     # Findings are data; incomplete collection is an unsuccessful audit run.
     return 0 if (result.get("coverage") or {}).get("complete") is True else 2
@@ -107,6 +109,7 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     dispatch = {name: name for name in ("generate", "verify", "measure", "collect",
                                         "drift", "report", "rebuild")}
+    dispatch["browser-review"] = "browser_review"
     if argv and argv[0] in dispatch:
         try:
             return importlib.import_module(dispatch[argv[0]]).main(argv[1:])
@@ -127,6 +130,7 @@ def main(argv=None):
     p.add_argument("--lang", choices=("ko", "en"), default="ko")
     p.add_argument("--direct", action="store_true",
                    help="프록시 환경 변수를 무시하고 직접 연결 (비공개 주소 차단이 실제 연결을 덮는다)")
+    browser_review.add_option(p)
     p.set_defaults(func=audit)
     p = sub.add_parser("status", help="로컬 산출물 기록 상태 확인 (네트워크 없음)")
     p.add_argument("audit")

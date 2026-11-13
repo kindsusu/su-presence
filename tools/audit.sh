@@ -13,7 +13,8 @@ if [ -z "$DOMAIN" ]; then
   exit 1
 fi
 case "$DOMAIN" in http*) URL="$DOMAIN" ;; *) URL="https://$DOMAIN" ;; esac
-BASE="${URL%/}"
+authority="${URL#*://}"; authority="${authority%%[/?#]*}"
+BASE="${URL%%://*}://$authority"
 # crawl.py 와 같은 신분으로 다닌다. 토큰이 갈리면 상대 서버 로그에서 한 도구로 안 보인다.
 # Mozilla 껍데기는 의도적이다 — 맨 토큰만 보내면 축소 응답을 주는 사이트가 있다.
 UA='Mozilla/5.0 (compatible; su-presence-audit/2.1)'
@@ -132,6 +133,17 @@ HOST_ALLOWED() {
   [ "$k" = "$(ALT_HOST "$1")" ]
 }
 
+# Apply the fetched policy only to its own origin, including each content redirect.
+PATH_ALLOWED() {
+  case "$1" in "$BASE"|"$BASE/"*|"$BASE?"*|"$BASE#"*) ;; *) return 1 ;; esac
+  [ -z "$RB" ] || printf '%s' "$RB" | "$PY" -c 'import sys, urllib.parse
+sys.path.insert(0, sys.argv[1])
+import crawl
+u = urllib.parse.urlsplit(sys.argv[2])
+rules = crawl.crawl_rules(sys.stdin.buffer.read().decode("utf-8","replace"), crawl.UA.split("/")[0])
+sys.exit(0 if crawl.crawl_allowed(rules, (u.path or "/") + ("?" + u.query if u.query else "")) else 1)' "$SCRIPT_DIR" "$1"
+}
+
 # 한 URL을 받는다. curl -L은 어느 도메인으로든 따라가므로 쓰지 않고, 리다이렉트를 한 홉씩 직접 따라간다.
 #   $1=URL $2=최대 홉 수 $3=홉당 시간 제한(초) $4=0이면 본문을 버린다(기본 1)
 # 결과(전역): F_CODE(마지막 응답 코드, 접속 실패 000) F_RC(curl 종료 코드) F_BODY F_URL(마지막 요청 주소)
@@ -142,6 +154,9 @@ FETCH() {
   local out meta
   F_URL="$1"; F_MAX="$2"; F_HOPS=0; F_REASON=""; F_NEXT=""; F_BODY=""
   while :; do
+    if [ "${POLICY_READY:-0}" = 1 ] && ! PATH_ALLOWED "$F_URL"; then
+      F_RC=1; F_CODE=000; F_REASON=policy; F_NEXT=""; F_BODY=""; break
+    fi
     if [ "${4:-1}" = 0 ]; then
       out="$(curl -s -o /dev/null --max-time "$3" -A "$UA" -w "${NL}%{http_code} %{redirect_url}" -- "$F_URL")"
     else
@@ -163,6 +178,7 @@ FETCH() {
 BLOCKED_NOTE() {
   local k
   case "$F_REASON" in
+    policy) printf 'robots.txt가 허용하지 않거나 대상 origin 밖인 주소' ;;
     other_host)
       if k=$(HOST_KEY "$F_NEXT"); then printf '다른 도메인(%s)으로 리다이렉트된다' "$k"
       else printf 'http(s)가 아니거나 읽을 수 없는 주소로 리다이렉트된다'; fi ;;
@@ -182,56 +198,7 @@ echo " Phase 0 진단 — $BASE"
 echo " $(date '+%Y-%m-%d %H:%M')"
 echo "════════════════════════════════════════════"
 
-ORIGIN_KEY=$(HOST_KEY "$BASE") || ORIGIN_KEY=""
-# 홈도 진단 대상과 www↔apex 변형 안에서만 따라간다 — 다른 도메인의 HTML을 이 사이트 것으로 적지 않는다.
-FETCH "$BASE" 10 20
-HTML="$F_BODY"; HOME_URL="$F_URL"; HOME_HOPS="$F_HOPS"
-if [ -n "$F_REASON" ]; then
-  echo "❌ 홈을 확인하지 못함 (HTTP $F_CODE) — $(BLOCKED_NOTE). 따라가지 않았다"
-  echo "   └ 의도한 이전이면 도착 주소로 다시 진단하라"
-  exit 1
-fi
-if [ -z "$HTML" ]; then
-  echo "❌ 응답 없음 — 도메인·네트워크를 확인하라"
-  exit 1
-fi
-
-echo ""
-echo "── 0. noindex 사고 점검 (최우선) ──"
-META_ROBOTS="$(printf '%s' "$HTML" | grep -oiE '<meta[^>]*robots[^>]*>' | head -3)"
-XROBOTS="$(curl -sI --max-time 20 -A "$UA" -- "$HOME_URL" | grep -i 'x-robots-tag' || true)"
-if printf '%s%s' "$META_ROBOTS" "$XROBOTS" | grep -Eqi 'noindex|content=[^>]*none'; then
-  echo "🚨 noindex 발견 — 다른 모든 최적화가 무효다. 이것부터 고쳐라"
-  [ -n "$META_ROBOTS" ] && echo "   meta   : $META_ROBOTS"
-  [ -n "$XROBOTS" ]     && echo "   header : $XROBOTS"
-else
-  echo "✅ noindex 없음"
-  [ -n "$META_ROBOTS" ] && echo "   (meta robots: $META_ROBOTS)"
-fi
-
-echo ""
-echo "── 1. SEO: 크롤러가 보는 HTML ──"
-H1=$(printf '%s' "$HTML" | COUNT '<h1')
-OG=$(printf '%s' "$HTML" | COUNT 'og:')
-LD=$(printf '%s' "$HTML" | grep -oiF 'application/ld+json' | wc -l | tr -d ' ')
-TITLE=$(printf '%s' "$HTML" | grep -oiE '<title[^>]*>[^<]*' | head -1 | sed 's/<[^>]*>//')
-DESC=$(printf '%s' "$HTML" | ATTR '<meta[^>]*name=.?description' 'content')
-CANON=$(printf '%s' "$HTML" | ATTR '<link[^>]*rel=.?canonical' 'href')
-TEXT=$(printf '%s' "$HTML" | VISIBLE | NCHAR)
-NAVER_V=$(printf '%s' "$HTML" | grep -oi 'naver-site-verification' | head -1)
-
-echo "   h1 태그        : ${H1}개"
-echo "   title          : ${TITLE:-(없음)}  ($(printf '%s' "$TITLE" | NCHAR)자 · 권장 한글 25~30/영문 50~60)"
-echo "   meta desc      : $(printf '%s' "$DESC" | NCHAR)자  (권장 한글 70~80/영문 150~160)"
-echo "   og: 태그       : ${OG}개"
-echo "   JSON-LD        : ${LD}개"
-echo "   canonical      : ${CANON:-(없음)}"
-echo "   본문 텍스트량  : 약 ${TEXT}자   (script/style 제외한 실제 텍스트)"
-[ "${TEXT:-0}" -lt 500 ] && echo "   └ 500자 미만 — CSR 셸 가능성. 크롤러는 빈 페이지로 본다"
-echo "   네이버 소유확인: $([ -n "$NAVER_V" ] && echo '✅ naver-site-verification 있음' || echo '없음 (서치어드바이저 미연결 가능성)')"
-
-echo ""
-echo "── 2. robots / sitemap ──"
+ORIGIN_KEY=$(HOST_KEY "$BASE") || { echo "진단 URL의 호스트를 읽을 수 없다"; exit 2; }
 # 리다이렉트는 crawl.fetch_robots와 같은 범위만 따라간다: 진단 대상 호스트와 www↔apex 변형 사이,
 # RFC 9309 최소치이자 Google과 같은 5홉까지. 다른 도메인·5홉 초과는 3xx로 끝나 '미확인'이 된다.
 FETCH "$BASE/robots.txt" 5 20
@@ -267,8 +234,69 @@ case "$RB_ST" in
       echo "   robots.txt     : ❓ 미확인 — $RB_WHY"
       echo "   └ 429·5xx·접속 실패는 '없음'이 아니다. 크롤러가 사이트 전체를 차단으로 볼 수 있다"
     fi
-    RB="" ;;
+    echo "   본문·사이트 검사를 보류했다. 정책을 확인한 뒤 재진단하라."
+    printf '   일반 브라우저 경로: python %q audit %q --browser-fallback\n' "$SCRIPT_DIR/seo_geo.py" "$URL"
+    exit 2 ;;
 esac
+PICK_PY || { echo "robots.txt 판정에는 Python 3.10+가 필요하다"; exit 2; }
+POLICY_READY=1
+# 홈도 진단 대상과 www↔apex 변형 안에서만 따라간다 — 다른 도메인의 HTML을 이 사이트 것으로 적지 않는다.
+FETCH "$URL" 10 20
+HTML="$F_BODY"; HOME_URL="$F_URL"; HOME_HOPS="$F_HOPS"
+if [ "$F_REASON" = policy ]; then
+  echo "본문 요청 보류 — $(BLOCKED_NOTE)"
+  printf '일반 브라우저 경로: python %q audit %q --browser-fallback\n' "$SCRIPT_DIR/seo_geo.py" "$URL"
+  exit 2
+fi
+if [ -n "$F_REASON" ]; then
+  echo "❌ 홈을 확인하지 못함 (HTTP $F_CODE) — $(BLOCKED_NOTE). 따라가지 않았다"
+  echo "   └ 의도한 이전이면 도착 주소로 다시 진단하라"
+  exit 1
+fi
+if [ -z "$HTML" ]; then
+  echo "❌ 응답 없음 — 도메인·네트워크를 확인하라"
+  exit 1
+fi
+
+echo ""
+echo "── 0. noindex 사고 점검 (최우선) ──"
+XROBOTS="$(curl -sI --max-time 20 -A "$UA" -- "$HOME_URL" | grep -i '^x-robots-tag:' | cut -d: -f2- || true)"
+if printf '%s' "$HTML" | "$PY" -c 'import sys
+sys.path.insert(0, sys.argv[1])
+import crawl
+p = crawl.PageParser()
+p.feed(sys.stdin.buffer.read().decode("utf-8", "replace"))
+p.close()
+sys.exit(0 if crawl._noindex({"meta_robots": p.meta_robots, "meta_googlebot": p.meta_googlebot,
+                              "x_robots_tag": sys.argv[2]}) else 1)' "$SCRIPT_DIR" "$XROBOTS"; then
+  echo "🚨 일반 검색용 noindex 발견 — 의도한 비색인 대상인지 확인하라"
+else
+  echo "일반 검색용 noindex가 관측되지 않았다"
+fi
+
+echo ""
+echo "── 1. SEO: 크롤러가 보는 HTML ──"
+H1=$(printf '%s' "$HTML" | COUNT '<h1')
+OG=$(printf '%s' "$HTML" | COUNT 'og:')
+LD=$(printf '%s' "$HTML" | grep -oiF 'application/ld+json' | wc -l | tr -d ' ')
+TITLE=$(printf '%s' "$HTML" | grep -oiE '<title[^>]*>[^<]*' | head -1 | sed 's/<[^>]*>//')
+DESC=$(printf '%s' "$HTML" | ATTR '<meta[^>]*name=.?description' 'content')
+CANON=$(printf '%s' "$HTML" | ATTR '<link[^>]*rel=.?canonical' 'href')
+TEXT=$(printf '%s' "$HTML" | VISIBLE | NCHAR)
+NAVER_V=$(printf '%s' "$HTML" | grep -oi 'naver-site-verification' | head -1)
+
+echo "   h1 태그        : ${H1}개"
+echo "   title          : ${TITLE:-(없음)}  ($(printf '%s' "$TITLE" | NCHAR)자 · 권장 한글 25~30/영문 50~60)"
+echo "   meta desc      : $(printf '%s' "$DESC" | NCHAR)자  (권장 한글 70~80/영문 150~160)"
+echo "   og: 태그       : ${OG}개"
+echo "   JSON-LD        : ${LD}개"
+echo "   canonical      : ${CANON:-(없음)}"
+echo "   본문 텍스트량  : 약 ${TEXT}자   (script/style 제외한 실제 텍스트)"
+[ "${TEXT:-0}" -lt 500 ] && echo "   └ 500자 미만 — CSR 셸 가능성. 크롤러는 빈 페이지로 본다"
+echo "   네이버 소유확인: $([ -n "$NAVER_V" ] && echo '✅ naver-site-verification 있음' || echo '없음 (서치어드바이저 미연결 가능성)')"
+
+echo ""
+echo "── 2. robots / sitemap ──"
 # 후보: robots.txt의 Sitemap: 선언(최대 3) + 표준 경로 2종
 SM_DECL=$(printf '%s' "$RB" | grep -iE '^[[:space:]]*sitemap:' | sed -E 's/^[[:space:]]*[Ss][Ii][Tt][Ee][Mm][Aa][Pp]:[[:space:]]*//' | tr -d '\r' | head -3)
 if [ -n "$SM_DECL" ]; then
@@ -308,17 +336,12 @@ done
 
 echo ""
 echo "── 3. GEO: AI 크롤러 정책 (robots.txt 실효 판정) ──"
-PICK_PY
 POLICY_FAILED=0
 for ua in GPTBot OAI-SearchBot ChatGPT-User Googlebot Bingbot \
           ClaudeBot Claude-SearchBot Claude-User \
           PerplexityBot Perplexity-User Google-Extended Yeti DAUM Daumoa; do
-  if [ "$RB_ST" = "unreachable" ]; then
-    V=unknown
-  else
-    V=$(printf '%s' "$RB" | POLICY "$ua") || V=""
-    [ -n "$V" ] || { V=error; POLICY_FAILED=1; }
-  fi
+  V=$(printf '%s' "$RB" | POLICY "$ua") || V=""
+  [ -n "$V" ] || { V=error; POLICY_FAILED=1; }
   case "$V" in
     explicit-allow)   STATE="✅ 명시 허용" ;;
     explicit-block)
@@ -334,13 +357,6 @@ for ua in GPTBot OAI-SearchBot ChatGPT-User Googlebot Bingbot \
   esac
   printf '   %-18s %s\n' "$ua" "$STATE"
 done
-if [ "$RB_ST" = "unreachable" ]; then
-  if [ -n "$RB_REASON" ]; then
-    echo "   ※ robots.txt 리다이렉트를 따라가지 않아 UA별 허용/차단을 판정하지 않았다 — 2절의 사유를 확인하라"
-  else
-    echo "   ※ robots.txt가 429·5xx·접속 실패라 UA별 허용/차단을 판정하지 않았다 — 잠시 뒤 다시 확인하라"
-  fi
-fi
 [ "$POLICY_FAILED" = "1" ] && echo "   ※ 판정기를 실행하지 못했다 — Python 3.10+(python 또는 python3)와 tools/crawl.py가 필요하다"
 echo "   ※ Google-Extended는 UA가 아니라 robots 토큰이다 — 서버 로그에 안 잡힌다"
 echo "   ※ Yeti는 네이버 검색 크롤러다 — 차단이면 NEO 레인 전체가 닫힌다"
@@ -355,7 +371,7 @@ echo ""
 echo "── 5. 응답 위생 ──"
 echo "   404 동작       : HTTP $(CODE "$BASE/__multi_geo_404_probe__")  (404여야 정상)"
 echo "   리다이렉트 홉  : $HOME_HOPS"
-echo "   응답 시간      : $(curl -s -o /dev/null -w '%{time_total}' --max-time 20 -A "$UA" "$BASE")s"
+echo "   응답 시간      : $(curl -s -o /dev/null -w '%{time_total}' --max-time 20 -A "$UA" -- "$HOME_URL")s"
 case "$HOST" in www.*) ALT="${HOST#www.}" ;; *) ALT="www.$HOST" ;; esac
 ALT_RES=$(curl -sI --max-time 15 -A "$UA" -o /dev/null -w '%{http_code} → %{redirect_url}' "https://$ALT" 2>/dev/null) \
   || ALT_RES="❌ 접속 불가 — TLS 인증서에 $ALT 미포함 또는 DNS 미설정 (한쪽 주소로 온 사용자·크롤러를 잃는다)"

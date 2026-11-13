@@ -405,12 +405,16 @@ def gen_robots(ctx: Ctx) -> None:
     robots = (ctx.audit.get("site") or {}).get("robots") or {}
     before = robots.get("raw") or ""
     policies = robots.get("policies") or {}
-    if robots.get("fetch_state") == "unreachable" or "unknown" in policies.values():
+    if (robots.get("fetch_state") == "unreachable" or robots.get("fetch_error") == "body_truncated"
+            or "unknown" in policies.values()):
         # 원문을 모른다. 여기서 만든 파일을 올리면 서버에 있는(읽지 못한) Disallow가 전부 지워지고,
         # 배포 전 원문이 없어 verify의 robots.preserved도 비교할 수 없다 — 초안을 만들지 않는다.
         status = robots.get("status")
         ctx.notes["robots_unread"] = {"status": status, "error": robots.get("fetch_error"),
                                       "sitemaps": _sitemap_declarations(ctx, robots)}
+        if robots.get("fetch_error") == "body_truncated":
+            ctx.todo("robots.txt 원문이 수집 한도에서 잘렸다. 기존 차단 규칙을 보존하려면 서버의 전체 파일을 확인하라.")
+            return
         ctx.todo("진단 때 robots.txt를 읽지 못했다(HTTP %s — 429·5xx·접속 실패 등) — 서버의 실제 "
                  "원문을 몰라 robots.txt 초안을 만들지 않았다(덮어쓰면 기존 Disallow가 지워진다). "
                  "robots.txt가 정상 응답하게 고치거나 실제 파일을 받은 뒤 재진단하고 다시 생성하라."
@@ -918,7 +922,7 @@ def gen_deploy(ctx: Ctx) -> None:
         status = unread.get("status")
         out += ["## 2. robots.txt", "",
                 "**robots.txt 초안을 만들지 않았다.** 진단 때 robots.txt를 읽지 못했다 (HTTP %s%s — "
-                "429·5xx·접속 실패 등). 서버에 있는 실제 원문을 모르는 상태에서 만든 파일을 올리면 "
+                "429·5xx·접속 실패·원문 잘림 등). 서버에 있는 실제 원문을 모르는 상태에서 만든 파일을 올리면 "
                 "지금 서버에 있는 Disallow 규칙을 덮어 지운다. UA별 정책도 미확인이라 명시 허용을 "
                 "판단할 수 없다."
                 % ("없음" if status is None else status,

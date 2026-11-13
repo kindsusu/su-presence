@@ -157,6 +157,8 @@ class Session:
         rec["title"] = parser.title
         rec["meta_description"] = parser.meta_description
         rec["meta_robots"] = parser.meta_robots
+        rec["meta_googlebot"] = parser.meta_googlebot
+        rec["meta_googlebot_news"] = parser.meta_googlebot_news
         rec["canonical"] = parser.canonical
         rec["text"] = parser.text
         ok, types = crawl.jsonld_types(parser.jsonld_raw)
@@ -170,8 +172,7 @@ class Session:
 
 
 def is_noindex(rec: dict) -> bool:
-    return crawl._noindex({"meta_robots": rec.get("meta_robots"),
-                           "x_robots_tag": rec.get("x_robots_tag")})
+    return crawl._noindex(rec)
 
 
 def nodes(obj):
@@ -1517,7 +1518,8 @@ def verify_diff(before: dict, after: dict) -> dict:
     after_robots = (after.get("site") or {}).get("robots") or {}
     robots_blind = crawl.robots_unknown(after.get("site") or {})
     gone = [b[c] for c in b if c not in a]
-    unverified = [f for f in gone if robots_blind and f["code"] in crawl.ROBOTS_DERIVED_CODES]
+    skipped = (after.get("site") or {}).get("probes_skipped") == "robots_unavailable"
+    unverified = [f for f in gone if skipped or (robots_blind and f["code"] in crawl.ROBOTS_DERIVED_CODES)]
     resolved = [f for f in gone if f not in unverified]
     new = [a[c] for c in a if c not in b]
     persisting = [{"code": c, "lane": a[c]["lane"], "severity": a[c]["severity"],
@@ -1585,9 +1587,9 @@ def verify_diff(before: dict, after: dict) -> dict:
 
     bu = {p["url"] for p in (before.get("pages") or []) if p.get("status") == 200}
     au = {p["url"] for p in (after.get("pages") or []) if p.get("status") == 200}
-    gone, fresh = sorted(bu - au), sorted(au - bu)
-    chk(checks, "diff.pages", "warn" if gone else "pass",
-        "사라진 URL %d개 · 새 URL %d개" % (len(gone), len(fresh)),
+    gone, fresh = ([], []) if skipped else (sorted(bu - au), sorted(au - bu))
+    chk(checks, "diff.pages", "skip" if skipped else "warn" if gone else "pass",
+        "본문 수집 보류로 URL 변화 미확인" if skipped else "사라진 URL %d개 · 새 URL %d개" % (len(gone), len(fresh)),
         {"gone": gone[:50], "new": fresh[:50]})
 
     incomplete = []

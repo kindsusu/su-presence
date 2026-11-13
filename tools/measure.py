@@ -1050,9 +1050,11 @@ def cell(part: dict) -> str:
     한번 0으로 보고된 값은 사실로 굳는다 (ops/measure.md 「측정 범위 표기 규약」).
     """
     if part.get("citation_known"):
-        return "%d/%d" % (part["cited"], part["citation_known"])
-    if part.get("runs"):
-        return "범위 미확인(%d)" % part["runs"]
+        count = "%d/%d" % (part["cited"], part["citation_known"])
+        unknown = part.get("citation_unknown", 0)
+        return "%s · 미확인 %d회" % (count, unknown) if unknown else count
+    if part.get("citation_unknown") or part.get("runs"):
+        return "범위 미확인(%d)" % (part.get("citation_unknown") or part["runs"])
     if part.get("unmeasured"):
         return "미측정(%d)" % part["unmeasured"]
     if part.get("errors"):
@@ -1120,6 +1122,7 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
     sources = {e: _blank_sources() for e in engines_seen}
     by_query: dict = OrderedDict((q["id"], {"id": q["id"], "text": q["text"],
                                             "type": q["type"], "runs": 0, "cited": 0,
+                                            "citation_known": 0, "citation_unknown": 0,
                                             "engines": {}, "_urls": Counter()})
                                  for q in queries)
     modes = Counter()
@@ -1157,6 +1160,7 @@ def aggregate(rows: list, queries: list, host: str, base: str, since=None, until
 
         bucket = by_query[row["query_id"]]
         bucket["runs"] += int(known)
+        bucket["citation_known" if known else "citation_unknown"] += 1
         bucket["cited"] += int(known and row["cited"])
         eng = bucket["engines"].setdefault(row["engine"], {"runs": 0, "cited": 0})
         eng["runs"] += int(known)

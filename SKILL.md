@@ -35,6 +35,10 @@ python <skill-root>/tools/seo_geo.py audit https://example.com --out <project>/o
 `audit`는 audit.json과 report.html을 만든다. 상한·실패·robots 제외·잔여 큐를 coverage에서 확인한다.
 incomplete/unknown을 전수 검사 완료로 부르지 않는다. 통합 audit 명령은 기존 audit.json을 observations/에 보관한다.
 
+robots 때문에 제외된 페이지의 화면을 확인하는 작업이라면 `audit URL --browser-fallback`으로 기본 브라우저에서 이어간다. 기존 진단은 `browser-review AUDIT --page N --open`을 쓰고 실제로 본 화면만 `--result`로 따로 기록한다. 크롤 정책과 인용 여부를 변경하지 않는다.
+
+브라우저를 제어할 수 있는 호스트는 목록에서 대상 URL을 열어 렌더링된 제목·본문을 확인한 뒤 작업을 이어간다. 로그인 화면이나 오류 화면은 그대로 기록하고, 탭 열기 성공만으로 내용을 확인했다고 쓰지 않는다.
+
 우선 확인: 목표 페이지 HTTP/최종 URL/canonical/색인 의도, robots 경로별 정책, noindex/none,
 엔진별 메타와 snippet 제한, sitemap XML과 하위 인덱스, 원시 HTML 본문·메타·구조화 데이터.
 JS 렌더링·WAF·검색엔진 색인은 별도 증거가 필요하다. 초안/내부 검색 등의 의도된 noindex는 유지한다.

@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+- 하위 URL에서 시작해도 도메인 루트의 robots.txt를 먼저 확인한다. 정책을 읽을 수 없으면 본문·사이트 검사를 보류하고, 원문이 잘렸으면 교체용 robots.txt를 생성하지 않는다.
+- 진단의 선택 필드 `coverage.browser_review`에 일반 브라우저 확인 후보를 남긴다. `browser-review`로 기록한 관측은 `browser-reviews/`에 별도로 저장하며 기존 진단 파일·크롤 점수·인용률은 바꾸지 않는다.
+- 다음 AI 인용은 답변 영역의 출처 목록으로만 판정한다. `drift`와 `measure`는 인용 여부가 확인된 회차를 분모로 쓰며, 해당 분모 필드가 없는 구형 요약은 기존 회차 수로 읽는다.
+- 새 진단은 뉴스 전용 지시를 `pages[].meta_googlebot_news`에 구분해 일반 사이트맵 후보에서 잘못 제외하지 않는다. 이미 저장한 진단에서 두 지시를 구분하려면 재진단한다.
+
 - 문서: 측정 방법 표와 자동화 대상 설명을 실제 도구에 맞춘다 — 네이버 AI 브리핑·다음·Google AI 개요는 `collect.py` 무인 수집, `auto` API는 ChatGPT·Claude, Gemini·Perplexity·Copilot은 브라우저 관측 또는 수동 폼.
 
 - `crawl.py`·`verify.py`: 공인 주소가 아닌 곳(루프백·사설·link-local·CGNAT·멀티캐스트·예약)으로 풀리는 호스트에는 연결하지 않는다. 검사한 주소로 바로 연결해 DNS 재바인딩 틈을 막는다. 진단 대상 자체가 로컬·사내 주소면 그 분류만 허용한다. 새 오류값 `nonpublic_address`, info 진단 `ALT_HOST_NONPUBLIC`·`MIRROR_NONPUBLIC_DNS`, 선택 필드 `hygiene.mirrors.nonpublic`.

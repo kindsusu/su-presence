@@ -156,18 +156,33 @@ def audit_metrics(audit: dict) -> dict:
     ])
 
 
+def _citation_sample(slot):
+    # Old summaries used runs as their denominator and had no coverage counters.
+    observed = slot.get("runs") or 0
+    known = slot.get("citation_known", observed)
+    return {"cited": slot.get("cited") or 0, "runs": known,
+            "citation_unknown": observed - known, "rate": slot.get("rate")}
+
+
+def _sample_text(sample):
+    count = "%d/%d" % (sample["cited"], sample["runs"]) if sample["runs"] else "—"
+    unknown = sample.get("citation_unknown", 0)
+    return "%s · 미확인 %d회" % (count, unknown) if unknown else count
+
+
 def measure_metrics(summary: dict) -> dict:
     """엔진 합산 인용률 — 브랜드/비브랜드를 따로 본다 (ops/measure.md 2번)."""
     out = OrderedDict()
     for qtype in ("brand", "nonbrand"):
-        cited = runs = 0
+        cited = runs = unknown = 0
         for engine in summary.get("engines") or []:
-            slot = engine.get(qtype) or {}
-            cited += slot.get("cited") or 0
-            runs += slot.get("runs") or 0
+            slot = _citation_sample(engine.get(qtype) or {})
+            cited += slot["cited"]
+            runs += slot["runs"]
+            unknown += slot["citation_unknown"]
         errors = sum(((engine.get(qtype) or {}).get("errors") or 0)
                      for engine in summary.get("engines") or [])
-        out[qtype] = {"cited": cited, "runs": runs, "errors": errors,
+        out[qtype] = {"cited": cited, "runs": runs, "citation_unknown": unknown, "errors": errors,
                       "rate": round(cited / runs, 4) if runs else None,
                       "wilson95": wilson_interval(cited, runs)}
     return out
@@ -222,9 +237,7 @@ def audit_line(audit: dict) -> str:
 
 def measure_line(summary: dict) -> str:
     m = measure_metrics(summary)
-    return ("브랜드 %d/%d · 비브랜드 %d/%d (회차 합산)"
-            % (m["brand"]["cited"], m["brand"]["runs"],
-               m["nonbrand"]["cited"], m["nonbrand"]["runs"]))
+    return "브랜드 %s · 비브랜드 %s (회차 합산)" % (_sample_text(m["brand"]), _sample_text(m["nonbrand"]))
 
 
 def verify_line(report: dict) -> str:
@@ -512,9 +525,8 @@ def compare_measure(before: dict, after: dict) -> dict:
             as_ = (a_eng.get(eid) or {}).get(qtype) or {}
             br, ar = bs.get("rate"), as_.get("rate")
             row[qtype] = {
-                "before": {"cited": bs.get("cited") or 0, "runs": bs.get("runs") or 0, "rate": br},
-                "after": {"cited": as_.get("cited") or 0, "runs": as_.get("runs") or 0, "rate": ar},
-                "points": round(((ar or 0) - (br or 0)) * 100, 1) if (br is not None or ar is not None) else None,
+                "before": _citation_sample(bs), "after": _citation_sample(as_),
+                "points": round((ar - br) * 100, 1) if br is not None and ar is not None else None,
             }
         engines.append(row)
 
@@ -677,7 +689,9 @@ def build_drift(outdir: str, host: str, index: dict, from_date: str, to_date: st
 
     audit_diff = verify.verify_diff(before, after)
     b_metrics, a_metrics = audit_metrics(before), audit_metrics(after)
-    regressions, improvements, flat = compare_metrics(b_metrics, a_metrics)
+    skipped = any((audit.get("site") or {}).get("probes_skipped") == "robots_unavailable"
+                  for audit in (before, after))
+    regressions, improvements, flat = ([], [], []) if skipped else compare_metrics(b_metrics, a_metrics)
 
     controls = compare_controls(before, after)
     if controls["new_noindex"]:
@@ -736,7 +750,7 @@ def build_drift(outdir: str, host: str, index: dict, from_date: str, to_date: st
             else:
                 flat.append(item)
 
-    warnings = []
+    warnings = ["robots.txt 확인 불가로 본문 수집을 보류한 회차다. 사이트 수치의 증감은 판정하지 않았다."] if skipped else []
     age = None
     day = parse_date(from_date)
     if day:
@@ -889,12 +903,9 @@ def render_drift_md(drift: dict) -> str:
                 "|---|---|---|---|---|---|"]
         for row in md["engines"]:
             nb = row["nonbrand"]
-            out.append("| %s | %d/%d | %d/%d | %d/%d | %d/%d | %s |" % (
-                row["label"],
-                row["brand"]["before"]["cited"], row["brand"]["before"]["runs"],
-                row["brand"]["after"]["cited"], row["brand"]["after"]["runs"],
-                nb["before"]["cited"], nb["before"]["runs"],
-                nb["after"]["cited"], nb["after"]["runs"],
+            out.append("| %s | %s | %s | %s | %s | %s |" % (
+                row["label"], _sample_text(row["brand"]["before"]), _sample_text(row["brand"]["after"]),
+                _sample_text(nb["before"]), _sample_text(nb["after"]),
                 ("%+.1f포인트" % nb["points"]) if nb["points"] is not None else "—"))
         tb, ta = md["totals"]["before"], md["totals"]["after"]
         out += ["", "합계: 브랜드 %s → %s · 비브랜드 %s → %s"
@@ -1034,9 +1045,9 @@ def render_timeline_md(host: str, index: dict, rows: list) -> str:
             row["date"],
             row.get("pages", "—"), row.get("dup_titles", "—"),
             row.get("jsonld_pages", "—"), row.get("noindex", "—"),
-            ("%s (%d/%d)" % (_pct(nb.get("rate")), nb.get("cited", 0), nb.get("runs", 0)))
+            ("%s (%s)" % (_pct(nb.get("rate")), _sample_text(nb)))
             if nb else "—",
-            ("%s (%d/%d)" % (_pct(br.get("rate")), br.get("cited", 0), br.get("runs", 0)))
+            ("%s (%s)" % (_pct(br.get("rate")), _sample_text(br)))
             if br else "—",
             row.get("label") or ""))
     out += ["", "빈칸(—)은 그날 그 종류의 스냅샷을 찍지 않았다는 뜻이다 — 값이 0이라는 뜻이 아니다.", ""]

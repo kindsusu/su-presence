@@ -399,6 +399,8 @@ def main(argv=None):
     rebuild_run.add_parsers(sub)
     import rebuild_review
     import rebuild_protocol
+    import rebuild_questions
+    rebuild_questions.add_parsers(sub)
     rebuild_review.add_parsers(sub)
     rebuild_protocol.add_parsers(sub)
     import rebuild_browser

@@ -1,0 +1,50 @@
+{
+  "_synthetic": "Invented page snapshots for offline comparison only.",
+  "schema": "su-presence/rebuild-research/1",
+  "site_url": "https://example.com",
+  "pages": [
+    {
+      "url": "https://example.com/service/",
+      "final_url": "https://example.com/service/",
+      "status": 200,
+      "outcome": "observed",
+      "title": "주말공방 전동드릴 하루 대여",
+      "h1": "주말공방 전동드릴 하루 대여",
+      "headings": [
+        "이용 범위"
+      ],
+      "text_excerpt": "주말공방 전동드릴 하루 대여",
+      "features": {
+        "table": false,
+        "faq": false,
+        "sources": false
+      },
+      "fetched_at": "2026-01-01T00:00:00+00:00"
+    },
+    {
+      "url": "https://example.org/weekend-drill/",
+      "final_url": "https://example.org/weekend-drill/",
+      "status": 200,
+      "outcome": "observed",
+      "title": "토요일 전동드릴 대여",
+      "h1": "토요일 전동드릴 대여",
+      "headings": [
+        "토요일 반납 시각"
+      ],
+      "text_excerpt": "토요일 전동드릴 대여",
+      "features": {
+        "table": true,
+        "faq": false,
+        "sources": false
+      },
+      "fetched_at": "2026-01-01T00:00:00+00:00"
+    }
+  ],
+  "warnings": [],
+  "coverage": {
+    "requested": 2,
+    "attempted": 2,
+    "remaining": [],
+    "complete": true
+  }
+}

@@ -24,6 +24,8 @@ The optional [connected measurement cycle](docs/plans/measurement-cycle.md) adds
 
 ## Version 3.1.0
 
+Before measuring, `python tools/seo_geo.py rebuild questions templates/questions/catalog.json --out out/question-review` generates a reviewable questionnaire from local official product excerpts. Only explicitly selected questions can be exported to the measurement set and rebuild brief. See the [offline example](templates/questions/README.md) for review, competitor comparison and follow-up runs; no API key is needed.
+
 **3.1.0** adds optional measurement queues, observed-source research and copy review to the existing resumable planning flow. It distinguishes unknown citations from confirmed absence and counts planned repetitions correctly across fresh sessions. Live browser execution, human review and publication remain separate.
 
 After writing the page, use `rebuild review` for offline content/evidence and supplied profile checks, then `rebuild protocol` for a repeatable observation worksheet. These commands neither approve publication nor predict visibility. See the [content review workflow](ops/content-review.md).

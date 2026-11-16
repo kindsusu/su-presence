@@ -1,0 +1,17 @@
+[
+  {
+    "id": "drill-day.find.nonbrand",
+    "signature": "0c4b8e0b7264db1301853ec5b01345209d471e76e74ac7ff999e95598e2a885c",
+    "reason": "주력 상품의 이용 상황과 일치하고, 예시 응답에서 다른 대여점만 출처로 인용됐다."
+  },
+  {
+    "id": "drill-day.check.nonbrand",
+    "signature": "af2c8234d1f4b933af0dfb0f7c7f84927ccf1efefdb4b225584f71edaf59c489",
+    "reason": "원문에 반납 시각과 지점 제한이 있어 이용 전 조건 확인 질문으로 채택한다."
+  },
+  {
+    "id": "drill-day.check.brand",
+    "signature": "5da3aa6875a376e96cc83be22cd9e568dc784d135aa13ea03f8d316f65dd9303",
+    "reason": "예시 검색어의 회사명 지명 질문은 별도 유형으로 보존한다."
+  }
+]

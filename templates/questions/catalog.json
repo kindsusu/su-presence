@@ -1,0 +1,63 @@
+{
+  "_synthetic": "Fictional offline catalog and customer wording. No live claims or measurements.",
+  "schema": "su-presence/product-catalog/1",
+  "site_url": "https://example.com",
+  "channels": [
+    "chatgpt",
+    "claude",
+    "gemini"
+  ],
+  "locale": "ko",
+  "brand_names": [
+    "주말공방",
+    "위켄드킷"
+  ],
+  "products": [
+    {
+      "id": "drill-day",
+      "kind": "product",
+      "status": "active",
+      "verified": true,
+      "relevance": "core",
+      "source_url": "https://example.com/service/",
+      "snapshot": "official.txt",
+      "checked_at": "2026-01-01",
+      "product_quote": "전동드릴 하루 대여",
+      "strength_quote": "토요일에도 전동드릴을 하루 단위로 빌릴 수 있습니다.",
+      "scope_quote": "예약한 지점에서 영업 종료 전까지 반납하며, 일요일은 접수하지 않습니다.",
+      "situation": "주말에 선반 하나를 달려고 해요.",
+      "need": "전동드릴 하루 대여",
+      "check": "토요일 반납 시각",
+      "wording": [
+        {
+          "intent": "find",
+          "text": "주말에 선반을 달려고 하는데 전동드릴을 토요일 하루만 빌릴 만한 곳이 있을까요?",
+          "source": "cs",
+          "reference": "synthetic FAQ 01"
+        },
+        {
+          "intent": "check",
+          "text": "주말공방에서 토요일에 빌리면 몇 시까지 돌려줘야 하나요?",
+          "source": "search",
+          "reference": "synthetic search sample 02"
+        }
+      ]
+    },
+    {
+      "id": "cordless",
+      "kind": "filter",
+      "status": "active"
+    },
+    {
+      "id": "retired-saw",
+      "kind": "product",
+      "status": "retired"
+    },
+    {
+      "id": "free-deposit",
+      "kind": "product",
+      "status": "active",
+      "verified": false
+    }
+  ]
+}

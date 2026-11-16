@@ -22,6 +22,19 @@
 
 **검색·AI 노출을 진단하고, 경쟁 출처와 자사 페이지를 비교해 재구축 설계와 실행 가이드를 만드는 한국어 우선 도구입니다.** SEO·AEO·GEO·LLMO·네이버(NEO)·다음/카카오(KEO)·평판을 별도 레인으로 다루며, 크롤러 접근·색인 상태·인용·사업 성과를 같은 결과로 섞지 않습니다.
 
+## 공식 상품 자료로 고객 질문지 만들기 (API 키 불필요)
+
+가상 공구 대여점 예제로 시작합니다. 토요일에 하루만 드릴을 빌리려는 사람에게 **어디서 빌릴지**, **비용을 어떻게 비교할지**, **반납 전에 무엇을 확인할지**는 서로 다른 질문입니다.
+
+```bash
+python tools/seo_geo.py rebuild questions templates/questions/catalog.json --log templates/questions/baseline.jsonl --out out/question-review
+python tools/seo_geo.py rebuild questions templates/questions/catalog.json --log templates/questions/baseline.jsonl --selection templates/questions/selected.json --out out/question-fixed
+python tools/seo_geo.py rebuild plan templates/rebuild/audit.json --brief out/question-fixed/brief.json --log templates/questions/baseline.jsonl --research templates/questions/research.json --out out/question-plan
+python tools/seo_geo.py rebuild protocol out/question-fixed/brief.json --out out/question-repeat
+```
+
+첫 명령의 `review.json`에는 후보 4개와 보류 3건이 나옵니다. 두 번째 명령은 예시 검토자가 채택한 3개만 고정합니다. [예제 사용법과 실제 자료 준비 방법](templates/questions/README.md)에 공식 원문, 후보 채택 방법, 경쟁사 페이지와 비교하고 같은 질문으로 재측정하는 절차가 있습니다. 모든 예제 관측은 가상이며 명령은 외부에 접속하지 않습니다.
+
 ## API 키 없이 예제 보고서 만들기
 
 저장소를 내려받은 뒤 루트 폴더에서 Python 3.10 이상으로 다음 한 줄을 실행하세요. Windows PowerShell과 macOS·Linux에서 같은 명령을 쓸 수 있습니다.

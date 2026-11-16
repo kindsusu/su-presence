@@ -81,6 +81,8 @@ bot policy is not the same as search citation access.
 
 ### Optional page redesign branch
 
+To measure customers who do not know the brand, verify the core offer, strengths and limits in official materials first. Use `rebuild questions` to derive discovery, comparison and eligibility questions from a customer's situation. Keep observed customer wording separate from hypotheses and freeze only reviewed questions into the measurement set and brief. See the [offline example](../templates/questions/README.md).
+
 Follow the [execution architecture](../docs/architecture.md). Run `rebuild init`, then have a person or separate agent edit queries, facts and URLs. `rebuild research` fetches specified URLs; `rebuild plan` compares evidence and drafts blueprints offline. This is separate from `generate`, with no automatic plan-to-generate handoff. Copywriting, code changes, deployment and external publishing use separate tools within authorized scope. This skill's workflow instructions do not create automatic CLI orchestration.
 
 ## 3. Verify the live deployment
